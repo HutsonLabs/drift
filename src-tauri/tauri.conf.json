@@ -14,7 +14,7 @@
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     },
-    "macOSPrivateApi": false
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

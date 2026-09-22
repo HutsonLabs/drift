@@ -167,10 +167,8 @@ fn statistics_reach_the_view_so_the_hud_can_show_them() {
     assert!(v.stats.is_none() && !v.show_stats, "no sample yet, HUD off");
     assert!(v.apply(&stats(58.93)), "a first sample changes the view");
     let s = v.stats.expect("a sample");
-    assert!((s.fps - 58.9).abs() < f32::EPSILON, "rounded to one decimal: {s:?}");
-    assert!((s.mbit_per_second - 1.2).abs() < f32::EPSILON, "{s:?}");
-    assert!((s.latency_p95_ms - 4.3).abs() < f32::EPSILON, "{s:?}");
-    assert_eq!(s.unacked_frames, 2);
+    // Tenths of the displayed units: "58.9 fps · 1.2 Mbit/s · 4.3 ms · 2 unacked".
+    assert_eq!((s.fps_tenths, s.mbit_tenths, s.latency_p95_tenths_ms, s.unacked_frames), (589, 12, 43, 2));
     assert!(!v.apply(&stats(58.94)), "the same displayed numbers are not a change");
     assert!(v.apply(&stats(60.0)));
 }
@@ -198,7 +196,7 @@ fn the_statistics_hud_is_a_per_tab_toggle_that_survives_state_changes() {
     let json = serde_json::to_value(&v).unwrap();
     assert_eq!(json["show_stats"], true);
     assert_eq!(json["stats"]["unacked_frames"], 2);
-    assert_eq!(json["stats"]["fps"], 60.0);
+    assert_eq!(json["stats"]["fps_tenths"], 600);
 }
 
 #[test]

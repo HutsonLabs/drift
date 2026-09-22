@@ -27,6 +27,8 @@ pub enum MenuAction {
     Reconnect,
     /// Session ▸ Disconnect (back to the connect form).
     Disconnect,
+    /// Session ▸ Show Statistics: the fps HUD over the live picture (M1, M9-1).
+    ToggleStats,
     /// Drift ▸ Quit Drift (Cmd+Q): graceful shutdown of every session (2 s cap), then exit.
     Quit,
     /// Debug ▸ Record Session (experimental) — only built with the `recording` feature.
@@ -47,6 +49,7 @@ impl MenuAction {
             Self::SendCtrlAltDel => "drift.send-ctrl-alt-del".to_owned(),
             Self::Reconnect => "drift.reconnect".to_owned(),
             Self::Disconnect => "drift.disconnect".to_owned(),
+            Self::ToggleStats => "drift.toggle-stats".to_owned(),
             Self::Quit => "drift.quit".to_owned(),
             Self::ToggleRecording => "drift.toggle-recording".to_owned(),
         }
@@ -68,6 +71,7 @@ impl MenuAction {
             "drift.send-ctrl-alt-del" => Some(Self::SendCtrlAltDel),
             "drift.reconnect" => Some(Self::Reconnect),
             "drift.disconnect" => Some(Self::Disconnect),
+            "drift.toggle-stats" => Some(Self::ToggleStats),
             "drift.quit" => Some(Self::Quit),
             "drift.toggle-recording" => Some(Self::ToggleRecording),
             _ => None,
@@ -192,6 +196,7 @@ pub fn menu_spec() -> Vec<SubmenuSpec> {
             E::action(A::SendCtrlAltDel, "Send Ctrl+Alt+Del", None),
             E::action(A::Reconnect, "Reconnect", None),
             E::action(A::Disconnect, "Disconnect", None),
+            E::action(A::ToggleStats, "Show Statistics", None),
         ],
     );
     let mut window_entries = vec![

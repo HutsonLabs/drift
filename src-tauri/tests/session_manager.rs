@@ -17,8 +17,7 @@ use drift_core::{
     SessionState,
 };
 use drift_rdp::{
-    CertificateRole, CursorUpdate, SessionCommand, SessionEvent, SessionEvents, SessionHandle,
-    SessionStats,
+    CertificateRole, CursorUpdate, SessionCommand, SessionEvent, SessionEvents, SessionHandle, SessionStats,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -278,7 +277,7 @@ async fn statistics_reach_the_window_and_the_hud_can_be_toggled() {
     })
     .await;
     let v = host.views_for("w1").pop().unwrap();
-    assert!((v.stats.unwrap().fps - 58.9).abs() < f32::EPSILON);
+    assert_eq!(v.stats.unwrap().fps_tenths, 589);
     assert!(!v.show_stats, "the HUD is off until the user asks for it");
     assert!(host.views_for("w2").iter().all(|v| v.stats.is_none()), "only its own window");
 

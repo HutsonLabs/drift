@@ -67,10 +67,8 @@ fn the_webview_is_transparent_so_overlays_can_be_drawn_over_the_picture() {
     let conf: serde_json::Value = serde_json::from_str(&read("tauri.conf.json")).unwrap();
     assert_eq!(conf["app"]["macOSPrivateApi"], true, "the CSS transparency rules are dead without it");
     let manifest = read("Cargo.toml");
-    let tauri_dep = manifest
-        .lines()
-        .find(|l| l.trim_start().starts_with("tauri = "))
-        .expect("a `tauri` dependency line");
+    let tauri_dep =
+        manifest.lines().find(|l| l.trim_start().starts_with("tauri = ")).expect("a `tauri` dependency line");
     assert!(
         tauri_dep.contains("macos-private-api"),
         "the config flag alone does nothing; wry needs the cargo feature: {tauri_dep}"

@@ -66,6 +66,28 @@ Rendering and intents are covered by `bun test`; these need eyes, VoiceOver or a
       directly, errno 65): “Open Local Network Settings” opens System Settings › Privacy &
       Security › Local Network.
 
+### Overlays over the live picture (M7-3, M1; see `docs/adr/M7-3-overlays-over-the-live-picture.md`)
+
+The AppKit half is checked by `cargo test -p drift-app --features macos-ui-tests --test
+overlays_ui` (window not opaque, overlay fills the window, HUD is a corner panel with
+`DriftRemoteView` as first responder). What a person still has to *see*:
+
+- [ ] **Stats overlay, "Done (manual M1)":** connect Headless to `drifttest2`, run `anim.py`
+      full-screen on the host and choose **Session ▸ Show Statistics**. A small panel appears in
+      the bottom-right corner of the picture and reads **≥ 55.0 fps** (1280×800; the plan's
+      reference run was 58.9 fps). Choosing the item again removes it. While it is up, clicking
+      and typing anywhere else in the window still reach the remote desktop, and the GNOME top
+      bar and dash are not covered.
+- [ ] **Reconnect overlay, M7-3:** with the same session live, `sudo systemctl restart
+      gnome-remote-desktop` on the host. The desktop's last frame stays on screen, **dimmed**,
+      with the "Reconnecting in N s… [Now] [Cancel]" card centred over it — not a solid panel.
+- [ ] **Greeter banner, M3-2/M7-3:** in Remote Login mode at the GDM greeter, the hint banner
+      ("Log in as “drifttest” …") floats over the greeter picture near the top, the greeter is
+      visible around it, and the password can still be typed into GDM's field.
+- [ ] **Transparency did not break the chrome:** with three tabs in one group, the tab bar,
+      window shadow, rounded corners, light/dark appearance and full-screen all look normal, and
+      the connections screen is fully opaque (no desktop showing through).
+
 ## M1-1 / M3-1 — Connect and redirect (drift-rdp)
 
 Automated: loopback tests against `FakeServer` and `cargo xtask e2e` (`e2e_headless_connects`,

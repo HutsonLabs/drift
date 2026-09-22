@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use drift_app::present::{
-    Hud, NEW_SESSION_TITLE, Surface, cursor_shape, find_autoconnect, hud_frame, surface_for,
-    window_subtitle, window_title,
+    Hud, NEW_SESSION_TITLE, Surface, cursor_shape, find_autoconnect, hud_frame, surface_for, window_subtitle,
+    window_title,
 };
 use drift_app::view::{Screen, SessionView};
 use drift_core::{
@@ -53,9 +53,13 @@ fn webview_is_hidden_only_while_there_is_a_live_picture() {
 fn the_statistics_hud_floats_over_the_live_picture() {
     // M1 "Done (manual M1)": `anim.py` shows >= 55 fps in the stats overlay.
     let mut live = on_screen(Screen::Live);
+    live.stats = Some(Default::default());
     assert_eq!(surface_for(&live), Surface::Remote, "off by default");
     live.show_stats = true;
     assert_eq!(surface_for(&live), Surface::Hud(Hud::Stats));
+    live.stats = None;
+    assert_eq!(surface_for(&live), Surface::Remote, "nothing to draw before the first sample");
+    live.stats = Some(Default::default());
     // The HUD is only a HUD while a picture is live; elsewhere the full webview wins.
     let mut form = on_screen(Screen::Profiles);
     form.show_stats = true;

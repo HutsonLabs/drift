@@ -8,7 +8,7 @@ use drift_core::reconnect::ReconnectConfig;
 use drift_core::{
     CertFingerprint, ConnectMode, ConnectionProfile, ErrorExplanation, SessionState, explain_disconnect,
 };
-use drift_rdp::{CertificateRole, SessionEvent};
+use drift_rdp::{CertificateRole, SessionEvent, SessionStats};
 use serde::{Deserialize, Serialize};
 
 /// Which screen the webview shows for a session window.
@@ -27,7 +27,7 @@ pub enum Screen {
     Reconnecting,
     /// Ended with an explanation and next steps.
     Error,
-    /// Live desktop: the webview is hidden.
+    /// Live desktop: the webview is hidden, unless the statistics HUD is switched on.
     Live,
 }
 
@@ -65,6 +65,50 @@ pub struct CertificatePrompt {
     pub grdctl_command: String,
 }
 
+/// One statistics sample, quantised to what the HUD actually prints.
+///
+/// [`drift_rdp::SessionStats`] is sampled about once per second; the numbers are rounded to one
+/// decimal here so that two samples that would draw the same line compare equal and the view is
+/// not re-emitted (plan M1 "Done (manual M1)", M9-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+pub struct StatsView {
+    /// Presented frames per second, in tenths (`589` prints as `58.9 fps`).
+    pub fps_tenths: u32,
+    /// Received payload bit rate, in tenths of a Mbit/s.
+    pub mbit_tenths: u32,
+    /// Decode + present latency, 95th percentile, in tenths of a millisecond.
+    pub latency_p95_tenths_ms: u32,
+    /// Frames awaiting acknowledgement.
+    pub unacked_frames: u32,
+}
+
+/// One decimal as a whole number of tenths; negative or non-finite input becomes `0`.
+///
+/// Integers keep the type honest on the TypeScript side: specta maps `f32` to `number | null`,
+/// because `serde_json` writes a non-finite float as `null`.
+fn tenths(value: f32) -> u32 {
+    if !value.is_finite() || value <= 0.0 {
+        return 0;
+    }
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "clamped above")]
+    let tenths = (f64::from(value) * 10.0).round().min(f64::from(u32::MAX)) as u32;
+    tenths
+}
+
+impl StatsView {
+    /// The displayed form of one actor sample.
+    pub fn sample(stats: &SessionStats) -> Self {
+        #[expect(clippy::cast_precision_loss, reason = "a bit rate is a display value")]
+        let mbit = stats.bitrate_bps as f32 / 1_000_000.0;
+        Self {
+            fps_tenths: tenths(stats.fps),
+            mbit_tenths: tenths(mbit),
+            latency_p95_tenths_ms: tenths(stats.frame_latency_p95_ms),
+            unacked_frames: stats.unacked_frames,
+        }
+    }
+}
+
 /// Everything a session window's webview needs to render.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct SessionView {
@@ -87,6 +131,11 @@ pub struct SessionView {
     pub resuming: bool,
     /// Reconnect attempt budget shown in the overlay (`None` = unlimited).
     pub max_attempts: Option<u32>,
+    /// The statistics HUD is switched on for this tab (Session ▸ Show Statistics). It is a
+    /// per-tab user choice, so no session event ever changes it.
+    pub show_stats: bool,
+    /// Latest statistics sample, or `None` before the first one and once the picture is gone.
+    pub stats: Option<StatsView>,
 }
 
 /// Command that prints the TLS fingerprint on the host for `mode`.
@@ -111,6 +160,8 @@ impl SessionView {
             explanation: None,
             resuming: false,
             max_attempts: ReconnectConfig::default().max_attempts,
+            show_stats: false,
+            stats: None,
         };
         view.refresh();
         view
@@ -127,6 +178,10 @@ impl SessionView {
                 if matches!(state, SessionState::Idle) {
                     self.resuming = false;
                 }
+                // Stale numbers must not linger under the reconnect overlay or the error screen.
+                if !matches!(state, SessionState::Connected { .. } | SessionState::AwaitingGreeterLogin) {
+                    self.stats = None;
+                }
                 self.state = state.clone();
                 self.certificate = None;
             }
@@ -139,6 +194,7 @@ impl SessionView {
                     grdctl_command: grdctl_status_command(self.mode).into(),
                 });
             }
+            SessionEvent::Stats(stats) => self.stats = Some(StatsView::sample(stats)),
             _ => {}
         }
         self.refresh();

@@ -9,14 +9,15 @@
 //! * `tabbingMode = Preferred` and `addTabbedWindow:ordered:` join it to the group,
 //! * `newWindowForTab:` (the tab bar's "+") is installed on tao's window class and opens a tab,
 //! * a `RemoteView` is inserted below the `WKWebView`; the webview is hidden while a live
-//!   picture is on screen ([`crate::present::surface_for`]),
+//!   picture is on screen, made transparent over it for the reconnect overlay, or shrunk to a
+//!   corner panel for a HUD ([`crate::present::surface_for`], [`show_hud`]),
 //! * per-window AppKit state (view, observer, render thread) lives in a main-thread-only map.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use drift_core::{InputEvent, KeyboardPrefs, ViewGeometry};
+use drift_core::{InputEvent, KeyboardPrefs, Size, ViewGeometry};
 use drift_gfx::FrameSink;
 use drift_input::ScaleMode;
 use drift_macos::tabs::{self, TABBING_IDENTIFIER};
@@ -26,10 +27,10 @@ use drift_render::{Compositor, Gpu, LayerTarget, RenderThread};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{MainThreadMarker, Message as _, msg_send};
-use objc2_app_kit::NSWindow;
-use objc2_foundation::NSString;
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindow};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID};
-use tauri::{AppHandle, EventTarget, Manager as _, Runtime, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, EventTarget, Manager as _, Runtime, Webview, WebviewUrl, WebviewWindowBuilder};
 use uuid::Uuid;
 
 use crate::commands::AppState;
@@ -141,6 +142,11 @@ pub(crate) fn open_tab_with<R: Runtime>(app: &AppHandle<R>, autoconnect: Option<
             .inner_size(1280.0, 800.0)
             .min_inner_size(480.0, 320.0)
             .tabbing_identifier(TABBING_IDENTIFIER)
+            // The webview must be able to paint over the live picture: the reconnect overlay
+            // dims the last frame and the greeter/statistics HUDs float on top of it (M7-3,
+            // M1). Needs Tauri's `macos-private-api`; see
+            // docs/adr/M7-3-overlays-over-the-live-picture.md.
+            .transparent(true)
             .visible(false)
             .build();
         match built {
@@ -289,7 +295,7 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
         .inspect_err(|e| tracing::warn!(error = %e, "could not emit the session view"));
     let title = present::window_title(Some(view));
     let subtitle = present::window_subtitle(Some(view));
-    let surface = present::surface_for(view.screen);
+    let surface = present::surface_for(view);
     let desktop = match view.state {
         drift_core::SessionState::Connected { desktop, .. } => Some(desktop),
         _ => None,
@@ -306,16 +312,105 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
                 None => plat.view.clear_desktop(),
             }
         });
-        let switched = match surface {
+        let glue = |e: drift_macos::tauri_glue::GlueError| CommandError::Platform { message: e.to_string() };
+        let switched: Result<Option<()>, CommandError> = match surface {
             Surface::Remote => {
-                with_platform(&label, |plat| tauri_glue::show_remote(&window, &plat.view)).transpose()
+                with_platform(&label, |plat| tauri_glue::show_remote(&window, &plat.view).map_err(glue))
+                    .transpose()
             }
-            Surface::Webview => tauri_glue::show_webview(&window).map(Some),
+            Surface::Webview | Surface::Overlay => {
+                fill_window_with_webview(&window);
+                tauri_glue::show_webview(&window).map_err(glue).map(Some)
+            }
+            Surface::Hud(hud) => with_platform(&label, |plat| show_hud(&window, &plat.view, hud)).transpose(),
         };
         if let Err(e) = switched {
             tracing::warn!(error = %e, "could not switch the window surface");
         }
     });
+}
+
+/// Applies a [`SessionView`] to a real window, for the `overlays_ui` test.
+///
+/// In production only the `SessionHost` calls [`apply_view`]; the test drives it directly to
+/// check what AppKit really does with the overlay surfaces.
+#[cfg(feature = "macos-ui-tests")]
+pub fn apply_view_for_tests<R: Runtime>(app: &AppHandle<R>, label: &str, view: &SessionView) {
+    apply_view(app, label, view);
+}
+
+// ---- overlays over the live picture (M7-3, M1) ------------------------------------------------
+
+/// The window's `WKWebView` (main thread).
+fn webview_view<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Option<Retained<NSView>> {
+    let ptr = window.ns_view().ok()?.cast::<NSView>();
+    // SAFETY: tao returns its live content `NSView*`; we are on the main thread and retain it.
+    let content = unsafe { ptr.as_ref() }?.retain();
+    drift_macos::webview::find_webview(&content)
+}
+
+/// Gives the web view its superview's bounds back (a HUD shrinks it to a corner panel).
+fn fill_window_with_webview<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    let Some(web) = webview_view(window) else { return };
+    // SAFETY: `superview` returns the (retained) parent or nil; we are on the main thread.
+    let Some(parent) = (unsafe { web.superview() }) else { return };
+    web.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    );
+    web.setFrame(parent.bounds());
+}
+
+/// Floats a HUD panel over the live picture.
+///
+/// The web view is shrunk to [`present::hud_frame`] and pinned to its corner, so AppKit hit-tests
+/// everything outside the panel down to the `RemoteView` — which also keeps first responder, so
+/// the remote desktop still receives every key.
+fn show_hud<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    view: &RemoteView,
+    hud: present::Hud,
+) -> Result<(), CommandError> {
+    let platform = |message: String| CommandError::Platform { message };
+    let web = webview_view(window).ok_or_else(|| platform("no WKWebView in the window".into()))?;
+    // SAFETY: `superview` returns the (retained) parent or nil; we are on the main thread.
+    let parent =
+        unsafe { web.superview() }.ok_or_else(|| platform("the WKWebView has no superview".into()))?;
+    let bounds = parent.bounds();
+    let frame = present::hud_frame(Size::new(bounds.size.width, bounds.size.height), hud, parent.isFlipped());
+    let wv: &Webview<R> = window.as_ref();
+    wv.show().map_err(|e| platform(e.to_string()))?;
+    web.setAutoresizingMask(autoresize_mask(frame.flexible, parent.isFlipped()));
+    web.setFrame(NSRect::new(
+        NSPoint::new(bounds.origin.x + frame.x, bounds.origin.y + frame.y),
+        NSSize::new(frame.width, frame.height),
+    ));
+    let ns = ns_window(window)?;
+    drift_macos::webview::focus_remote(&ns, view);
+    Ok(())
+}
+
+/// Screen-direction flexibility as an AppKit autoresizing mask.
+fn autoresize_mask(flexible: present::Flexible, flipped: bool) -> NSAutoresizingMaskOptions {
+    let mut mask = NSAutoresizingMaskOptions::empty();
+    if flexible.left {
+        mask |= NSAutoresizingMaskOptions::ViewMinXMargin;
+    }
+    if flexible.right {
+        mask |= NSAutoresizingMaskOptions::ViewMaxXMargin;
+    }
+    // "Min Y" is the bottom edge in AppKit's default space and the top edge in a flipped one.
+    let (top, bottom) = if flipped {
+        (NSAutoresizingMaskOptions::ViewMinYMargin, NSAutoresizingMaskOptions::ViewMaxYMargin)
+    } else {
+        (NSAutoresizingMaskOptions::ViewMaxYMargin, NSAutoresizingMaskOptions::ViewMinYMargin)
+    };
+    if flexible.top {
+        mask |= top;
+    }
+    if flexible.bottom {
+        mask |= bottom;
+    }
+    mask
 }
 
 /// Shows a remote pointer shape on the window.
@@ -511,6 +606,13 @@ pub(crate) fn run_menu_action<R: Runtime>(app: &AppHandle<R>, action: MenuAction
                 && let Err(e) = app.state::<AppState>().sessions.disconnect(&label)
             {
                 tracing::info!(error = %e, "menu: disconnect");
+            }
+        }
+        MenuAction::ToggleStats => {
+            if let Some(label) = label
+                && let Err(e) = app.state::<AppState>().sessions.toggle_stats(&label)
+            {
+                tracing::info!(error = %e, "menu: show statistics");
             }
         }
         MenuAction::ToggleRecording => toggle_recording(app, label.as_deref()),
