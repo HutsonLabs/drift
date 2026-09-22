@@ -58,6 +58,14 @@ Rendering and intents are covered by `bun test`; these need eyes, VoiceOver or a
       connection type is announced as a radio group “Connection type”; an invalid field is
       announced as invalid together with its message; the certificate prompt is announced as an
       alert dialog with its title; the reconnect overlay countdown is announced politely.
+- [ ] VoiceOver on the **hints that M9-4 made announceable** (`ui/test/accessibility.test.ts`
+      can only check that the references exist): landing on the Connection type group reads the
+      mode explanation; the certificate prompt reads “On the host, run sudo grdctl …” after its
+      description; the reconnect overlay reads “Homelab · Attempt 2 of 20” with the countdown.
+- [ ] VoiceOver on the **live picture** (M9-4): with a session connected, VO-cursor onto the
+      picture. It is announced as an image named “<profile> — remote desktop, 1280 by 800
+      pixels”, described as “remote desktop”, and VoiceOver does not descend into it. Typing
+      still reaches the remote desktop while VoiceOver is on.
 - [ ] Switching Connection type between Remote Login, Headless session and Desktop Sharing
       swaps the credential fields without losing the typed name and host.
 - [ ] Certificate prompt for the homelab system daemon shows the same fingerprint as
@@ -198,6 +206,19 @@ These need a person:
       connect, then Debug ▸ Record Session (experimental); after a minute toggle it off and play
       `~/Movies/Drift <profile> <timestamp>.mp4` in QuickTime — it shows the session at the right
       size and duration.
+
+## M9-1 / M9-4 — Performance and polish
+
+`cargo xtask e2e --bench` measures the M9-1 budgets against the homelab and compares them with
+`tests/e2e/bench-baseline.json` (see `docs/adr/M9-1-performance-bench.md`). Two things still
+need eyes:
+
+- [ ] Run `cargo xtask e2e --bench` on an **otherwise idle Mac** (no parallel builds) and paste
+      the table into the milestone notes. The latency numbers roughly halve compared with a
+      contended run; if they do not, something really did get slower.
+- [ ] **App icon:** after `cargo xtask bundle`, the waves glyph is legible in the Dock, in
+      Finder's icon and list views, in Cmd+Tab and in the About panel — no white box, no blurry
+      upscale at 16 px.
 
 ## E2E round 1 — what the automated live-app smoke cannot reach
 

@@ -35,7 +35,8 @@ async fn presented_frames_report_a_decode_and_present_p95() {
     let cert = TestCert::generate("127.0.0.1");
     let mut leg = LegScript::nla(cert.clone(), USER, PASS).with_channels(Channels::all());
     for _ in 0..8 {
-        leg = leg.then(ServerAction::Wait(Duration::from_millis(120))).then(ServerAction::GfxReset(1280, 800));
+        leg =
+            leg.then(ServerAction::Wait(Duration::from_millis(120))).then(ServerAction::GfxReset(1280, 800));
     }
     let server = FakeServer::start(vec![leg]).await.unwrap();
     let mut h = Harness::start(profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())), PASS);
@@ -94,9 +95,6 @@ async fn an_idle_session_reports_no_input_latency() {
     h.wait_for("Connected", WAIT, is_connected).await;
     let stats = samples(&h.drain_for(Duration::from_millis(2500)).await);
     assert!(!stats.is_empty(), "the actor samples statistics");
-    assert!(
-        stats.iter().all(|s| s.input_to_wire_p99_ms == 0.0),
-        "no input, no input latency: {stats:?}"
-    );
+    assert!(stats.iter().all(|s| s.input_to_wire_p99_ms == 0.0), "no input, no input latency: {stats:?}");
     h.close().await;
 }

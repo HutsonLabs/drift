@@ -24,7 +24,9 @@ export function renderCertificatePrompt(
 
   const dialog = h(
     "section",
-    { class: "dialog certificate", role: "alertdialog", "aria-labelledby": "cert-title", "aria-describedby": "cert-desc" },
+    // Both the explanation and the "how to compare it" hint are read out: without the second
+    // one a VoiceOver user is asked to verify a fingerprint with no way to check it (M9-4).
+    { class: "dialog certificate", role: "alertdialog", "aria-labelledby": "cert-title", "aria-describedby": "cert-desc cert-hint" },
     h("div", { class: "dialog-icon", "aria-hidden": "true" }, "🔒"),
     h("h1", { id: "cert-title" }, redirect ? `Verify the login server for “${profileName}”` : `Verify the identity of ${address}`),
     h(
@@ -38,7 +40,7 @@ export function renderCertificatePrompt(
     h("code", { class: "fingerprint", "aria-labelledby": "fp-label" }, prompt.fingerprint),
     h(
       "p",
-      { class: "hint" },
+      { class: "hint", id: "cert-hint" },
       "On the host, run ",
       h("code", {}, prompt.grdctl_command),
       " and compare the line “TLS fingerprint”.",

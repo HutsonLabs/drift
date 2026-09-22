@@ -1,0 +1,26 @@
+{
+  "metrics": {
+    "decode_present_p95_ms": 2.3795840740203857,
+    "fps_1280x800": 60.61029052734375,
+    "fps_2560x1600": 31.23932456970215,
+    "input_to_wire_p99_ms": 0.17029200494289398,
+    "rss_per_session_mb": 41.78125
+  },
+  "notes": {
+    "decode_present_p95_samples": "[2.26425, 2.385458, 2.494583, 2.312125, 2.379584, 2.385042, 2.408792, 2.3115, 2.270958, 2.373916]",
+    "decode_present_p95_worst_second": "2.495",
+    "fps_1280x800_samples": "[55.58031, 58.999878, 59.98666, 60.61029, 59.966797, 59.49262, 60.55296, 59.444782, 59.95139, 60.602158]",
+    "fps_1280x800_unacked": "[0, 0, 0, 1, 0, 0, 0, 0, 0, 1]",
+    "fps_2560x1600_samples": "[31.239325, 23.469378, 23.810713, 23.944193, 22.941929, 24.41282, 21.971119, 23.420338, 23.997553, 23.407106]",
+    "fps_2560x1600_unacked": "[0, 0, 0, 1, 0, 0, 0, 0, 0, 0]",
+    "gpu": "Apple M4 Pro",
+    "host_load": "2.24 1.87 1.39",
+    "input_to_wire_p99_samples": "[0.128, 0.849209, 0.164125, 0.131, 0.844917, 0.19, 0.124708, 0.170292, 0.128708, 0.353875]",
+    "input_to_wire_p99_worst_second": "0.849",
+    "measured_on": "2026-09-22; homelab@10.1.2.40 (GNOME 50.1, g-r-d 50.2, Ryzen 5 3400GE + Vega 11) from a macOS 27 M4 Pro that was also building other work; anim.py full-screen, headless mode",
+    "rss_total_mb": "52.1"
+  },
+  "exceptions": {
+    "fps_2560x1600": "Host-bound, not client-bound: at 2560x1600 the reference host delivers about 96 Mpixel/s, 57 % more than the 61 Mpixel/s it delivers at 1280x800, while Drift's unacknowledged-frame queue stays at 0 every second and decode+present stays at 1.4-2.4 ms p95 (hundreds of frames per second of headroom). The ceiling is the Vega 11 capture-and-encode path on the GNOME host. See docs/adr/M9-1-performance-bench.md."
+  }
+}

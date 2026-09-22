@@ -21,9 +21,9 @@ use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSAccessibility, NSAccessibilityImageRole, NSApplication, NSApplicationActivationPolicy,
-    NSBackingStoreType, NSButton, NSEvent,
-    NSEventModifierFlags, NSEventType, NSResponder, NSTextInputClient, NSView, NSWindow,
-    NSWindowDidChangeOcclusionStateNotification, NSWindowDidResignKeyNotification, NSWindowStyleMask,
+    NSBackingStoreType, NSButton, NSEvent, NSEventModifierFlags, NSEventType, NSResponder, NSTextInputClient,
+    NSView, NSWindow, NSWindowDidChangeOcclusionStateNotification, NSWindowDidResignKeyNotification,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString};
 
@@ -66,8 +66,14 @@ fn main() -> ExitCode {
             "window_observer_reports_occlusion_and_key_changes",
             window_observer_reports_occlusion_and_key_changes,
         ),
-        ("remote_view_is_an_accessibility_element_with_a_role", remote_view_is_an_accessibility_element_with_a_role),
-        ("remote_view_accessibility_label_follows_the_session", remote_view_accessibility_label_follows_the_session),
+        (
+            "remote_view_is_an_accessibility_element_with_a_role",
+            remote_view_is_an_accessibility_element_with_a_role,
+        ),
+        (
+            "remote_view_accessibility_label_follows_the_session",
+            remote_view_accessibility_label_follows_the_session,
+        ),
     ])
 }
 
@@ -458,6 +464,7 @@ fn remote_view_is_an_accessibility_element_with_a_role() {
     let view: &NSView = &r.view;
     assert!(view.isAccessibilityElement(), "the picture is one accessibility element");
     let role = view.accessibilityRole().expect("an accessibility role");
+    // SAFETY: reading an AppKit string constant.
     assert_eq!(&*role, unsafe { NSAccessibilityImageRole });
     let described = view.accessibilityRoleDescription().expect("a role description");
     assert_eq!(described.to_string(), "remote desktop");

@@ -295,6 +295,7 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
         .inspect_err(|e| tracing::warn!(error = %e, "could not emit the session view"));
     let title = present::window_title(Some(view));
     let subtitle = present::window_subtitle(Some(view));
+    let accessibility_label = present::accessibility_label(Some(view));
     let surface = present::surface_for(view);
     let desktop = match view.state {
         drift_core::SessionState::Connected { desktop, .. } => Some(desktop),
@@ -307,6 +308,7 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
         let _ = window.set_title(&title);
         with_platform(&label, |plat| {
             plat.window.setSubtitle(&NSString::from_str(&subtitle));
+            plat.view.set_accessibility_label(&accessibility_label);
             match desktop {
                 Some(size) => plat.view.set_desktop(size, ScaleMode::Fit),
                 None => plat.view.clear_desktop(),

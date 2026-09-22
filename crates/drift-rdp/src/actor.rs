@@ -93,7 +93,7 @@ pub(crate) fn spawn(
     let policy = ReconnectPolicy::new(options.reconnect, seed);
     let resize = ResizeDriver::new(profile.mode, profile.display);
     let actor = Actor {
-        graphics: Graphics::new(frame_sink),
+        graphics: Graphics::new(frame_sink, Arc::clone(&clock)),
         clock,
         io: Io { cmds: fwd_rx, events: ev_tx, state: SessionState::Idle, leg: 1, session_pin: None },
         closed: closed_rx,
@@ -561,6 +561,9 @@ impl Actor {
                         Err(e) => return LegEnd::Ended(connect::classify_io_error(&e, ConnectStage::Activation)),
                     };
                     leg.stats.bytes(u64::try_from(payload.len()).unwrap_or(0));
+                    // Frames completed while processing this payload are measured from here
+                    // (M9-1: decode + present).
+                    self.graphics.mark_wire(self.clock.now());
                     let outputs = match leg.stage.process(&mut leg.image, action, &payload) {
                         Ok(outputs) => outputs,
                         Err(e) => {
@@ -697,6 +700,7 @@ impl Actor {
             return Some(end);
         }
         leg.stats.frames(self.graphics.take_presented_frames());
+        leg.stats.frame_latencies(self.graphics.take_frame_latencies());
         if let Some(stats) = leg.stats.sample(now, Graphics::unacked_frames(&leg.stage)) {
             self.io.emit(SessionEvent::Stats(stats));
         }
@@ -714,7 +718,10 @@ impl Actor {
             Some(SessionCommand::Input(event)) => {
                 self.typist.on_input(&event, now);
                 let events = self.input.encode(event);
-                self.send_input_events(leg, events).await
+                let end = self.send_input_events(leg, events).await;
+                // M9-1: input-to-wire is the whole path, encoding included, up to the write.
+                leg.stats.input_latency(self.clock.now().saturating_duration_since(now));
+                end
             }
             Some(SessionCommand::Resize(geometry)) => {
                 self.view.geometry = Some(geometry);

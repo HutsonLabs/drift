@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use xtask::bench::{self, Direction, REGRESSION_TOLERANCE, Report, Verdict};
 
 fn report(pairs: &[(&str, f64)]) -> Report {
-    Report { metrics: pairs.iter().map(|(k, v)| ((*k).to_owned(), *v)).collect(), notes: BTreeMap::new() }
+    Report { metrics: pairs.iter().map(|(k, v)| ((*k).to_owned(), *v)).collect(), ..Report::default() }
 }
 
 /// A report that meets every budget with room to spare.
@@ -191,6 +191,95 @@ fn the_stored_baseline_is_committed_and_complete() {
     for m in bench::METRICS {
         assert!(baseline.metrics.contains_key(m.key), "the baseline records {}", m.key);
     }
-    // The baseline is a measurement, so it must itself meet the plan's budgets.
-    assert!(bench::problems(&bench::compare(&baseline, None)).is_empty(), "{:#?}", baseline.metrics);
+    // The baseline is a measurement of a passing run: replaying it must not fail the gate.
+    assert!(
+        bench::problems(&bench::compare(&baseline, Some(&baseline))).is_empty(),
+        "{:#?}",
+        baseline.metrics
+    );
+}
+
+// --- budget waivers (M9-1: the homelab's encoder, not Drift) --------------------------------
+
+/// A budget the reference host cannot deliver is waived **in the baseline, with a reason**, and
+/// the 10 % regression rule keeps guarding the number.
+#[test]
+fn a_waived_budget_is_reported_but_does_not_fail_the_run() {
+    let mut slow = good();
+    slow.metrics.insert("fps_2560x1600".into(), 31.0);
+    let mut baseline = bench::baseline_from(&slow);
+    baseline.exceptions.insert("fps_2560x1600".into(), "the host's VAAPI encoder saturates".into());
+
+    let rows = bench::compare(&slow, Some(&baseline));
+    assert_eq!(verdicts(&rows)["fps_2560x1600"], Verdict::BudgetWaived);
+    assert!(bench::problems(&rows).is_empty(), "{rows:#?}");
+    let table = bench::table(&rows);
+    assert!(table.contains("waived"), "the table says the budget was waived:\n{table}");
+
+    // The waiver does not disable the regression gate.
+    let mut worse = slow.clone();
+    worse.metrics.insert("fps_2560x1600".into(), 27.0);
+    let rows = bench::compare(&worse, Some(&baseline));
+    assert_eq!(verdicts(&rows)["fps_2560x1600"], Verdict::Regressed);
+    assert_eq!(bench::problems(&rows).len(), 1);
+
+    // Without the waiver the same number fails.
+    let plain = bench::baseline_from(&slow);
+    assert_eq!(verdicts(&bench::compare(&slow, Some(&plain)))["fps_2560x1600"], Verdict::BudgetMiss);
+}
+
+#[test]
+fn every_waiver_in_the_stored_baseline_gives_a_reason() {
+    let path = xtask::repo::root().join(bench::BASELINE_PATH);
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let baseline: Report = serde_json::from_str(&text).expect("the baseline is valid JSON");
+    for (key, reason) in &baseline.exceptions {
+        assert!(bench::METRICS.iter().any(|m| m.key == key), "unknown metric {key} is waived");
+        assert!(reason.len() > 40, "{key}: a waiver explains itself ({reason:?})");
+    }
+}
+
+#[test]
+fn small_values_keep_their_precision_in_the_table() {
+    // An input latency of 48 microseconds must not print as "0.0 ms".
+    let mut tiny = good();
+    tiny.metrics.insert("input_to_wire_p99_ms".into(), 0.048);
+    let table = bench::table(&bench::compare(&tiny, None));
+    assert!(table.contains("0.048"), "{table}");
+}
+
+// --- measurement noise ----------------------------------------------------------------------
+
+/// A regression must be both more than 10 % *and* bigger than the metric's noise floor.
+/// Without the floor the gate cries wolf: the measured latencies are around 1.4 ms, where
+/// 10 % is 0.14 ms — less than the run-to-run spread on the reference host.
+#[test]
+fn a_change_within_the_noise_floor_is_not_a_regression() {
+    let floor = |key: &str| bench::METRICS.iter().find(|m| m.key == key).expect(key).noise_floor;
+    // Measured run-to-run spread on the reference pair while the dev machine also builds:
+    // 1.3-2.5 ms decode+present, 0.04-0.27 ms input, 59.9-61.0 fps, 37.9-39.1 MB.
+    assert_eq!(floor("decode_present_p95_ms"), 2.0);
+    assert_eq!(floor("input_to_wire_p99_ms"), 0.5);
+    assert_eq!(floor("fps_1280x800"), 3.0);
+    assert_eq!(floor("rss_per_session_mb"), 10.0);
+
+    let baseline = report(&[
+        ("fps_1280x800", 61.0),
+        ("fps_2560x1600", 58.0),
+        ("decode_present_p95_ms", 1.5),
+        ("input_to_wire_p99_ms", 0.04),
+        ("rss_per_session_mb", 38.0),
+    ]);
+    // Nearly twice as slow in relative terms, 1.9 ms in absolute terms: inside the floor.
+    let mut jittery = baseline.clone();
+    jittery.metrics.insert("decode_present_p95_ms".into(), 3.4);
+    assert_eq!(verdicts(&bench::compare(&jittery, Some(&baseline)))["decode_present_p95_ms"], Verdict::Ok);
+    assert!(bench::problems(&bench::compare(&jittery, Some(&baseline))).is_empty());
+
+    // Past the floor and past 10 %: a real regression.
+    let mut slow = baseline.clone();
+    slow.metrics.insert("decode_present_p95_ms".into(), 3.6);
+    let rows = bench::compare(&slow, Some(&baseline));
+    assert_eq!(verdicts(&rows)["decode_present_p95_ms"], Verdict::Regressed);
+    assert_eq!(bench::problems(&rows).len(), 1);
 }

@@ -30,8 +30,14 @@ export function renderReconnectOverlay(
       "section",
       { class: "overlay-card reconnecting", "aria-labelledby": "reconnect-title" },
       h("h1", { id: "reconnect-title", class: "visually-hidden" }, `${view.profile_name} disconnected`),
-      h("p", { class: "headline", role: "status", "aria-live": "polite" }, reconnectMessage(secondsLeft(nextIn, elapsedMs))),
-      h("p", { class: "hint" }, `${view.profile_name} · ${budget}`),
+      // The countdown is the live region; the profile and attempt budget are its description,
+      // so VoiceOver announces which connection is retrying and how often (M9-4).
+      h(
+        "p",
+        { class: "headline", role: "status", "aria-live": "polite", "aria-describedby": "reconnect-detail" },
+        reconnectMessage(secondsLeft(nextIn, elapsedMs)),
+      ),
+      h("p", { class: "hint", id: "reconnect-detail" }, `${view.profile_name} · ${budget}`),
       h(
         "div",
         { class: "actions center" },

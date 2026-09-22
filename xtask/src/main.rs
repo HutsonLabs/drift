@@ -6,7 +6,7 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use xtask::{
-    ci_plan, coverage, e2e_env, fixtures, host_check, npm_ban, repo, sanitize, secret_scan, workflows,
+    bench, ci_plan, coverage, e2e_env, fixtures, host_check, npm_ban, repo, sanitize, secret_scan, workflows,
 };
 
 #[derive(Parser)]
@@ -55,6 +55,13 @@ enum Cmd {
     },
     /// Run the real-host e2e suite through SSH local forwards (plan §5.3).
     E2e {
+        /// Measure the M9-1 performance budgets and compare them with the stored baseline
+        /// (`tests/e2e/bench-baseline.json`); a regression of more than 10 % fails the run.
+        #[arg(long)]
+        bench: bool,
+        /// Replace the stored baseline with this run's numbers (implies `--bench`).
+        #[arg(long, requires = "bench")]
+        update_baseline: bool,
         /// Extra arguments passed to `cargo nextest run`.
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
@@ -109,7 +116,9 @@ fn run(cmd: Cmd) -> Result<()> {
         Cmd::SecretScan { dir } => secret_scan_check(&root, dir),
         Cmd::CoverageGate { json } => coverage_gate(&root, &json),
         Cmd::Bindings { check } => bindings(&root, check),
-        Cmd::E2e { args } => e2e(&root, &args),
+        Cmd::E2e { bench, update_baseline, args } => {
+            e2e(&root, &args, bench.then_some(BenchOptions { update_baseline }))
+        }
         Cmd::Bundle => not_yet("bundle", "M9-5"),
         Cmd::HostSetupCheck { host, headless, report, save_report } => {
             host_setup_check(host, &headless, report.as_deref(), save_report.as_deref())
@@ -425,7 +434,17 @@ fn bindings(root: &Path, check_only: bool) -> Result<()> {
 const E2E_PORTS: &[(u16, u16)] = &[(13389, 3389), (13390, 3390), (13391, 3391), (13392, 3392)];
 const E2E_HOST: &str = "homelab@10.1.2.40";
 
-fn e2e(root: &Path, extra: &[String]) -> Result<()> {
+/// What `cargo xtask e2e --bench` does after the suite (task M9-1).
+#[derive(Debug, Clone, Copy)]
+struct BenchOptions {
+    /// Overwrite the stored baseline with this run's numbers.
+    update_baseline: bool,
+}
+
+/// Where the e2e bench writes its measurements.
+const BENCH_REPORT: &str = "target/e2e/bench.json";
+
+fn e2e(root: &Path, extra: &[String], bench_opts: Option<BenchOptions>) -> Result<()> {
     let host = std::env::var("DRIFT_E2E_SSH").unwrap_or_else(|_| E2E_HOST.into());
     let locals: Vec<u16> = E2E_PORTS.iter().map(|(local, _)| *local).collect();
     let busy = e2e_env::ports_in_use(&locals);
@@ -460,9 +479,30 @@ fn e2e(root: &Path, extra: &[String]) -> Result<()> {
 
     let mut cmd = Command::new(cargo());
     // The tests share one GNOME host (and one daemon per mode), so they never run in parallel.
-    cmd.current_dir(root)
-        .args(["nextest", "run", "-p", "drift-e2e", "--run-ignored", "only", "--test-threads", "1"])
-        .args(extra);
+    cmd.current_dir(root).args([
+        "nextest",
+        "run",
+        "-p",
+        "drift-e2e",
+        "--run-ignored",
+        "only",
+        "--test-threads",
+        "1",
+    ]);
+    let report_path = root.join(BENCH_REPORT);
+    if bench_opts.is_some() {
+        // A stale report would be merged into this run's numbers.
+        let _ = std::fs::remove_file(&report_path);
+        if let Some(parent) = report_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        cmd.env("DRIFT_E2E_BENCH", "1");
+        cmd.env("DRIFT_E2E_BENCH_REPORT", &report_path);
+        if extra.is_empty() {
+            cmd.args(["-E", "binary(bench)"]);
+        }
+    }
+    cmd.args(extra);
     cmd.env("DRIFT_E2E_HOST", "127.0.0.1").env("DRIFT_E2E_TLS_NAME", "10.1.2.40");
     for (local, remote) in E2E_PORTS {
         cmd.env(format!("DRIFT_E2E_PORT_{remote}"), local.to_string());
@@ -493,6 +533,54 @@ fn e2e(root: &Path, extra: &[String]) -> Result<()> {
     if !status.success() {
         bail!("e2e failed ({status})");
     }
+    match bench_opts {
+        Some(opts) => bench_gate(root, &report_path, opts),
+        None => Ok(()),
+    }
+}
+
+/// Prints the M9-1 table and fails on a budget miss or a regression of more than 10 %.
+fn bench_gate(root: &Path, report_path: &Path, opts: BenchOptions) -> Result<()> {
+    step("bench: comparing with the stored baseline");
+    let text = std::fs::read_to_string(report_path)
+        .with_context(|| format!("reading {} (did the bench test run?)", report_path.display()))?;
+    let report: bench::Report =
+        serde_json::from_str(&text).with_context(|| format!("parsing {}", report_path.display()))?;
+    let baseline_path = root.join(bench::BASELINE_PATH);
+    let baseline: Option<bench::Report> =
+        std::fs::read_to_string(&baseline_path).ok().and_then(|t| serde_json::from_str(&t).ok());
+    if baseline.is_none() {
+        eprintln!("bench: no baseline at {}; only the budgets are enforced", baseline_path.display());
+    }
+    let rows = bench::compare(&report, baseline.as_ref());
+    eprint!("\n{}", bench::table(&rows));
+    for (key, value) in &report.notes {
+        eprintln!("bench: {key}: {value}");
+    }
+    for row in &rows {
+        if row.verdict == bench::Verdict::BudgetWaived
+            && let Some(reason) = baseline.as_ref().and_then(|b| b.exceptions.get(row.metric.key))
+        {
+            eprintln!("bench: {} is over budget by agreement: {reason}", row.metric.key);
+        }
+    }
+    if opts.update_baseline {
+        let mut fresh = bench::baseline_from(&report);
+        // A measurement never carries waivers; they are a decision and live on in the file.
+        if let Some(old) = &baseline {
+            fresh.exceptions = old.exceptions.clone();
+        }
+        std::fs::write(&baseline_path, format!("{}\n", serde_json::to_string_pretty(&fresh)?))?;
+        eprintln!("bench: wrote {}", baseline_path.display());
+    }
+    let problems = bench::problems(&rows);
+    for p in &problems {
+        eprintln!("bench: {p}");
+    }
+    if !problems.is_empty() {
+        bail!("{} performance problem(s) (plan M9-1)", problems.len());
+    }
+    eprintln!("bench: every budget met, no regression over 10 %");
     Ok(())
 }
 

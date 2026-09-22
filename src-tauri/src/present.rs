@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use drift_core::{ConnectionProfile, Size};
+use drift_core::{ConnectionProfile, SessionState, Size};
 use drift_macos::CursorShape;
 use drift_macos::cursor::CursorImage;
 use drift_macos::tabs::tab_title;
@@ -163,6 +163,21 @@ pub fn window_subtitle(view: Option<&SessionView>) -> String {
         (Some(user), false) => format!("Log in as “{user}” to start your session"),
         (None, true) => "Session is still running — log in to resume".to_owned(),
         (None, false) => "Log in to start your session".to_owned(),
+    }
+}
+
+/// What VoiceOver announces for the live picture (task M9-4).
+///
+/// The `RemoteView` has an image role and this label; naming the connection and the desktop
+/// size is the only way a VoiceOver user can tell two session tabs apart, because the picture
+/// itself is pixels from another computer.
+pub fn accessibility_label(view: Option<&SessionView>) -> String {
+    let Some(view) = view else { return drift_macos::view::DEFAULT_ACCESSIBILITY_LABEL.to_owned() };
+    match view.state {
+        SessionState::Connected { desktop, .. } => {
+            format!("{} — remote desktop, {} by {} pixels", view.profile_name, desktop.width, desktop.height)
+        }
+        _ => format!("{} — remote desktop", view.profile_name),
     }
 }
 
