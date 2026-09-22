@@ -184,3 +184,26 @@ fn secrets_never_appear_in_debug_output() {
     s.set(uuid::Uuid::nil(), SecretRole::RdpUser, "hunter2-Fake9").unwrap();
     assert!(!format!("{s:?}").contains("hunter2"));
 }
+
+#[test]
+fn session_secrets_follow_the_mode() {
+    // M1-6 / M3-2 wiring: the SessionManager's host hands these to `spawn_session`.
+    let f = fixture();
+    let rl = profile(ConnectMode::RemoteLogin);
+    let linux = LinuxPasswordUpdate::Store("lin-Fake2".into());
+    f.service.save(rl.clone(), update(Some("sys-Fake1"), linux)).unwrap();
+    let s = f.service.session_secrets(rl.id).unwrap();
+    assert_eq!(s.rdp_password.as_str(), "sys-Fake1");
+    assert_eq!(s.linux_password.as_ref().map(|p| p.as_str()), Some("lin-Fake2"));
+
+    let hl = profile(ConnectMode::Headless);
+    f.service.save(hl.clone(), update(Some("hl-Fake3"), LinuxPasswordUpdate::Keep)).unwrap();
+    let s = f.service.session_secrets(hl.id).unwrap();
+    assert_eq!(s.rdp_password.as_str(), "hl-Fake3");
+    assert!(s.linux_password.is_none());
+
+    let none = profile(ConnectMode::DesktopSharing);
+    f.service.save(none.clone(), update(None, LinuxPasswordUpdate::Keep)).unwrap();
+    assert_eq!(f.service.session_secrets(none.id).unwrap().rdp_password.as_str(), "", "none stored");
+    assert_eq!(f.service.session_secrets(uuid::Uuid::new_v4()).unwrap_err(), CommandError::NotFound);
+}

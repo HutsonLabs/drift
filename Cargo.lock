@@ -1436,9 +1436,16 @@ dependencies = [
 name = "drift-app"
 version = "0.1.0"
 dependencies = [
+ "drift-clipboard",
  "drift-core",
+ "drift-gfx",
+ "drift-input",
  "drift-macos",
  "drift-rdp",
+ "drift-render",
+ "drift-video",
+ "muda",
+ "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "serde",
@@ -1450,6 +1457,8 @@ dependencies = [
  "tauri-specta",
  "tempfile",
  "thiserror 2.0.20",
+ "tokio",
+ "tracing",
  "uuid",
  "zeroize",
 ]

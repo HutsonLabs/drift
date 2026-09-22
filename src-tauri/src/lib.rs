@@ -7,10 +7,17 @@
 //! by `cargo xtask bindings`; CI fails when they are stale.
 
 pub mod commands;
+pub mod manager;
+pub mod menu;
+mod options;
 pub mod platform;
+pub mod present;
 pub mod profiles;
 pub mod secrets;
 pub mod view;
+pub mod windows;
+
+pub use options::RunOptions;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -53,6 +60,12 @@ pub fn export_bindings(path: &Path) -> Result<(), String> {
             path,
         )
         .map_err(|e| e.to_string())
+}
+
+/// Runs the application with explicit options (tests, smoke tests).
+pub fn run_with(options: RunOptions) {
+    let _ = options;
+    todo!("M6-2")
 }
 
 /// Runs the application (called from `main`).
