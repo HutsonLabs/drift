@@ -22,12 +22,20 @@ tauri-build = { workspace = true, features = [] }
 [dependencies]
 drift-core = { workspace = true, features = ["specta"] }
 drift-rdp.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSWorkspace"] }
+objc2-foundation = { workspace = true, features = ["NSString", "NSURL"] }
 serde.workspace = true
 serde_json.workspace = true
 specta.workspace = true
 specta-typescript.workspace = true
 tauri = { workspace = true, features = [] }
 tauri-specta.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true
