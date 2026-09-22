@@ -1420,6 +1420,7 @@ name = "drift-app"
 version = "0.1.0"
 dependencies = [
  "drift-core",
+ "drift-macos",
  "drift-rdp",
  "objc2-app-kit",
  "objc2-foundation",

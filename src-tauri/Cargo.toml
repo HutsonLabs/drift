@@ -22,6 +22,7 @@ tauri-build = { workspace = true, features = [] }
 [dependencies]
 drift-core = { workspace = true, features = ["specta"] }
 drift-rdp.workspace = true
+drift-macos = { workspace = true, features = ["tauri"] }
 objc2-app-kit = { workspace = true, features = ["NSWorkspace"] }
 objc2-foundation = { workspace = true, features = ["NSString", "NSURL"] }
 serde.workspace = true
