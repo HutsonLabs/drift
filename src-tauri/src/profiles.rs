@@ -202,6 +202,13 @@ impl ProfileService {
         Ok(sorted.into_iter().map(|p| self.entry(p)).collect())
     }
 
+    /// All profiles, sorted for display, **without asking the secret store anything**.
+    ///
+    /// Used by launch-time lookups (`DRIFT_AUTOCONNECT`), which only need names and ids.
+    pub fn profiles(&self) -> Result<Vec<ConnectionProfile>, CommandError> {
+        Ok(self.lock()?.sorted())
+    }
+
     /// One profile.
     pub fn get(&self, id: Uuid) -> Result<ProfileEntry, CommandError> {
         let p = self.lock()?.get(id).cloned().ok_or(CommandError::NotFound)?;

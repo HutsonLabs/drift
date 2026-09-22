@@ -15,6 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use drift_core::SecretRole;
+use security_framework::item::{ItemClass, ItemSearchOptions};
 use security_framework::os::macos::keychain::{CreateOptions, SecKeychain};
 use security_framework::os::macos::passwords::find_generic_password;
 use uuid::Uuid;
@@ -137,6 +138,30 @@ impl Keychain {
                 Ok(Some(Zeroizing::new(text.to_owned())))
             }
             Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Whether a secret is stored for `profile`/`role`, **without reading it**.
+    ///
+    /// This is an attribute-only `SecItemCopyMatching`: Security.framework neither decrypts the
+    /// item nor evaluates its ACL, so it never puts up the "Drift wants to use your confidential
+    /// information" panel and never blocks. [`Keychain::get`] does both, which is why the app
+    /// must not answer "is a password stored?" with it (a panel nobody clicks would freeze the
+    /// thread asking, and the app launches without a window).
+    pub fn contains(&self, profile: Uuid, role: SecretRole) -> Result<bool, KeychainError> {
+        let kc = self.keychain()?;
+        let found = ItemSearchOptions::new()
+            .class(ItemClass::generic_password())
+            .keychains(std::slice::from_ref(&kc))
+            .service(&self.service)
+            .account(&role.account(profile))
+            .load_attributes(true)
+            .limit(1)
+            .search();
+        match found {
+            Ok(items) => Ok(!items.is_empty()),
+            Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(false),
             Err(e) => Err(e.into()),
         }
     }

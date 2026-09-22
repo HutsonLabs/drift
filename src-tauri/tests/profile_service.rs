@@ -245,12 +245,12 @@ impl SecretStore for TrapStore {
         self.inner.get(profile, role)
     }
 
-    fn delete(
-        &self,
-        profile: uuid::Uuid,
-        role: SecretRole,
-    ) -> Result<(), drift_app::secrets::SecretError> {
+    fn delete(&self, profile: uuid::Uuid, role: SecretRole) -> Result<(), drift_app::secrets::SecretError> {
         self.inner.delete(profile, role)
+    }
+
+    fn has(&self, profile: uuid::Uuid, role: SecretRole) -> bool {
+        self.inner.has(profile, role)
     }
 }
 
@@ -262,7 +262,9 @@ fn listing_profiles_never_reads_secret_values() {
     let mut remote = profile(ConnectMode::RemoteLogin);
     remote.linux_username = Some("drifttest".into());
     service.save(remote, update(Some("pw-Fake1"), LinuxPasswordUpdate::Store("pw-Fake2".into()))).unwrap();
-    service.save(profile(ConnectMode::Headless), update(Some("pw-Fake3"), LinuxPasswordUpdate::Keep)).unwrap();
+    service
+        .save(profile(ConnectMode::Headless), update(Some("pw-Fake3"), LinuxPasswordUpdate::Keep))
+        .unwrap();
     let saved_gets = store.gets();
 
     let entries = service.list().unwrap();

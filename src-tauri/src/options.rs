@@ -1,6 +1,7 @@
 //! Launch options (environment) for the app.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// How the app is launched.
 #[derive(Default)]
@@ -11,6 +12,9 @@ pub struct RunOptions {
     /// Keep passwords in memory instead of the Keychain (tests only; not settable from the
     /// environment).
     pub memory_secrets: bool,
+    /// Password store to use instead of the Keychain (tests and the `smoke` example only;
+    /// never settable from the environment). Takes precedence over `memory_secrets`.
+    pub secrets: Option<Arc<dyn crate::secrets::SecretStore>>,
     /// Connect the saved profile with this name in the first tab at launch (dev convenience
     /// used by the smoke test). Environment: `DRIFT_AUTOCONNECT`.
     pub autoconnect: Option<String>,
@@ -23,6 +27,7 @@ impl std::fmt::Debug for RunOptions {
         f.debug_struct("RunOptions")
             .field("config_dir", &self.config_dir)
             .field("memory_secrets", &self.memory_secrets)
+            .field("secrets", &self.secrets.as_ref().map(|_| "<custom store>"))
             .field("autoconnect", &self.autoconnect)
             .field("on_ready", &self.on_ready.is_some())
             .finish()
