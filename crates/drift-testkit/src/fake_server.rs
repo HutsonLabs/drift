@@ -36,8 +36,13 @@ use ironrdp_pdu::rdp::client_info::{CompressionType, Credentials};
 use ironrdp_pdu::rdp::headers::{
     CompressionFlags, ShareControlHeader, ShareControlPdu, ShareDataHeader, ShareDataPdu, StreamPriority,
 };
+use ironrdp_cliprdr::CliprdrServer;
+use ironrdp_cliprdr::pdu::{ClipboardFormat, ClipboardFormatId, ClipboardFormatName, OwnedFormatDataResponse};
+use ironrdp_dvc::{DrdynvcServer, encode_dvc_messages};
+use ironrdp_pdu::input::fast_path::{FastPathInput, FastPathInputEvent};
 use ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu;
 use ironrdp_pdu::x224::{X224, X224Data};
+use ironrdp_svc::{ChannelFlags, StaticChannelSet, SvcMessage, server_encode_svc_messages};
 use ironrdp_pdu::{gcc, mcs};
 use ironrdp_tokio::TokioStream;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -46,6 +51,11 @@ use tokio::task::JoinHandle;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+
+use crate::fake_channels::{
+    self, Channels, ClipEvent, FakeClipboardBackend, FakeDisplayControl, FakeGraphics, RecordedLayout,
+    ServerClipFormat, SharedState, redraw_pdus,
+};
 
 /// The RDSTLS capabilities PDU g-r-d sends (versions v1|v2), plan §1.3.
 pub const RDSTLS_CAPABILITIES: [u8; 8] = [0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00];
@@ -145,6 +155,15 @@ pub enum ServerAction {
     Redirect(Box<ServerRedirectionPdu>),
     /// Close the TCP connection.
     Close,
+    /// Remote copy: announce these formats on CLIPRDR and serve their data on request.
+    ClipboardCopy(Vec<ServerClipFormat>),
+    /// Ask the client for its clipboard data in this format id (a remote paste).
+    ClipboardPaste(u32),
+    /// While `true`, the client's Format Data Requests are recorded but answered only when
+    /// this is set back to `false` (newest-wins race tests).
+    HoldClipboardResponses(bool),
+    /// Send `ResetGraphics` with a new surface of this size on the graphics channel.
+    GfxReset(u32, u32),
 }
 
 /// What one TCP connection to the fake server does.
@@ -160,6 +179,8 @@ pub struct LegScript {
     pub actions: Vec<ServerAction>,
     /// Accept the TCP connection but never answer (connect timeout tests).
     pub stall: bool,
+    /// Virtual channels offered after activation (none by default).
+    pub channels: Channels,
 }
 
 impl LegScript {
@@ -171,6 +192,7 @@ impl LegScript {
             desktop: (1280, 800),
             actions: Vec::new(),
             stall: false,
+            channels: Channels::default(),
         }
     }
 
@@ -182,12 +204,20 @@ impl LegScript {
             desktop: (1280, 800),
             actions: Vec::new(),
             stall: false,
+            channels: Channels::default(),
         }
     }
 
     /// A leg that accepts TCP and then stays silent.
     pub fn stall(cert: TestCert) -> Self {
         Self { stall: true, ..Self::rdstls(cert, 0) }
+    }
+
+    /// Offers `channels` after activation.
+    #[must_use]
+    pub fn with_channels(mut self, channels: Channels) -> Self {
+        self.channels = channels;
+        self
     }
 
     /// Appends a post-activation action.
@@ -224,6 +254,10 @@ pub struct LegRecord {
     pub rdstls_request: Option<RdstlsRequest>,
     /// GCC client name.
     pub client_name: Option<String>,
+    /// Desktop size requested in the GCC Client Core Data.
+    pub client_desktop: Option<(u16, u16)>,
+    /// `desktopScaleFactor` of the GCC Client Core Data.
+    pub client_desktop_scale: Option<u32>,
     /// `RNS_UD_CS_SUPPORT_DYNVC_GFX_PROTOCOL` was set in the client core data.
     pub gfx_protocol_advertised: bool,
     /// Major platform type from the client's General capability set (`Debug` name, e.g. `MACINTOSH`).
@@ -236,6 +270,29 @@ pub struct LegRecord {
     pub shutdown_requested: bool,
     /// Fast-path input PDUs received after activation.
     pub fast_path_inputs: usize,
+    /// Every fast-path input event received, in order (M2-4 loopback).
+    pub fast_path_events: Vec<FastPathInputEvent>,
+    /// Suppress Output PDUs in order: `None` = `allowDisplayUpdates=0`, `Some([l, t, r, b])` =
+    /// allow with that inclusive desktop rectangle (M6-3).
+    pub suppress_output: Vec<Option<[u16; 4]>>,
+    /// Monitor layouts received on Display Control (M4-2).
+    pub monitor_layouts: Vec<RecordedLayout>,
+    /// The client opened the graphics pipeline and advertised its caps.
+    pub gfx_caps_advertised: bool,
+    /// `ResetGraphics` sizes the server sent.
+    pub gfx_resets_sent: Vec<(u32, u32)>,
+    /// `FrameAcknowledge` frame ids received.
+    pub gfx_frame_acks: Vec<u32>,
+    /// `FrameAcknowledge`s with `SUSPEND_FRAME_ACKNOWLEDGEMENT`.
+    pub gfx_suspend_acks: u32,
+    /// CLIPRDR reached the ready state (the client answered the initial format-list request).
+    pub clipboard_ready: bool,
+    /// Format lists the client sent: `(id, name)` per format.
+    pub client_format_lists: Vec<Vec<(u32, Option<String>)>>,
+    /// Format ids the client requested from the server (eager fetches of remote copies).
+    pub client_data_requests: Vec<u32>,
+    /// The client's answers to server paste requests (`None` = error response).
+    pub client_data_responses: Vec<Option<Vec<u8>>>,
     /// First error on this leg (e.g. failed NLA), for diagnostics.
     pub error: Option<String>,
 }
@@ -391,6 +448,8 @@ async fn serve_leg(
     };
     let desktop = DesktopSize { width: script.desktop.0, height: script.desktop.1 };
     let mut acceptor = Acceptor::new(acceptor_protocol, desktop, server_capabilities(desktop), creds);
+    let state: SharedState = Arc::default();
+    attach_channels(&mut acceptor, script.channels, &state, script.desktop);
     prime_acceptor(&mut acceptor, acceptor_protocol)?;
 
     if let LegAuth::Rdstls { result } = &script.auth {
@@ -448,47 +507,285 @@ async fn serve_leg(
         r.platform = platform;
     });
 
-    for action in &script.actions {
-        match action {
-            ServerAction::Wait(d) => tokio::time::sleep(*d).await,
-            ServerAction::Redirect(pdu) => {
-                let frame = redirection_frame(pdu, result.user_channel_id, result.io_channel_id)?;
-                framed.write_all(&frame).await.map_err(|e| err("write redirect", e))?;
-            }
-            ServerAction::Close => {
-                update(log, index, |r| r.actions_done += 1);
-                return Ok(());
-            }
-        }
-        update(log, index, |r| r.actions_done += 1);
-    }
+    let mut active = Active {
+        channels: result.static_channels,
+        user_channel_id: result.user_channel_id,
+        io_channel_id: result.io_channel_id,
+        state,
+        clip_formats: Vec::new(),
+        hold_clipboard: false,
+        held_requests: Vec::new(),
+        log,
+        index,
+    };
+    active.start_channels(&mut framed).await?;
 
-    // Drain until the client leaves; answer a Shutdown Request like g-r-d (Shutdown Denied).
-    while let Ok((action, frame)) = framed.read_pdu().await {
-        if action == ironrdp_pdu::Action::FastPath {
-            update(log, index, |r| r.fast_path_inputs += 1);
-        } else if is_shutdown_request(&frame) {
-            update(log, index, |r| r.shutdown_requested = true);
-            let denied =
-                share_data_frame(ShareDataPdu::ShutdownDenied, result.user_channel_id, result.io_channel_id)?;
-            framed.write_all(&denied).await.map_err(|e| err("write shutdown denied", e))?;
+    let mut actions = script.actions.into_iter().peekable();
+    let mut wait_until: Option<tokio::time::Instant> = None;
+    loop {
+        // Run every action that is due.
+        while wait_until.is_none_or(|t| tokio::time::Instant::now() >= t) {
+            let Some(action) = actions.next() else { break };
+            wait_until = None;
+            match action {
+                ServerAction::Wait(d) => wait_until = Some(tokio::time::Instant::now() + d),
+                ServerAction::Redirect(pdu) => {
+                    let frame = redirection_frame(&pdu, active.user_channel_id, active.io_channel_id)?;
+                    framed.write_all(&frame).await.map_err(|e| err("write redirect", e))?;
+                }
+                ServerAction::Close => {
+                    update(log, index, |r| r.actions_done += 1);
+                    return Ok(());
+                }
+                ServerAction::ClipboardCopy(formats) => active.clipboard_copy(&mut framed, formats).await?,
+                ServerAction::ClipboardPaste(id) => active.clipboard_paste(&mut framed, id).await?,
+                ServerAction::HoldClipboardResponses(hold) => {
+                    active.hold_clipboard = hold;
+                    if !hold {
+                        for id in std::mem::take(&mut active.held_requests) {
+                            active.answer_data_request(&mut framed, id).await?;
+                        }
+                    }
+                }
+                ServerAction::GfxReset(w, h) => active.gfx_reset(&mut framed, w, h).await?,
+            }
+            update(log, index, |r| r.actions_done += 1);
         }
+        let sleep_until = wait_until.filter(|_| actions.peek().is_some());
+        let frame = tokio::select! {
+            res = framed.read_pdu() => res,
+            () = async {
+                match sleep_until {
+                    Some(t) => tokio::time::sleep_until(t).await,
+                    None => std::future::pending().await,
+                }
+            } => continue,
+        };
+        let Ok((action, frame)) = frame else { return Ok(()) };
+        if action == ironrdp_pdu::Action::FastPath {
+            let events = decode::<FastPathInput>(&frame).map(|i| i.input_events().to_vec()).unwrap_or_default();
+            update(log, index, |r| {
+                r.fast_path_inputs += 1;
+                r.fast_path_events.extend(events);
+            });
+            continue;
+        }
+        if active.handle_x224(&mut framed, &frame).await? {
+            return Ok(());
+        }
+        active.after_channel_io(&mut framed).await?;
     }
-    Ok(())
 }
 
-fn is_shutdown_request(frame: &[u8]) -> bool {
-    let Ok(X224(request)) = decode::<X224<mcs::SendDataRequest<'_>>>(frame) else { return false };
-    matches!(
-        decode::<ShareControlHeader>(request.user_data.as_ref()),
-        Ok(ShareControlHeader {
-            share_control_pdu: ShareControlPdu::Data(ShareDataHeader {
-                share_data_pdu: ShareDataPdu::ShutdownRequest,
-                ..
-            }),
-            ..
-        })
-    )
+type ServerFramed = Framed<TokioStream<tokio_rustls::server::TlsStream<TcpStream>>>;
+
+async fn send_svc(
+    framed: &mut ServerFramed,
+    user_channel_id: u16,
+    channel_id: u16,
+    messages: Vec<SvcMessage>,
+) -> Result<()> {
+    if messages.is_empty() {
+        return Ok(());
+    }
+    let bytes =
+        server_encode_svc_messages(messages, channel_id, user_channel_id).map_err(|e| err("encode svc", e))?;
+    framed.write_all(&bytes).await.map_err(|e| err("write svc", e))
+}
+
+/// Attaches the scripted virtual channels to the acceptor.
+fn attach_channels(acceptor: &mut Acceptor, channels: Channels, state: &SharedState, desktop: (u16, u16)) {
+    if channels.any_dynamic() {
+        let mut dvc = DrdynvcServer::new();
+        if channels.display_control {
+            dvc = dvc.with_dynamic_channel(FakeDisplayControl { state: Arc::clone(state) });
+        }
+        if channels.gfx {
+            dvc = dvc.with_dynamic_channel(FakeGraphics {
+                state: Arc::clone(state),
+                desktop: (u32::from(desktop.0), u32::from(desktop.1)),
+            });
+        }
+        acceptor.attach_static_channel(dvc);
+    }
+    if channels.clipboard {
+        acceptor.attach_static_channel(CliprdrServer::new(Box::new(FakeClipboardBackend {
+            state: Arc::clone(state),
+        })));
+    }
+}
+
+/// An activated leg: static channels and scripted clipboard contents.
+struct Active<'a> {
+    channels: StaticChannelSet,
+    user_channel_id: u16,
+    io_channel_id: u16,
+    state: SharedState,
+    clip_formats: Vec<ServerClipFormat>,
+    hold_clipboard: bool,
+    held_requests: Vec<u32>,
+    log: &'a Mutex<FakeServerLog>,
+    index: usize,
+}
+
+impl Active<'_> {
+    async fn start_channels(&mut self, framed: &mut ServerFramed) -> Result<()> {
+        let mut out = Vec::new();
+        for (_, channel, id) in self.channels.iter_mut() {
+            if let Some(id) = id {
+                out.push((id, channel.start().map_err(|e| err("svc start", e))?));
+            }
+        }
+        for (id, messages) in out {
+            send_svc(framed, self.user_channel_id, id, messages).await?;
+        }
+        Ok(())
+    }
+
+    /// Handles a slow-path frame; `true` when the client disconnected.
+    async fn handle_x224(&mut self, framed: &mut ServerFramed, frame: &[u8]) -> Result<bool> {
+        let Ok(X224(message)) = decode::<X224<mcs::McsMessage<'_>>>(frame) else { return Ok(false) };
+        let data = match message {
+            mcs::McsMessage::SendDataRequest(data) => data,
+            mcs::McsMessage::DisconnectProviderUltimatum(_) => return Ok(true),
+            _ => return Ok(false),
+        };
+        if data.channel_id == self.io_channel_id {
+            let Ok(header) = decode::<ShareControlHeader>(data.user_data.as_ref()) else { return Ok(false) };
+            let ShareControlPdu::Data(ShareDataHeader { share_data_pdu, .. }) = header.share_control_pdu else {
+                return Ok(false);
+            };
+            match share_data_pdu {
+                ShareDataPdu::ShutdownRequest => {
+                    update(self.log, self.index, |r| r.shutdown_requested = true);
+                    let denied =
+                        share_data_frame(ShareDataPdu::ShutdownDenied, self.user_channel_id, self.io_channel_id)?;
+                    framed.write_all(&denied).await.map_err(|e| err("write shutdown denied", e))?;
+                }
+                ShareDataPdu::SuppressOutput(pdu) => {
+                    let rect = pdu.desktop_rect.map(|r| [r.left, r.top, r.right, r.bottom]);
+                    update(self.log, self.index, |r| r.suppress_output.push(rect));
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
+        let channel_id = data.channel_id;
+        let responses = match self.channels.get_by_channel_id_mut(channel_id) {
+            Some(svc) => svc.process(data.user_data.as_ref()).map_err(|e| err("svc process", e))?,
+            None => return Ok(false),
+        };
+        send_svc(framed, self.user_channel_id, channel_id, responses).await?;
+        Ok(false)
+    }
+
+    /// Mirrors channel state into the log and reacts to layouts and clipboard callbacks.
+    async fn after_channel_io(&mut self, framed: &mut ServerFramed) -> Result<()> {
+        let (resets, events) = {
+            let mut s = fake_channels::lock(&self.state);
+            let resets = std::mem::take(&mut s.pending_resets);
+            let events = std::mem::take(&mut s.clip_events);
+            update(self.log, self.index, |r| {
+                r.monitor_layouts.clone_from(&s.layouts);
+                r.gfx_caps_advertised = s.gfx_caps_advertised;
+                r.gfx_frame_acks.clone_from(&s.gfx_frame_acks);
+                r.gfx_suspend_acks = s.gfx_suspend_acks;
+                r.gfx_resets_sent.clone_from(&s.gfx_resets_sent);
+            });
+            (resets, events)
+        };
+        for (w, h) in resets {
+            self.gfx_reset(framed, w, h).await?;
+        }
+        for event in events {
+            match event {
+                ClipEvent::Ready => update(self.log, self.index, |r| r.clipboard_ready = true),
+                ClipEvent::ClientFormatList(list) => {
+                    update(self.log, self.index, |r| r.client_format_lists.push(list));
+                }
+                ClipEvent::DataRequest(id) => {
+                    update(self.log, self.index, |r| r.client_data_requests.push(id));
+                    if self.hold_clipboard {
+                        self.held_requests.push(id);
+                    } else {
+                        self.answer_data_request(framed, id).await?;
+                    }
+                }
+                ClipEvent::DataResponse(data) => {
+                    update(self.log, self.index, |r| r.client_data_responses.push(data));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn cliprdr(&mut self) -> Result<(&mut CliprdrServer, u16)> {
+        let id = self.channels.get_channel_id_by_type::<CliprdrServer>().ok_or("no CLIPRDR channel")?;
+        let cliprdr = self
+            .channels
+            .get_by_type_mut::<CliprdrServer>()
+            .and_then(|c| c.channel_processor_downcast_mut::<CliprdrServer>())
+            .ok_or("no CLIPRDR channel")?;
+        Ok((cliprdr, id))
+    }
+
+    async fn clipboard_copy(&mut self, framed: &mut ServerFramed, formats: Vec<ServerClipFormat>) -> Result<()> {
+        let list: Vec<ClipboardFormat> = formats
+            .iter()
+            .map(|f| {
+                let format = ClipboardFormat::new(ClipboardFormatId(f.id));
+                match &f.name {
+                    Some(name) => format.with_name(ClipboardFormatName::new(name.clone())),
+                    None => format,
+                }
+            })
+            .collect();
+        self.clip_formats = formats;
+        let (cliprdr, id) = self.cliprdr()?;
+        let messages = cliprdr.initiate_copy(&list).map_err(|e| err("initiate copy", e))?;
+        send_svc(framed, self.user_channel_id, id, messages.into()).await
+    }
+
+    async fn clipboard_paste(&mut self, framed: &mut ServerFramed, format_id: u32) -> Result<()> {
+        let (cliprdr, id) = self.cliprdr()?;
+        let messages =
+            cliprdr.initiate_paste(ClipboardFormatId(format_id)).map_err(|e| err("initiate paste", e))?;
+        send_svc(framed, self.user_channel_id, id, messages.into()).await
+    }
+
+    async fn answer_data_request(&mut self, framed: &mut ServerFramed, format_id: u32) -> Result<()> {
+        let response = match self.clip_formats.iter().find(|f| f.id == format_id) {
+            Some(f) => OwnedFormatDataResponse::new_data(f.data.clone()),
+            None => OwnedFormatDataResponse::new_error(),
+        };
+        let (cliprdr, id) = self.cliprdr()?;
+        let messages = cliprdr.submit_format_data(response).map_err(|e| err("submit format data", e))?;
+        send_svc(framed, self.user_channel_id, id, messages.into()).await
+    }
+
+    async fn gfx_reset(&mut self, framed: &mut ServerFramed, width: u32, height: u32) -> Result<()> {
+        let Some(drdynvc_id) = self.channels.get_channel_id_by_type::<DrdynvcServer>() else { return Ok(()) };
+        let Some(drdynvc) = self
+            .channels
+            .get_by_type_mut::<DrdynvcServer>()
+            .and_then(|c| c.channel_processor_downcast_mut::<DrdynvcServer>())
+        else {
+            return Ok(());
+        };
+        let Some(gfx_id) =
+            drdynvc.get_channel_id_by_type::<FakeGraphics>().filter(|id| drdynvc.is_channel_opened(*id))
+        else {
+            return Ok(());
+        };
+        let message = fake_channels::gfx_message(&redraw_pdus(&self.state, width, height))
+            .map_err(|e| err("encode gfx", e))?;
+        let messages =
+            encode_dvc_messages(gfx_id, vec![message], ChannelFlags::empty()).map_err(|e| err("encode dvc", e))?;
+        send_svc(framed, self.user_channel_id, drdynvc_id, messages).await?;
+        let sent = fake_channels::lock(&self.state).gfx_resets_sent.clone();
+        update(self.log, self.index, |r| r.gfx_resets_sent = sent);
+        Ok(())
+    }
 }
 
 fn share_data_frame(pdu: ShareDataPdu, user_channel_id: u16, io_channel_id: u16) -> Result<Vec<u8>> {
@@ -559,8 +856,12 @@ fn record_connect_initial(pdu: &[u8], log: &Mutex<FakeServerLog>, index: usize) 
         .early_capability_flags
         .is_some_and(|f| f.contains(gcc::ClientEarlyCapabilityFlags::SUPPORT_DYN_VC_GFX_PROTOCOL));
     let name = blocks.core.client_name.trim_end_matches('\0').to_owned();
+    let desktop = (blocks.core.desktop_width, blocks.core.desktop_height);
+    let scale = blocks.core.optional_data.desktop_scale_factor;
     update(log, index, |r| {
         r.client_name = Some(name);
+        r.client_desktop = Some(desktop);
+        r.client_desktop_scale = scale;
         r.gfx_protocol_advertised = gfx;
     });
 }

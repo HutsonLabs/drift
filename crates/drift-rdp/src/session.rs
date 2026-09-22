@@ -32,8 +32,10 @@ use std::time::Duration;
 
 use drift_clipboard::ClipboardContents;
 use drift_core::{
-    CertFingerprint, Clock, ConnectionProfile, InputEvent, Point, SessionState, Size, ViewGeometry,
+    CertFingerprint, Clock, ConnectionProfile, InputEvent, Point, ReconnectConfig, SessionState, Size,
+    ViewGeometry,
 };
+pub use drift_input::ScaleMode;
 use drift_gfx::FrameSink;
 use tokio::sync::mpsc;
 use zeroize::Zeroizing;
@@ -76,6 +78,10 @@ pub struct SessionOptions {
     pub client_name: String,
     /// Per-leg connect timeout.
     pub connect_timeout: Duration,
+    /// Auto-reconnect backoff (M7-1/M7-3).
+    pub reconnect: ReconnectConfig,
+    /// Seed for the backoff jitter; `None` seeds from the system time (tests pin it).
+    pub reconnect_seed: Option<u64>,
 }
 
 impl Default for SessionOptions {
@@ -84,6 +90,8 @@ impl Default for SessionOptions {
             tls_server_name: None,
             client_name: crate::connect::local_client_name(),
             connect_timeout: Duration::from_secs(15),
+            reconnect: ReconnectConfig::default(),
+            reconnect_seed: None,
         }
     }
 }
@@ -162,6 +170,8 @@ pub struct SessionCapabilities {
     pub display_control: bool,
     /// Clipboard channel available.
     pub clipboard: bool,
+    /// How the app places the desktop in the view (M4-2: `Fit` for Desktop Sharing).
+    pub scale_mode: ScaleMode,
 }
 
 /// Periodic session statistics (about once per second while connected).

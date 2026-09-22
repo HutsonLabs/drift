@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 drift-core.workspace = true
+drift-input.workspace = true
 drift-gfx.workspace = true
 drift-clipboard.workspace = true
 drift-codec.workspace = true
