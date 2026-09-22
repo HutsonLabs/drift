@@ -5,7 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use drift_app::present::{
-    NEW_SESSION_TITLE, Surface, cursor_shape, find_autoconnect, surface_for, window_subtitle, window_title,
+    Hud, NEW_SESSION_TITLE, Surface, cursor_shape, find_autoconnect, hud_frame, surface_for, window_subtitle,
+    window_title,
 };
 use drift_app::view::{Screen, SessionView};
 use drift_core::{
@@ -22,6 +23,13 @@ fn view_in(mode: ConnectMode, state: SessionState) -> SessionView {
     v
 }
 
+/// A view forced onto `screen` (the fields the surface rules read are set directly).
+fn on_screen(screen: Screen) -> SessionView {
+    let mut v = SessionView::new(&ConnectionProfile::new("Homelab", "h", ConnectMode::RemoteLogin));
+    v.screen = screen;
+    v
+}
+
 #[test]
 fn webview_is_hidden_only_while_there_is_a_live_picture() {
     #[rustfmt::skip]
@@ -29,14 +37,85 @@ fn webview_is_hidden_only_while_there_is_a_live_picture() {
         (Screen::Profiles, Surface::Webview),
         (Screen::Connecting, Surface::Webview),
         (Screen::Certificate, Surface::Webview),
-        (Screen::Reconnecting, Surface::Webview),
         (Screen::Error, Surface::Webview),
         (Screen::Live, Surface::Remote),
-        // The GDM greeter is a live picture the user must type into; the hint is the subtitle.
-        (Screen::GreeterHint, Surface::Remote),
+        // M7-3: the last frame stays on screen, dimmed under a transparent full-window overlay.
+        (Screen::Reconnecting, Surface::Overlay),
+        // M3-2/M7-3: a non-modal banner over the greeter picture; the RemoteView keeps focus.
+        (Screen::GreeterHint, Surface::Hud(Hud::Banner)),
     ];
     for (screen, surface) in table {
-        assert_eq!(surface_for(screen), surface, "{screen:?}");
+        assert_eq!(surface_for(&on_screen(screen)), surface, "{screen:?}");
+    }
+}
+
+#[test]
+fn the_statistics_hud_floats_over_the_live_picture() {
+    // M1 "Done (manual M1)": `anim.py` shows >= 55 fps in the stats overlay.
+    let mut live = on_screen(Screen::Live);
+    live.stats = Some(Default::default());
+    assert_eq!(surface_for(&live), Surface::Remote, "off by default");
+    live.show_stats = true;
+    assert_eq!(surface_for(&live), Surface::Hud(Hud::Stats));
+    live.stats = None;
+    assert_eq!(surface_for(&live), Surface::Remote, "nothing to draw before the first sample");
+    live.stats = Some(Default::default());
+    // The HUD is only a HUD while a picture is live; elsewhere the full webview wins.
+    let mut form = on_screen(Screen::Profiles);
+    form.show_stats = true;
+    assert_eq!(surface_for(&form), Surface::Webview);
+    let mut retry = on_screen(Screen::Reconnecting);
+    retry.show_stats = true;
+    assert_eq!(surface_for(&retry), Surface::Overlay);
+}
+
+#[test]
+fn a_hud_never_covers_the_whole_picture() {
+    let parent = Size::new(1280.0_f64, 800.0);
+    for hud in [Hud::Banner, Hud::Stats] {
+        let f = hud_frame(parent, hud, false);
+        assert!(f.x >= 0.0 && f.y >= 0.0, "{hud:?} {f:?}");
+        assert!(f.x + f.width <= parent.width && f.y + f.height <= parent.height, "{hud:?} {f:?}");
+        let covered = f.width * f.height / (parent.width * parent.height);
+        assert!(covered < 0.1, "{hud:?} covers {covered:.3} of the picture");
+    }
+    // The banner sits at the top centre, the statistics panel in the bottom-right corner.
+    let banner = hud_frame(parent, Hud::Banner, true);
+    assert_eq!(banner.y, 0.0, "banner at the top of a flipped superview");
+    assert!((banner.x - (parent.width - banner.width) / 2.0).abs() < 0.5, "centred: {banner:?}");
+    assert!(banner.flexible.left && banner.flexible.right && banner.flexible.bottom);
+    assert!(!banner.flexible.top, "the banner stays glued to the top edge");
+    let stats = hud_frame(parent, Hud::Stats, true);
+    assert!(stats.x + stats.width < parent.width, "inset from the right");
+    assert!(stats.y > parent.height / 2.0, "bottom half: {stats:?}");
+    assert!(stats.flexible.left && stats.flexible.top);
+    assert!(!stats.flexible.right && !stats.flexible.bottom, "glued to the bottom-right corner");
+}
+
+#[test]
+fn hud_geometry_follows_the_superviews_flippedness() {
+    let parent = Size::new(1280.0_f64, 800.0);
+    for hud in [Hud::Banner, Hud::Stats] {
+        let flipped = hud_frame(parent, hud, true);
+        let appkit = hud_frame(parent, hud, false);
+        assert_eq!((flipped.width, flipped.height), (appkit.width, appkit.height), "{hud:?}");
+        assert_eq!(flipped.x, appkit.x, "{hud:?}");
+        // AppKit's origin is bottom-left: the same panel is mirrored vertically.
+        assert!(
+            (appkit.y - (parent.height - flipped.y - flipped.height)).abs() < f64::EPSILON,
+            "{hud:?}: flipped {flipped:?} vs appkit {appkit:?}"
+        );
+    }
+}
+
+#[test]
+fn a_hud_shrinks_with_a_narrow_window() {
+    let narrow = Size::new(320.0_f64, 240.0);
+    for hud in [Hud::Banner, Hud::Stats] {
+        let f = hud_frame(narrow, hud, false);
+        assert!(f.x >= 0.0 && f.y >= 0.0 && f.width > 0.0 && f.height > 0.0, "{hud:?} {f:?}");
+        assert!(f.x + f.width <= narrow.width, "{hud:?} {f:?}");
+        assert!(f.y + f.height <= narrow.height, "{hud:?} {f:?}");
     }
 }
 

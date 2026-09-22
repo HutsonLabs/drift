@@ -46,7 +46,7 @@ serde.workspace = true
 serde_json.workspace = true
 specta.workspace = true
 specta-typescript.workspace = true
-tauri = { workspace = true, features = [] }
+tauri = { workspace = true, features = ["macos-private-api"] }
 tauri-specta.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
@@ -60,6 +60,12 @@ tokio = { workspace = true, features = ["test-util"] }
 # M6-2: opens real windows in a tab group; needs the process main thread and a window server.
 [[test]]
 name = "tabs_ui"
+harness = false
+required-features = ["macos-ui-tests"]
+
+# M7-3 / M1: overlays and the statistics HUD on a real window; same requirements.
+[[test]]
+name = "overlays_ui"
 harness = false
 required-features = ["macos-ui-tests"]
 

@@ -184,6 +184,25 @@ body[data-screen="reconnecting"] #app {
 }
 .overlay-card .headline { font-size: 15px; font-weight: 600; }
 body[data-screen="greeter-hint"] #app { display: flex; justify-content: center; align-items: flex-start; pointer-events: none; }
+/* HUD panels: the web view itself is shrunk to the panel (src-tauri present::hud_frame), so the
+   page is only as big as the panel and the rest of the picture keeps the mouse and keyboard. */
+body[data-hud="stats"] #app { display: flex; align-items: flex-end; justify-content: flex-end; }
+.hud {
+  margin: 0;
+  padding: 7px 14px;
+  border-radius: 10px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+.hud.stats {
+  font: 12px ui-monospace, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .banner {
   margin-top: 12px;
   display: flex;

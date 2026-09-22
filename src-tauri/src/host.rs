@@ -63,6 +63,8 @@ impl<R: Runtime> SessionHost for TauriHost<R> {
             SessionEvent::Capabilities(caps) => {
                 tracing::debug!(%window, display_control = caps.display_control, clipboard = caps.clipboard);
             }
+            // The sample is also folded into the window's `SessionView` (M1 statistics HUD);
+            // this is only the log line the e2e smoke reads.
             SessionEvent::Stats(stats) => {
                 tracing::trace!(%window, fps = stats.fps, unacked = stats.unacked_frames);
             }

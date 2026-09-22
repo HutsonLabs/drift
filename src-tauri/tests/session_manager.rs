@@ -16,7 +16,9 @@ use drift_core::{
     CertFingerprint, ConnectMode, ConnectStage, ConnectionProfile, DesktopSize, DisconnectReason,
     SessionState,
 };
-use drift_rdp::{CertificateRole, CursorUpdate, SessionCommand, SessionEvent, SessionEvents, SessionHandle};
+use drift_rdp::{
+    CertificateRole, CursorUpdate, SessionCommand, SessionEvent, SessionEvents, SessionHandle, SessionStats,
+};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -255,10 +257,35 @@ async fn unchanged_views_are_not_re_emitted() {
     let (host, manager) = setup();
     open_session(&host, &manager, "w1", profile("Alpha")).await;
     host.emit("w1", 0, connected());
-    host.emit("w1", 0, SessionEvent::Stats(Default::default()));
+    host.emit("w1", 0, SessionEvent::Capabilities(Default::default()));
     eventually("live", || host.views_for("w1").len() == 2).await;
     tokio::time::sleep(Duration::from_millis(20)).await;
-    assert_eq!(host.views_for("w1").len(), 2, "stats do not change the view");
+    assert_eq!(host.views_for("w1").len(), 2, "capabilities do not change the view");
+}
+
+#[tokio::test]
+async fn statistics_reach_the_window_and_the_hud_can_be_toggled() {
+    // Plan M1 "Done (manual M1)": the fps number must reach the window that shows the picture.
+    let (host, manager) = setup();
+    open_session(&host, &manager, "w1", profile("Alpha")).await;
+    open_session(&host, &manager, "w2", profile("Bravo")).await;
+    host.emit("w1", 0, connected());
+    let sample = SessionStats { fps: 58.9, bitrate_bps: 1_200_000, ..Default::default() };
+    host.emit("w1", 0, SessionEvent::Stats(sample));
+    eventually("a view carrying the sample", || {
+        host.views_for("w1").last().is_some_and(|v| v.stats.is_some())
+    })
+    .await;
+    let v = host.views_for("w1").pop().unwrap();
+    assert_eq!(v.stats.unwrap().fps_tenths, 589);
+    assert!(!v.show_stats, "the HUD is off until the user asks for it");
+    assert!(host.views_for("w2").iter().all(|v| v.stats.is_none()), "only its own window");
+
+    manager.toggle_stats("w1").unwrap();
+    assert!(host.views_for("w1").pop().unwrap().show_stats, "Session \u{25b8} Show Statistics");
+    manager.toggle_stats("w1").unwrap();
+    assert!(!host.views_for("w1").pop().unwrap().show_stats);
+    assert!(matches!(manager.toggle_stats("nope"), Err(CommandError::NoSession)));
 }
 
 #[tokio::test]

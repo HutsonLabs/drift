@@ -35,6 +35,7 @@ fn action_ids_round_trip() {
         MenuAction::SendCtrlAltDel,
         MenuAction::Reconnect,
         MenuAction::Disconnect,
+        MenuAction::ToggleStats,
         MenuAction::Quit,
         MenuAction::ToggleRecording,
     ];
@@ -83,6 +84,8 @@ fn session_menu_has_no_shortcuts() {
             (MenuAction::SendCtrlAltDel, "Send Ctrl+Alt+Del".to_owned(), None),
             (MenuAction::Reconnect, "Reconnect".to_owned(), None),
             (MenuAction::Disconnect, "Disconnect".to_owned(), None),
+            // M1 "Done (manual M1)": the fps HUD over the live picture, off by default.
+            (MenuAction::ToggleStats, "Show Statistics".to_owned(), None),
         ]
     );
 }

@@ -357,7 +357,7 @@ export type Screen =
 "reconnecting" | 
 /**  Ended with an explanation and next steps. */
 "error" | 
-/**  Live desktop: the webview is hidden. */
+/**  Live desktop: the webview is hidden, unless the statistics HUD is switched on. */
 "live";
 
 /**  Password changes submitted with a profile. Empty strings mean "unchanged". */
@@ -476,6 +476,13 @@ export type SessionView_Deserialize = {
 	resuming: boolean,
 	/**  Reconnect attempt budget shown in the overlay (`None` = unlimited). */
 	max_attempts: number | null,
+	/**
+	 *  The statistics HUD is switched on for this tab (Session ▸ Show Statistics). It is a
+	 *  per-tab user choice, so no session event ever changes it.
+	 */
+	show_stats: boolean,
+	/**  Latest statistics sample, or `None` before the first one and once the picture is gone. */
+	stats: StatsView | null,
 };
 
 /**  Everything a session window's webview needs to render. */
@@ -501,6 +508,13 @@ export type SessionView_Serialize = {
 	resuming: boolean,
 	/**  Reconnect attempt budget shown in the overlay (`None` = unlimited). */
 	max_attempts: number | null,
+	/**
+	 *  The statistics HUD is switched on for this tab (Session ▸ Show Statistics). It is a
+	 *  per-tab user choice, so no session event ever changes it.
+	 */
+	show_stats: boolean,
+	/**  Latest statistics sample, or `None` before the first one and once the picture is gone. */
+	stats: StatsView | null,
 };
 
 /**  A 2-D size. `Size<u32>` is used for pixels, `Size<f64>` for AppKit points. */
@@ -509,6 +523,24 @@ export type Size<T> = {
 	width: T,
 	/**  Vertical extent. */
 	height: T,
+};
+
+/**
+ *  One statistics sample, quantised to what the HUD actually prints.
+ * 
+ *  [`drift_rdp::SessionStats`] is sampled about once per second; the numbers are rounded to one
+ *  decimal here so that two samples that would draw the same line compare equal and the view is
+ *  not re-emitted (plan M1 "Done (manual M1)", M9-1).
+ */
+export type StatsView = {
+	/**  Presented frames per second, in tenths (`589` prints as `58.9 fps`). */
+	fps_tenths: number,
+	/**  Received payload bit rate, in tenths of a Mbit/s. */
+	mbit_tenths: number,
+	/**  Decode + present latency, 95th percentile, in tenths of a millisecond. */
+	latency_p95_tenths_ms: number,
+	/**  Frames awaiting acknowledgement. */
+	unacked_frames: number,
 };
 
 /* Tauri Specta runtime */

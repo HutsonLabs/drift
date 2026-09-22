@@ -199,6 +199,21 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Turns `window`'s statistics HUD on or off (Session ▸ Show Statistics).
+    ///
+    /// The choice is per tab and survives session events; it only decides whether the sample in
+    /// the view is drawn over the picture (plan M1 "Done (manual M1)", M9-1).
+    pub fn toggle_stats(&self, window: &str) -> Result<(), CommandError> {
+        let view = {
+            let mut state = self.shared.lock();
+            let slot = state.windows.get_mut(window).ok_or(CommandError::NoSession)?;
+            slot.view.show_stats = !slot.view.show_stats;
+            slot.view.clone()
+        };
+        self.shared.host.view_changed(window, &view);
+        Ok(())
+    }
+
     /// "Reconnect now": skip the backoff of a live session, or ask the caller to reopen.
     pub fn reconnect_now(&self, window: &str) -> Result<Reconnect, CommandError> {
         let state = self.shared.lock();

@@ -18,6 +18,7 @@ import { renderGreeterHint } from "./views/greeter";
 import { type FormDraft, type FormModel, formModel, renderProfileForm, toSecretsUpdate } from "./views/profileForm";
 import { profileList } from "./views/profileList";
 import { renderReconnectOverlay } from "./views/reconnect";
+import { renderStatsHud } from "./views/stats";
 
 /** The IPC commands the UI uses. */
 export type Api = Pick<
@@ -59,6 +60,16 @@ export function describeError(e: CommandError): string {
 
 /** Default mode for new connections. */
 const DEFAULT_MODE: ConnectMode = "remote-login";
+
+/**
+ * Which HUD floats over the live picture, mirroring `present::hud_for` in Rust: the greeter hint
+ * banner, the statistics panel, or nothing.
+ */
+export function hud(view: SessionView_Serialize): "" | "banner" | "stats" {
+  if (view.screen === "greeter-hint") return "banner";
+  if (view.screen === "live" && view.show_stats && view.stats) return "stats";
+  return "";
+}
 
 /** The webview controller. */
 export class DriftApp {
@@ -212,6 +223,8 @@ export class DriftApp {
     const view = this.session;
     const screen = view && view.screen !== "profiles" ? view.screen : "profiles";
     document.body.dataset.screen = screen;
+    // Which panel (if any) floats over the live picture; Rust shrinks the web view to match.
+    document.body.dataset.hud = view ? hud(view) : "";
     if (screen === "reconnecting") this.startTimer();
     else this.stopTimer();
 
@@ -221,7 +234,8 @@ export class DriftApp {
     }
     switch (screen) {
       case "live":
-        mount(this.root);
+        if (view.show_stats && view.stats) renderStatsHud(this.root, view.stats);
+        else mount(this.root);
         break;
       case "connecting":
         // Cancelling while connecting ends the session but keeps the tab open.
