@@ -477,13 +477,11 @@ async fn the_session_manager_reports_and_reaches_live_sessions() {
     manager.open("tab-0", profile("headless", ClipboardPrefs::Text)).unwrap();
     manager.open("tab-1", profile("images", ClipboardPrefs::TextAndImages)).unwrap();
 
-    let mut live = SessionFanout::live_sessions(&manager);
-    live.sort_by(|a, b| a.window.cmp(&b.window));
     assert_eq!(
-        live,
+        fanout_of(&manager),
         vec![
-            LiveSession::new("tab-0", ClipboardPrefs::Text),
-            LiveSession::new("tab-1", ClipboardPrefs::TextAndImages),
+            ("tab-0".to_owned(), ClipboardPrefs::Text, false),
+            ("tab-1".to_owned(), ClipboardPrefs::TextAndImages, false),
         ],
         "the fanout must see each window's per-profile clipboard preference"
     );
@@ -511,10 +509,7 @@ async fn the_session_manager_reports_and_reaches_live_sessions() {
 
     // Closing a tab removes it from the fanout.
     assert!(manager.close("tab-1").await);
-    assert_eq!(
-        SessionFanout::live_sessions(&manager),
-        vec![LiveSession::new("tab-0", ClipboardPrefs::Text).reconnecting(true)]
-    );
+    assert_eq!(fanout_of(&manager), vec![("tab-0".to_owned(), ClipboardPrefs::Text, true)]);
     assert!(!SessionFanout::send(&manager, "tab-1", local(&text("gone"))));
 
     eventually(|| host.commands("tab-0").contains(&local(&text("hi")))).await;
@@ -524,6 +519,16 @@ async fn the_session_manager_reports_and_reaches_live_sessions() {
     let before = generation_of(&manager, "tab-0");
     manager.open("tab-0", profile("headless", ClipboardPrefs::Text)).unwrap();
     assert_ne!(generation_of(&manager, "tab-0"), before, "a replaced actor is a new session");
+}
+
+/// `(window, clipboard preference, reconnecting)` for every live session, sorted by window.
+fn fanout_of(manager: &SessionManager) -> Vec<(String, ClipboardPrefs, bool)> {
+    let mut live: Vec<_> = SessionFanout::live_sessions(manager)
+        .into_iter()
+        .map(|s| (s.window, s.clipboard, s.reconnecting))
+        .collect();
+    live.sort_by(|a, b| a.0.cmp(&b.0));
+    live
 }
 
 fn generation_of(manager: &SessionManager, window: &str) -> u64 {

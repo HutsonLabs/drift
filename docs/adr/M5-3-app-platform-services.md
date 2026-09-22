@@ -37,7 +37,9 @@ path, and a session must not miss a copy made while another tab had focus.
   format list already offers what the user copied before connecting. A window whose session
   ended and came back is seeded again (its new actor knows nothing). Without this, a copy made
   while no session was live would be lost, because the watcher consumes the `changeCount`
-  change either way.
+  change either way. "Already seeded" is keyed on the *actor* (`LiveSession::generation`), not
+  the window, so disconnecting and reconnecting one tab inside a single tick still seeds the
+  replacement actor.
 - **`TriggerAction` → commands** (`services::trigger_commands`):
   `PauseReconnect` → `NetworkReachable(false)` for every live session;
   `RetryNow` → `NetworkReachable(true)` for every live session, plus `ReconnectNow` **only for

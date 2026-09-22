@@ -43,12 +43,15 @@ pub struct LiveSession {
     /// The session is in [`drift_core::SessionState::Reconnecting`], i.e. waiting out a
     /// backoff delay that a trigger may cut short.
     pub reconnecting: bool,
+    /// Identifies the *actor*, not the window: reconnecting a tab gives a new generation, so
+    /// the clipboard pump knows the replacement has to be seeded again.
+    pub generation: u64,
 }
 
 impl LiveSession {
-    /// A session that is not reconnecting.
+    /// A session that is not reconnecting, in generation 0.
     pub fn new(window: impl Into<String>, clipboard: ClipboardPrefs) -> Self {
-        Self { window: window.into(), clipboard, reconnecting: false }
+        Self { window: window.into(), clipboard, reconnecting: false, generation: 0 }
     }
 
     /// Sets [`Self::reconnecting`].
@@ -56,6 +59,18 @@ impl LiveSession {
     pub fn reconnecting(mut self, reconnecting: bool) -> Self {
         self.reconnecting = reconnecting;
         self
+    }
+
+    /// Sets [`Self::generation`].
+    #[must_use]
+    pub fn generation(mut self, generation: u64) -> Self {
+        self.generation = generation;
+        self
+    }
+
+    /// The key the clipboard pump remembers a seeded session by.
+    fn key(&self) -> (String, u64) {
+        (self.window.clone(), self.generation)
     }
 }
 
@@ -74,7 +89,12 @@ impl SessionFanout for SessionManager {
     fn live_sessions(&self) -> Vec<LiveSession> {
         self.live_session_states()
             .into_iter()
-            .map(|(window, clipboard, reconnecting)| LiveSession { window, clipboard, reconnecting })
+            .map(|(window, clipboard, reconnecting, generation)| LiveSession {
+                window,
+                clipboard,
+                reconnecting,
+                generation,
+            })
             .collect()
     }
 
@@ -110,7 +130,7 @@ const fn rank(level: ClipboardPrefs) -> u8 {
 pub struct ClipboardPump<P> {
     port: P,
     watcher: PasteboardWatcher,
-    seeded: BTreeSet<String>,
+    seeded: BTreeSet<(String, u64)>,
 }
 
 impl<P: PasteboardPort> ClipboardPump<P> {
@@ -132,24 +152,23 @@ impl<P: PasteboardPort> ClipboardPump<P> {
     /// session needs seeding). Sessions whose clipboard preference is `Off` are skipped.
     pub fn tick(&mut self, sessions: &dyn SessionFanout) -> usize {
         let live = sessions.live_sessions();
-        self.seeded.retain(|window| live.iter().any(|s| s.window == *window));
         let level = most_permissive(live.iter().map(|s| s.clipboard));
         let syncing = || live.iter().filter(|s| s.clipboard != ClipboardPrefs::Off);
 
         if let Some(LocalChange { contents, .. }) = self.watcher.poll(&self.port, level) {
             // Everyone hears about a real change, so nobody needs seeding afterwards.
-            self.seeded = live.iter().map(|s| s.window.clone()).collect();
+            self.seeded = live.iter().map(LiveSession::key).collect();
             let cmd = SessionCommand::ClipboardLocalChanged(contents);
             return syncing().filter(|s| sessions.send(&s.window, cmd.clone())).count();
         }
 
-        let fresh: Vec<&LiveSession> = syncing().filter(|s| !self.seeded.contains(&s.window)).collect();
+        let fresh: Vec<&LiveSession> = syncing().filter(|s| !self.seeded.contains(&s.key())).collect();
+        // Sessions that ended (and generations that were replaced) are forgotten here.
+        self.seeded = live.iter().map(LiveSession::key).collect();
         if fresh.is_empty() {
-            self.seeded.extend(live.iter().map(|s| s.window.clone()));
             return 0;
         }
         let snapshot = PasteboardWatcher::snapshot(&self.port, level);
-        self.seeded.extend(live.iter().map(|s| s.window.clone()));
         if snapshot.contents.is_empty() {
             return 0;
         }
