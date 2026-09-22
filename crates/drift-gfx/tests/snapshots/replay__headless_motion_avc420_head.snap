@@ -1,0 +1,96 @@
+---
+source: crates/drift-gfx/tests/replay.rs
+expression: "summarize(&calls[..calls.len().min(12)])"
+---
+- Call:
+    Reset:
+      output:
+        width: 1280
+        height: 800
+- Call:
+    CreateSurface:
+      id: 0
+      size:
+        width: 1280
+        height: 800
+- Call:
+    MapSurfaceToOutput:
+      id: 0
+      origin:
+        x: 0
+        y: 0
+- Call:
+    BlitNv12:
+      id: 0
+      size:
+        width: 1280
+        height: 800
+      regions:
+        - x: 0
+          y: 0
+          width: 1280
+          height: 800
+- Call:
+    EndFrame:
+      frame_id: 0
+- Call:
+    BlitNv12:
+      id: 0
+      size:
+        width: 1280
+        height: 800
+      regions:
+        - x: 0
+          y: 704
+          width: 1280
+          height: 96
+- Call:
+    EndFrame:
+      frame_id: 1
+- Call:
+    BlitNv12:
+      id: 0
+      size:
+        width: 1280
+        height: 800
+      regions:
+        - x: 256
+          y: 128
+          width: 256
+          height: 192
+        - x: 320
+          y: 320
+          width: 64
+          height: 64
+- Call:
+    EndFrame:
+      frame_id: 2
+- Call:
+    BlitNv12:
+      id: 0
+      size:
+        width: 1280
+        height: 800
+      regions:
+        - x: 256
+          y: 128
+          width: 256
+          height: 192
+        - x: 320
+          y: 320
+          width: 64
+          height: 64
+- Call:
+    EndFrame:
+      frame_id: 3
+- Call:
+    BlitNv12:
+      id: 0
+      size:
+        width: 1280
+        height: 800
+      regions:
+        - x: 768
+          y: 640
+          width: 512
+          height: 128

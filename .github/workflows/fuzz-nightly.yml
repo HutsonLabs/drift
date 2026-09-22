@@ -1,0 +1,48 @@
+# Nightly fuzzing (plan M1-2, M9-2): 5 minutes per target on nightly Rust with cargo-fuzz.
+# Targets live in standalone fuzz workspaces next to the crate they exercise.
+name: fuzz-nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    name: cargo fuzz ${{ matrix.target }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fuzz_dir: crates/drift-gfx/fuzz
+            target: gfx_pdu_zgfx
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nightly toolchain
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+
+      - name: Fuzz for 5 minutes
+        run: >
+          cargo +nightly fuzz run --fuzz-dir ${{ matrix.fuzz_dir }} ${{ matrix.target }}
+          -- -max_total_time=300 -rss_limit_mb=4096
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: ${{ matrix.fuzz_dir }}/artifacts/

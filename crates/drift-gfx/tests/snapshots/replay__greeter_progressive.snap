@@ -1,0 +1,93 @@
+---
+source: crates/drift-gfx/tests/replay.rs
+expression: summarize(&calls)
+---
+- Call:
+    Reset:
+      output:
+        width: 1280
+        height: 800
+- Call:
+    CreateSurface:
+      id: 0
+      size:
+        width: 1280
+        height: 800
+- Call:
+    MapSurfaceToOutput:
+      id: 0
+      origin:
+        x: 0
+        y: 0
+- BlitBgraRun:
+    id: 0
+    blits: 260
+    pixels: 1024000
+    hash: 9094220104406627139
+- Call:
+    EndFrame:
+      frame_id: 0
+- BlitBgraRun:
+    id: 0
+    blits: 203
+    pixels: 817152
+    hash: 6734315052327524897
+- Call:
+    EndFrame:
+      frame_id: 1
+- BlitBgraRun:
+    id: 0
+    blits: 16
+    pixels: 65536
+    hash: 9159685765038516561
+- Call:
+    EndFrame:
+      frame_id: 2
+- BlitBgraRun:
+    id: 0
+    blits: 4
+    pixels: 16384
+    hash: 9023604414514627595
+- Call:
+    EndFrame:
+      frame_id: 3
+- BlitBgraRun:
+    id: 0
+    blits: 5
+    pixels: 20480
+    hash: 9537720676361937366
+- Call:
+    EndFrame:
+      frame_id: 4
+- BlitBgraRun:
+    id: 0
+    blits: 3
+    pixels: 12288
+    hash: 11412538901227982870
+- Call:
+    EndFrame:
+      frame_id: 5
+- BlitBgraRun:
+    id: 0
+    blits: 1
+    pixels: 4096
+    hash: 6587501547985929209
+- Call:
+    EndFrame:
+      frame_id: 6
+- BlitBgraRun:
+    id: 0
+    blits: 1
+    pixels: 4096
+    hash: 14608094311040525823
+- Call:
+    EndFrame:
+      frame_id: 7
+- BlitBgraRun:
+    id: 0
+    blits: 1
+    pixels: 4096
+    hash: 6302500011896786535
+- Call:
+    EndFrame:
+      frame_id: 8

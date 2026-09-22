@@ -1,0 +1,30 @@
+[package]
+name = "drift-gfx-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "cargo-fuzz targets for drift-gfx (GFX PDUs + ZGFX); run nightly, see docs/adr/M1-2-gfx-client.md."
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+drift-codec = { path = "../../drift-codec" }
+drift-core = { path = "../../drift-core" }
+drift-gfx = { path = ".." }
+
+[[bin]]
+name = "gfx_pdu_zgfx"
+path = "fuzz_targets/gfx_pdu_zgfx.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone workspace: nightly-only sanitizer builds stay out of the main workspace.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
