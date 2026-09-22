@@ -47,7 +47,8 @@ mod tests {
     #[test]
     fn text_lookup() {
         assert!(ClipboardContents::empty().is_empty());
-        let c = ClipboardContents { items: vec![ClipboardItem::Png(vec![1]), ClipboardItem::Text("hi".into())] };
+        let c =
+            ClipboardContents { items: vec![ClipboardItem::Png(vec![1]), ClipboardItem::Text("hi".into())] };
         assert_eq!(c.text(), Some("hi"));
         assert!(!c.is_empty());
         assert_eq!(ClipboardContents { items: vec![ClipboardItem::Tiff(vec![])] }.text(), None);

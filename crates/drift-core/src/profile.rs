@@ -117,7 +117,13 @@ impl CertFingerprint {
 
 impl fmt::Display for CertFingerprint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!("M0-5 green")
+        for (i, b) in self.0.iter().enumerate() {
+            if i > 0 {
+                f.write_str(":")?;
+            }
+            write!(f, "{b:02x}")?;
+        }
+        Ok(())
     }
 }
 
@@ -131,7 +137,19 @@ impl FromStr for CertFingerprint {
     type Err = ProfileError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!("M0-5 green")
+        let mut out = [0u8; 32];
+        let mut parts = s.trim().split(':');
+        for byte in &mut out {
+            let part = parts.next().ok_or(ProfileError::InvalidFingerprint)?;
+            if part.len() != 2 || !part.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Err(ProfileError::InvalidFingerprint);
+            }
+            *byte = u8::from_str_radix(part, 16).map_err(|_| ProfileError::InvalidFingerprint)?;
+        }
+        if parts.next().is_some() {
+            return Err(ProfileError::InvalidFingerprint);
+        }
+        Ok(Self(out))
     }
 }
 
@@ -201,12 +219,12 @@ impl ConnectionProfile {
 
     /// Serializes the profile as a TOML document.
     pub fn to_toml(&self) -> Result<String, ProfileError> {
-        todo!("M0-5 green")
+        toml::to_string(self).map_err(|e| ProfileError::Toml(e.to_string()))
     }
 
     /// Parses a profile from a TOML document.
     pub fn from_toml(s: &str) -> Result<Self, ProfileError> {
-        todo!("M0-5 green")
+        toml::from_str(s).map_err(|e| ProfileError::Toml(e.to_string()))
     }
 }
 

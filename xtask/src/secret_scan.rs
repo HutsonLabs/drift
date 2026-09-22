@@ -57,38 +57,96 @@ pub struct Hit {
 
 /// `true` if `value` looks like a credential (see module docs).
 pub fn is_secret_like(value: &str) -> bool {
-    let _ = value;
-    false
+    if value.len() < MIN_SECRET_LEN {
+        return false;
+    }
+    let has = |f: fn(&char) -> bool| value.chars().any(|c| f(&c));
+    let classes = [
+        has(char::is_ascii_lowercase),
+        has(char::is_ascii_uppercase),
+        has(char::is_ascii_digit),
+        has(|c| !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_' | '.') && !c.is_whitespace()),
+    ];
+    classes.iter().filter(|b| **b).count() >= 2
 }
 
 /// Extracts secret values from one secrets file's text.
 pub fn extract_secrets(source: &str, text: &str) -> Vec<Secret> {
-    let _ = (source, text);
-    Vec::new()
+    text.lines()
+        .enumerate()
+        .filter_map(|(i, line)| {
+            let line = line.trim();
+            let value = match line.split_once(": ") {
+                Some((key, v))
+                    if !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') =>
+                {
+                    v.trim()
+                }
+                _ => line,
+            };
+            is_secret_like(value).then(|| Secret {
+                source: source.to_owned(),
+                line: i + 1,
+                value: value.to_owned(),
+            })
+        })
+        .collect()
 }
 
 /// Loads secrets from every `*.txt` in `dir`. A missing directory yields no secrets.
 pub fn load_secrets(dir: &Path) -> Result<Vec<Secret>> {
-    let _ = dir;
-    Ok(Vec::new())
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "txt") && p.is_file())
+        .collect();
+    paths.sort();
+    let mut out = Vec::new();
+    for p in paths {
+        let text = String::from_utf8_lossy(&std::fs::read(&p)?).into_owned();
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        out.extend(extract_secrets(&name, &text));
+    }
+    Ok(out)
 }
 
 /// Encodings of `value` to search for.
 pub fn needles(value: &str) -> Vec<(Encoding, Vec<u8>)> {
-    let _ = value;
-    Vec::new()
+    vec![
+        (Encoding::Utf8, value.as_bytes().to_vec()),
+        (Encoding::Utf16Le, value.encode_utf16().flat_map(u16::to_le_bytes).collect()),
+    ]
 }
 
 /// Searches one file's bytes for every secret.
 pub fn scan_bytes(path: &Path, data: &[u8], secrets: &[Secret]) -> Vec<Hit> {
-    let _ = (path, data, secrets);
-    Vec::new()
+    let mut hits = Vec::new();
+    for s in secrets {
+        for (encoding, needle) in needles(&s.value) {
+            if memchr::memmem::find(data, &needle).is_some() {
+                hits.push(Hit {
+                    path: path.to_path_buf(),
+                    secret: format!("{}:{}", s.source, s.line),
+                    encoding,
+                });
+            }
+        }
+    }
+    hits
 }
 
 /// Scans repository-relative `files` under `root`.
 pub fn scan_files(root: &Path, files: &[PathBuf], secrets: &[Secret]) -> Result<Vec<Hit>> {
-    let _ = (root, files, secrets);
-    Ok(Vec::new())
+    let mut hits = Vec::new();
+    for rel in files {
+        let data = std::fs::read(root.join(rel))?;
+        hits.extend(scan_bytes(rel, &data, secrets));
+    }
+    Ok(hits)
 }
 
 /// Default secrets directory: `$DRIFT_SECRETS_DIR` or `~/code/drift-spikes/secrets`.

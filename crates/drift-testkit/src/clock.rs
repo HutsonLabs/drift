@@ -18,17 +18,19 @@ pub struct ManualClock {
 impl ManualClock {
     /// A clock starting at the current real instant.
     pub fn new() -> Self {
-        todo!("M0-5 green")
+        let start = Instant::now();
+        Self { start, now: Arc::new(Mutex::new(start)) }
     }
 
     /// Moves time forward by `by`.
     pub fn advance(&self, by: Duration) {
-        todo!("M0-5 green")
+        let mut now = self.now.lock().unwrap_or_else(PoisonError::into_inner);
+        *now += by;
     }
 
     /// Time elapsed since this clock (or its first clone) was created.
     pub fn elapsed(&self) -> Duration {
-        todo!("M0-5 green")
+        self.now() - self.start
     }
 }
 
@@ -40,6 +42,6 @@ impl Default for ManualClock {
 
 impl Clock for ManualClock {
     fn now(&self) -> Instant {
-        todo!("M0-5 green")
+        *self.now.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }

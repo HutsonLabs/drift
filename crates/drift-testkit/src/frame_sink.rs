@@ -149,75 +149,95 @@ pub struct RecordingFrameSink {
 impl RecordingFrameSink {
     /// Creates a sink and the log handle that observes it.
     pub fn new(mode: PresentMode) -> (Self, FrameLog) {
-        todo!("M0-5 green")
+        let log = FrameLog::default();
+        (Self { log: log.clone(), mode }, log)
+    }
+
+    fn record(&self, call: FrameSinkCall) {
+        self.log.lock().calls.push(call);
     }
 }
 
 impl FrameLog {
+    fn lock(&self) -> MutexGuard<'_, Shared> {
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Snapshot of all calls so far.
     pub fn calls(&self) -> Vec<FrameSinkCall> {
-        todo!("M0-5 green")
+        self.lock().calls.clone()
     }
 
     /// Removes and returns all calls so far.
     pub fn take(&self) -> Vec<FrameSinkCall> {
-        todo!("M0-5 green")
+        std::mem::take(&mut self.lock().calls)
     }
 
     /// Frame ids whose `presented` callback has not run yet (Deferred mode).
     pub fn pending_frames(&self) -> Vec<u32> {
-        todo!("M0-5 green")
+        self.lock().pending.iter().map(|(id, _)| *id).collect()
     }
 
     /// Runs every queued `presented` callback in frame order; returns how many ran.
+    /// Callbacks run after the internal lock is released, so they may use the log.
     pub fn present_pending(&self) -> usize {
-        todo!("M0-5 green")
+        let pending = std::mem::take(&mut self.lock().pending);
+        let n = pending.len();
+        for (_, presented) in pending {
+            presented();
+        }
+        n
     }
 }
 
 /// FNV-1a 64-bit hash, used to fingerprint pixel payloads.
 pub fn fnv1a64(data: &[u8]) -> u64 {
-    todo!("M0-5 green")
+    data.iter()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3))
 }
 
 impl FrameSink for RecordingFrameSink {
     fn reset(&mut self, output: Size<u32>) {
-        todo!()
+        self.record(FrameSinkCall::Reset { output });
     }
     fn create_surface(&mut self, id: u16, size: Size<u32>) {
-        todo!()
+        self.record(FrameSinkCall::CreateSurface { id, size });
     }
     fn delete_surface(&mut self, id: u16) {
-        todo!()
+        self.record(FrameSinkCall::DeleteSurface { id });
     }
     fn map_surface_to_output(&mut self, id: u16, origin: Point<u32>) {
-        todo!()
+        self.record(FrameSinkCall::MapSurfaceToOutput { id, origin });
     }
     fn blit_bgra(&mut self, id: u16, rect: Rect, stride: usize, data: &[u8]) {
-        todo!()
+        self.record(FrameSinkCall::BlitBgra { id, rect, stride, len: data.len(), hash: fnv1a64(data) });
     }
     fn blit_nv12(&mut self, id: u16, frame: &Nv12Frame, regions: &[Rect]) {
-        todo!()
+        self.record(FrameSinkCall::BlitNv12 { id, size: frame.size(), regions: regions.to_vec() });
     }
     fn solid_fill(&mut self, id: u16, color: Bgra, rects: &[Rect]) {
-        todo!()
+        self.record(FrameSinkCall::SolidFill { id, color, rects: rects.to_vec() });
     }
     fn surface_to_surface(&mut self, src: u16, dst: u16, rect: Rect, dests: &[Point<u32>]) {
-        todo!()
+        self.record(FrameSinkCall::SurfaceToSurface { src, dst, rect, dests: dests.to_vec() });
     }
     fn surface_to_cache(&mut self, id: u16, rect: Rect, slot: u16) {
-        todo!()
+        self.record(FrameSinkCall::SurfaceToCache { id, rect, slot });
     }
     fn cache_to_surface(&mut self, slot: u16, id: u16, dests: &[Point<u32>]) {
-        todo!()
+        self.record(FrameSinkCall::CacheToSurface { slot, id, dests: dests.to_vec() });
     }
     fn evict_cache(&mut self, slot: u16) {
-        todo!()
+        self.record(FrameSinkCall::EvictCache { slot });
     }
     fn end_frame(&mut self, frame_id: u32, presented: PresentedCallback) {
-        todo!()
+        self.record(FrameSinkCall::EndFrame { frame_id });
+        match self.mode {
+            PresentMode::Immediate => presented(),
+            PresentMode::Deferred => self.log.lock().pending.push((frame_id, presented)),
+        }
     }
     fn set_visible(&mut self, visible: bool) {
-        todo!()
+        self.record(FrameSinkCall::SetVisible { visible });
     }
 }

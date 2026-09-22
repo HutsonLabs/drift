@@ -6,16 +6,25 @@ use xtask::coverage::{Target, evaluate};
 
 const TARGETS: &[Target] = &[
     Target { name: "core", prefixes: &["crates/drift-core/src/"], min_percent: 85.0 },
-    Target { name: "rdp-redirect", prefixes: &["crates/drift-rdp/src/redirect", "crates/drift-rdp/src/rdstls"], min_percent: 85.0 },
+    Target {
+        name: "rdp-redirect",
+        prefixes: &["crates/drift-rdp/src/redirect", "crates/drift-rdp/src/rdstls"],
+        min_percent: 85.0,
+    },
     Target { name: "empty", prefixes: &["crates/drift-input/src/"], min_percent: 85.0 },
 ];
 
 fn file(name: &str, count: u64, covered: u64) -> String {
-    format!(r#"{{"filename":"/repo/{name}","summary":{{"lines":{{"count":{count},"covered":{covered},"percent":0}}}}}}"#)
+    format!(
+        r#"{{"filename":"/repo/{name}","summary":{{"lines":{{"count":{count},"covered":{covered},"percent":0}}}}}}"#
+    )
 }
 
 fn summary(files: &[String]) -> String {
-    format!(r#"{{"type":"llvm.coverage.json.export","version":"2.0.1","data":[{{"files":[{}],"totals":{{}}}}]}}"#, files.join(","))
+    format!(
+        r#"{{"type":"llvm.coverage.json.export","version":"2.0.1","data":[{{"files":[{}],"totals":{{}}}}]}}"#,
+        files.join(",")
+    )
 }
 
 #[test]

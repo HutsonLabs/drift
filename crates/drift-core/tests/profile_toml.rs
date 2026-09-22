@@ -98,6 +98,8 @@ fn fingerprint_parse_accepts_uppercase_and_rejects_garbage() {
     for bad in ["", "ab", "ab:cd", &"ab:".repeat(32), &"abc:".repeat(31), &"ab-".repeat(31)] {
         assert!(bad.parse::<CertFingerprint>().is_err(), "{bad:?}");
     }
+    let plus_sign = format!("+f{}", &fp.to_string()[2..]);
+    assert!(plus_sign.parse::<CertFingerprint>().is_err(), "from_str_radix accepts '+'");
     let too_long = format!("{fp}:00");
     assert!(too_long.parse::<CertFingerprint>().is_err());
 }

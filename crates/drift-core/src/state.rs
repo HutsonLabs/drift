@@ -69,7 +69,17 @@ pub enum DisconnectReason {
 impl DisconnectReason {
     /// Whether automatic reconnection may be attempted for this reason (plan M7-1).
     pub fn is_retryable(&self) -> bool {
-        todo!("M0-5 green")
+        match self {
+            Self::Network | Self::TlsEof | Self::ServerShutdown | Self::Timeout => true,
+            Self::AuthFailed
+            | Self::RdstlsFailed(_)
+            | Self::CertMismatch
+            | Self::ProtocolError(_)
+            | Self::RedirectLoop
+            | Self::UserClosed
+            | Self::LoggedOffRemotely
+            | Self::LocalNetworkDenied => false,
+        }
     }
 }
 
@@ -160,7 +170,52 @@ impl SessionState {
     /// - `Reconnecting` → `Disconnected`, `Failed`.
     /// - `Connecting.leg` must be in `1..=MAX_LEG`; `Reconnecting.reason` must be retryable.
     pub fn transition(&self, next: SessionState) -> Result<SessionState, InvalidTransition> {
-        todo!("M0-5 green")
+        if self.allows(&next) { Ok(next) } else { Err(InvalidTransition { from: self.clone(), to: next }) }
+    }
+
+    fn allows(&self, next: &SessionState) -> bool {
+        use SessionState as S;
+
+        // Per-target validity, independent of the source state.
+        match next {
+            S::Connecting { leg, .. } if !(1..=MAX_LEG).contains(leg) => return false,
+            S::Reconnecting { attempt, reason, .. } if *attempt == 0 || !reason.is_retryable() => {
+                return false;
+            }
+            _ => {}
+        }
+
+        match (self, next) {
+            // (Re)start at leg 1.
+            (S::Idle | S::Disconnected { .. } | S::Failed { .. }, S::Connecting { leg: 1, .. }) => true,
+            (S::Disconnected { .. } | S::Failed { .. }, S::Idle) => true,
+            (S::Idle, S::Disconnected { reason: DisconnectReason::UserClosed }) => true,
+
+            // Progress within a leg, or a redirect to the next leg.
+            (S::Connecting { leg: from, .. }, S::Connecting { leg: to, .. }) => {
+                *to == *from || Some(*to) == from.checked_add(1)
+            }
+            (S::Connecting { leg, .. }, S::AwaitingGreeterLogin) => *leg >= 2,
+            (S::Connecting { .. }, S::Connected { .. }) => true,
+
+            // A Server Redirection from the greeter or a live session.
+            (S::AwaitingGreeterLogin | S::Connected { .. }, S::Connecting { leg, .. }) => *leg >= 2,
+            // Resize (new desktop size / scale).
+            (S::Connected { .. }, S::Connected { .. }) => true,
+
+            // Drops from any active state.
+            (
+                S::Connecting { .. } | S::AwaitingGreeterLogin | S::Connected { .. },
+                S::Reconnecting { .. } | S::Disconnected { .. } | S::Failed { .. },
+            ) => true,
+
+            // Backoff.
+            (S::Reconnecting { attempt: from, .. }, S::Reconnecting { attempt: to, .. }) => to >= from,
+            (S::Reconnecting { .. }, S::Connecting { leg: 1, .. }) => true,
+            (S::Reconnecting { .. }, S::Disconnected { .. } | S::Failed { .. }) => true,
+
+            _ => false,
+        }
     }
 
     /// `true` while a transport is open or being opened.

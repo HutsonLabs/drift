@@ -46,7 +46,13 @@ fn recording_sink_records_every_call_in_order() {
             FrameSinkCall::Reset { output: Size::new(1280, 800) },
             FrameSinkCall::CreateSurface { id: 1, size: Size::new(1280, 800) },
             FrameSinkCall::MapSurfaceToOutput { id: 1, origin: Point::new(0, 0) },
-            FrameSinkCall::BlitBgra { id: 1, rect: r, stride: 8, len: 8, hash: fnv1a64(&[1, 2, 3, 4, 5, 6, 7, 8]) },
+            FrameSinkCall::BlitBgra {
+                id: 1,
+                rect: r,
+                stride: 8,
+                len: 8,
+                hash: fnv1a64(&[1, 2, 3, 4, 5, 6, 7, 8])
+            },
             FrameSinkCall::BlitNv12 { id: 1, size: Size::new(2, 2), regions: vec![r] },
             FrameSinkCall::SolidFill { id: 1, color: Bgra::new(0, 0, 255, 255), rects: vec![r] },
             FrameSinkCall::SurfaceToSurface { src: 1, dst: 1, rect: r, dests: vec![Point::new(4, 4)] },
@@ -66,9 +72,12 @@ fn immediate_mode_presents_inside_end_frame() {
     let (mut sink, log) = RecordingFrameSink::new(PresentMode::Immediate);
     let acks = Arc::new(AtomicU32::new(0));
     let a = Arc::clone(&acks);
-    sink.end_frame(5, Box::new(move || {
-        a.fetch_add(1, Ordering::SeqCst);
-    }));
+    sink.end_frame(
+        5,
+        Box::new(move || {
+            a.fetch_add(1, Ordering::SeqCst);
+        }),
+    );
     assert_eq!(acks.load(Ordering::SeqCst), 1);
     assert_eq!(log.calls(), vec![FrameSinkCall::EndFrame { frame_id: 5 }]);
     assert!(log.pending_frames().is_empty());
@@ -80,9 +89,12 @@ fn deferred_mode_presents_exactly_once_on_demand() {
     let acks = Arc::new(AtomicU32::new(0));
     for id in [1, 2] {
         let a = Arc::clone(&acks);
-        sink.end_frame(id, Box::new(move || {
-            a.fetch_add(1, Ordering::SeqCst);
-        }));
+        sink.end_frame(
+            id,
+            Box::new(move || {
+                a.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
     }
     assert_eq!(acks.load(Ordering::SeqCst), 0);
     assert_eq!(log.pending_frames(), vec![1, 2]);

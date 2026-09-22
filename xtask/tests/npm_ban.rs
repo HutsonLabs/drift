@@ -78,10 +78,11 @@ fn scan_files_reports_lockfiles_and_skips_third_party() {
     std::fs::write(root.join("run.sh"), "npm install\n").unwrap();
     std::fs::write(root.join("third_party/x/build.sh"), "npm install\n").unwrap();
     std::fs::write(root.join("third_party/x/yarn.lock"), "").unwrap();
-    let files: Vec<PathBuf> = ["ui/package-lock.json", "run.sh", "third_party/x/build.sh", "third_party/x/yarn.lock"]
-        .iter()
-        .map(PathBuf::from)
-        .collect();
+    let files: Vec<PathBuf> =
+        ["ui/package-lock.json", "run.sh", "third_party/x/build.sh", "third_party/x/yarn.lock"]
+            .iter()
+            .map(PathBuf::from)
+            .collect();
     let v = scan_files(root, &files);
     let paths: Vec<_> = v.iter().map(|v| v.path.to_string_lossy().into_owned()).collect();
     assert_eq!(paths, vec!["ui/package-lock.json", "run.sh"], "{v:?}");
