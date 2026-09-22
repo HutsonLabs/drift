@@ -42,6 +42,38 @@ pub fn vars_from_dir(dir: &Path) -> Vec<(String, String)> {
     out
 }
 
+/// Replaces credential values in the e2e run's output (the harness-side redact layer; the
+/// tests also redact their own `tracing` output, see `drift-e2e`).
+#[derive(Clone, Default)]
+pub struct Redactor {
+    secrets: Vec<String>,
+}
+
+impl std::fmt::Debug for Redactor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Redactor").field("secrets", &self.secrets.len()).finish()
+    }
+}
+
+impl Redactor {
+    /// Redacts the values of every `*_USER` / `*_PASS` variable in `vars` (longest first).
+    pub fn from_vars(vars: &[(String, String)]) -> Self {
+        let mut secrets: Vec<String> = vars
+            .iter()
+            .filter(|(k, v)| (k.ends_with("_USER") || k.ends_with("_PASS")) && !v.is_empty())
+            .map(|(_, v)| v.clone())
+            .collect();
+        secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
+        secrets.dedup();
+        Self { secrets }
+    }
+
+    /// `text` with every secret replaced by `<redacted>`.
+    pub fn redact(&self, text: &str) -> String {
+        self.secrets.iter().fold(text.to_owned(), |t, s| t.replace(s.as_str(), "<redacted>"))
+    }
+}
+
 /// Parses a user/password pair from a secrets file's text (`Key: value` or bare lines).
 pub fn parse_credentials(text: &str) -> Option<(String, String)> {
     let mut values =

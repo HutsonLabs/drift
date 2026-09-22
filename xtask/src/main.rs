@@ -457,19 +457,50 @@ fn e2e(root: &Path, extra: &[String]) -> Result<()> {
     for (local, remote) in E2E_PORTS {
         cmd.env(format!("DRIFT_E2E_PORT_{remote}"), local.to_string());
     }
+    let mut vars: Vec<(String, String)> =
+        std::env::vars().filter(|(k, _)| k.starts_with("DRIFT_E2E_")).collect();
     if let Some(dir) = secret_scan::default_secrets_dir() {
         for (k, v) in e2e_env::vars_from_dir(&dir) {
             if std::env::var_os(&k).is_none() {
-                cmd.env(k, v);
+                cmd.env(&k, &v);
+                vars.push((k, v));
             }
         }
     }
+    // Harness-side redact layer: every line of the run's output goes through the redactor.
+    let redactor = e2e_env::Redactor::from_vars(&vars);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     step("cargo nextest run -p drift-e2e --run-ignored only");
-    let status = cmd.status().context("running nextest")?;
+    let mut child = cmd.spawn().context("running nextest")?;
+    let pumps = [
+        child.stdout.take().map(|s| pump_redacted(s, std::io::stdout(), redactor.clone())),
+        child.stderr.take().map(|s| pump_redacted(s, std::io::stderr(), redactor)),
+    ];
+    let status = child.wait().context("waiting for nextest")?;
+    for pump in pumps.into_iter().flatten() {
+        let _ = pump.join();
+    }
     if !status.success() {
         bail!("e2e failed ({status})");
     }
     Ok(())
+}
+
+fn pump_redacted(
+    src: impl std::io::Read + Send + 'static,
+    mut dst: impl std::io::Write + Send + 'static,
+    redactor: e2e_env::Redactor,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        use std::io::BufRead as _;
+        let mut reader = std::io::BufReader::new(src);
+        let mut line = Vec::new();
+        while reader.read_until(b'\n', &mut line).is_ok_and(|n| n > 0) {
+            let _ = dst.write_all(redactor.redact(&String::from_utf8_lossy(&line)).as_bytes());
+            let _ = dst.flush();
+            line.clear();
+        }
+    })
 }
 
 struct ForwardGuard(Child);
