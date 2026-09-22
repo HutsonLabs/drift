@@ -10,10 +10,30 @@ publish.workspace = true
 [features]
 default = []
 ## H.264 encoder + MP4 writer for session recording (M8).
-recording = []
+recording = ["dep:objc2-av-foundation", "dep:objc2-foundation"]
 
 [dependencies]
 drift-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+objc2.workspace = true
+block2.workspace = true
+objc2-core-foundation = { workspace = true, features = ["CFBase", "CFNumber", "CFDictionary", "CFString", "CFArray"] }
+objc2-core-video = { workspace = true, features = ["objc2-io-surface", "CVPixelBuffer", "CVImageBuffer", "CVBuffer", "CVReturn", "CVPixelBufferIOSurface", "CVPixelBufferPool"] }
+objc2-io-surface.workspace = true
+# Not yet in [workspace.dependencies]; kept local to drift-video (the only user).
+objc2-core-media = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-video", "CMBase", "CMFormatDescription", "CMSampleBuffer", "CMBlockBuffer", "CMTime", "CMSync", "CMFormatDescriptionBridge", "CMAttachment"] }
+objc2-video-toolbox = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-media", "objc2-core-video", "VTBase", "VTDecompressionSession", "VTDecompressionProperties", "VTCompressionSession", "VTCompressionProperties", "VTErrors", "VTSession", "VTVideoEncoderList"] }
+objc2-av-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["std", "objc2-core-media", "AVAssetWriter", "AVAssetWriterInput", "AVAsset", "AVAssetTrack", "AVMediaFormat", "AVVideoSettings", "AVBase", "AVMediaSelectionGroup", "AVAsynchronousKeyValueLoading", "block2"] }
+objc2-foundation = { workspace = true, optional = true, features = ["NSURL", "NSString", "NSError", "NSArray", "NSValue", "NSGeometry", "NSDictionary"] }
+
+[dev-dependencies]
+drift-testkit.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+ironrdp-egfx.workspace = true
+ironrdp-core.workspace = true
+ironrdp-pdu.workspace = true
 
 [lints]
 workspace = true
