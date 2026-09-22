@@ -447,7 +447,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - goldens for solid fill, BGRA blit at an offset, overlapping surface-to-surface, cache round-trip, region-limited NV12 (pixels outside the regions stay untouched) and reset;
   - a colour-accuracy test: known RGB → g-r-d's integer encoder formula (§1.4) → our shader → RGB within ±2;
   - `presented` is called exactly once per frame.
-- [ ] **M1-6 RemoteView + UI** (C + D). `drift-macos::RemoteView` as in §1.8: layer-hosting, drawable size tracking, first responder, and hiding the webview on `Connected`. Minimal UI: a profile form (mode, host, port, user, password) and a certificate prompt that shows the fingerprint in grdctl format.
+- [x] **M1-6 RemoteView + UI** (C + D). `drift-macos::RemoteView` as in §1.8: layer-hosting, drawable size tracking, first responder, and hiding the webview on `Connected`. Minimal UI: a profile form (mode, host, port, user, password) and a certificate prompt that shows the fingerprint in grdctl format.
   **Red:**
   - `drift-core::profile::validate` table tests;
   - `bun test` for form rendering from state;
@@ -539,9 +539,9 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Red:** a smoke test on `NSPasteboard pasteboardWithUniqueName`; a focus-scoping test with fakes.
 
 ### M6 — Multi-session tabs
-- [ ] **M6-1 SessionManager** (D). Maps sessions to windows, routes events, closes cleanly, and shuts down gracefully on quit (2 s cap).
+- [x] **M6-1 SessionManager** (D). Maps sessions to windows, routes events, closes cleanly, and shuts down gracefully on quit (2 s cap).
   **Red:** fake-actor tests (open ×3, close the middle one, events reach only their own window); quit completes within the cap; no leaked handles.
-- [ ] **M6-2 Native tab group** (D + C). Each session window is created hidden, then `setTabbingMode(Preferred)` + `addTabbedWindow:ordered:` join it to the group. `newWindowForTab:` is installed on the `TaoWindow` class and routes to "new tab". Menu items: Cmd+T, Cmd+W, Cmd+1…9. Tab title is the profile name plus a state glyph.
+- [x] **M6-2 Native tab group** (D + C). Each session window is created hidden, then `setTabbingMode(Preferred)` + `addTabbedWindow:ordered:` join it to the group. `newWindowForTab:` is installed on the `TaoWindow` class and routes to "new tab". Menu items: Cmd+T, Cmd+W, Cmd+1…9. Tab title is the profile name plus a state glyph.
   **Red:** a title formatter test; a window-group integration test (spike approach: open 3 windows, assert `tabbedWindows.count == 3`) run under `cargo test -p drift-app --features macos-ui-tests`.
 - [ ] **M6-3 Background throttling** (A + B + C). On an occlusion notification (non-visible), send **Suppress Output (allow=0)**, stop the render thread, and suspend acks. On visible, send allow with the full rect; the server sends a full frame (verified), so no Refresh Rect is needed.
   **Red:**
@@ -575,7 +575,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Red:** the captured buffer equals the on-screen composite (golden); the pool doesn't grow over 1 000 frames.
 - [x] **M8-2 Encoder** (B). `VTCompressionSession`: hardware, High profile, real-time, no reordering, 8 Mbit/s, 2 s GOP, variable frame rate on `Clock` timestamps.
   **Red:** encode 120 synthetic frames, decode them back with `drift-video::decode`, and require PSNR ≥ 35 dB; SPS says High; PTS monotonic; keyframe interval honoured; a resize rebuilds the encoder and emits a keyframe.
-- [ ] **M8-3 MP4 + hook** (B + D). `AVAssetWriter` in passthrough mode. `StartRecording`/`StopRecording` go behind the `recording` cargo feature and the hidden menu item "Debug ▸ Record Session (experimental)".
+- [x] **M8-3 MP4 + hook** (B + D). `AVAssetWriter` in passthrough mode. `StartRecording`/`StopRecording` go behind the `recording` cargo feature and the hidden menu item "Debug ▸ Record Session (experimental)".
   **Red:** `AVAsset` reads back the right duration, track and dimensions; stop without start gives an error; a disk-full injection stops gracefully with an event.
 
 ### M9 — Hardening & ship
