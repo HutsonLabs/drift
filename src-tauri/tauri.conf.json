@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Drift",
+  "version": "0.1.0",
+  "identifier": "com.hutsonlabs.drift",
+  "build": {
+    "frontendDist": "../ui/dist",
+    "beforeDevCommand": "bun run --cwd ui build",
+    "beforeBuildCommand": "bun run --cwd ui build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Drift",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 480,
+        "minHeight": 320,
+        "tabbingIdentifier": "drift.sessions"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    },
+    "macOSPrivateApi": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "category": "public.app-category.utilities",
+    "shortDescription": "RDP client for GNOME Remote Desktop",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "14.0"
+    }
+  }
+}

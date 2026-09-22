@@ -1,0 +1,19 @@
+[package]
+name = "drift-gfx"
+description = "Drift's RDPGFX dynamic-channel client: surfaces, caches, frames, ack policy and the FrameSink contract."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+drift-core.workspace = true
+ironrdp-core.workspace = true
+ironrdp-dvc.workspace = true
+ironrdp-egfx.workspace = true
+ironrdp-graphics.workspace = true
+ironrdp-pdu.workspace = true
+
+[lints]
+workspace = true

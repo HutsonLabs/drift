@@ -1,0 +1,12 @@
+/target/
+**/target/
+ui/node_modules/
+ui/dist/
+.claude/worktrees/
+*.dmg
+.DS_Store
+/fuzz/artifacts/
+/fuzz/corpus/
+*.profraw
+lcov.info
+src-tauri/gen/

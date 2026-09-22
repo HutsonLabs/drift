@@ -1,0 +1,15 @@
+[package]
+name = "drift-render"
+description = "Metal compositor for Drift: per-surface textures, BT.709 NV12 shader, CAMetalLayer presentation, golden harness."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+drift-core.workspace = true
+drift-gfx.workspace = true
+
+[lints]
+workspace = true

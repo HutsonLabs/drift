@@ -1,0 +1,14 @@
+//! Library half of `cargo xtask`: pure, unit-tested checks used by the CLI in `main.rs`.
+//!
+//! - [`npm_ban`]: enforces "Bun, never npm" (plan §0, M0-1 Red test).
+//! - [`secret_scan`]: fails if any value from `~/code/drift-spikes/secrets/*.txt` appears
+//!   in tracked files as bytes/UTF-8 or UTF-16LE.
+//! - [`coverage`]: the ≥ 85 % line-coverage gate for the crates listed in plan §0.
+//! - [`e2e_env`]: maps the dev-machine secrets directory onto `DRIFT_E2E_*` variables.
+//! - [`repo`]: repository discovery and file listing helpers.
+
+pub mod coverage;
+pub mod e2e_env;
+pub mod npm_ban;
+pub mod repo;
+pub mod secret_scan;

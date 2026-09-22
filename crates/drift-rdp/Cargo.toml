@@ -1,0 +1,31 @@
+[package]
+name = "drift-rdp"
+description = "Drift's RDP session layer: connect (TLS pin, NLA, RDSTLS), redirect loop, SessionActor, channel wiring."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+drift-core.workspace = true
+drift-gfx.workspace = true
+drift-clipboard.workspace = true
+ironrdp-cliprdr.workspace = true
+ironrdp-connector.workspace = true
+ironrdp-core.workspace = true
+ironrdp-displaycontrol.workspace = true
+ironrdp-dvc.workspace = true
+ironrdp-pdu.workspace = true
+ironrdp-session.workspace = true
+ironrdp-svc.workspace = true
+ironrdp-tokio.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[lints]
+workspace = true
