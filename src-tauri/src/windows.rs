@@ -61,6 +61,8 @@ struct WindowPlatform {
 
 thread_local! {
     static PLATFORM: RefCell<HashMap<String, WindowPlatform>> = RefCell::new(HashMap::new());
+    /// The shared Metal device and pipelines (plan §2: one per process).
+    static GPU: RefCell<Option<Result<Gpu, drift_render::RenderError>>> = const { RefCell::new(None) };
 }
 
 /// Forwards `RemoteView` output to the window's session actor (M1-6 wiring).
@@ -251,7 +253,9 @@ pub(crate) fn create_render_sink<R: Runtime>(
 ) -> Result<Box<dyn FrameSink>, CommandError> {
     let label = label.to_owned();
     on_main(app, move |_| {
-        let gpu = Gpu::system_default().map_err(|e| CommandError::Platform { message: e.to_string() })?;
+        // One Gpu (device + compiled shaders) for the whole process, as the plan requires.
+        let gpu = GPU.with(|gpu| gpu.borrow_mut().get_or_insert_with(Gpu::system_default).clone());
+        let gpu = gpu.map_err(|e| CommandError::Platform { message: e.to_string() })?;
         with_platform(&label, |plat| {
             let target = LayerTarget::new(&gpu, plat.view.metal_layer());
             let thread = RenderThread::spawn(&label, move || Compositor::new(gpu, target))
