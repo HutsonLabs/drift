@@ -1,4 +1,5 @@
 //! M1-6 / M6-2 / M9-3 Red: launch options and bundle configuration.
+#![allow(clippy::unwrap_used, clippy::expect_used)] // test fixtures
 
 use std::path::PathBuf;
 

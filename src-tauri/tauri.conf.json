@@ -10,17 +10,7 @@
   },
   "app": {
     "withGlobalTauri": false,
-    "windows": [
-      {
-        "label": "main",
-        "title": "Drift",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 480,
-        "minHeight": 320,
-        "tabbingIdentifier": "drift.sessions"
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     },
@@ -28,7 +18,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "category": "public.app-category.utilities",
     "shortDescription": "RDP client for GNOME Remote Desktop",
     "icon": [

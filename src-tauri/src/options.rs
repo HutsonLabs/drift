@@ -31,9 +31,23 @@ impl std::fmt::Debug for RunOptions {
 
 impl RunOptions {
     /// Options from `(name, value)` pairs (blank values are ignored).
+    ///
+    /// Only `DRIFT_CONFIG_DIR` and `DRIFT_AUTOCONNECT` are read; the Keychain can never be
+    /// switched off from the environment.
     pub fn from_vars(vars: impl IntoIterator<Item = (String, String)>) -> Self {
-        let _ = vars.into_iter();
-        todo!("M1-6")
+        let mut options = Self::default();
+        for (name, value) in vars {
+            let value = value.trim();
+            if value.is_empty() {
+                continue;
+            }
+            match name.as_str() {
+                "DRIFT_CONFIG_DIR" => options.config_dir = Some(PathBuf::from(value)),
+                "DRIFT_AUTOCONNECT" => options.autoconnect = Some(value.to_owned()),
+                _ => {}
+            }
+        }
+        options
     }
 
     /// Options from the process environment.

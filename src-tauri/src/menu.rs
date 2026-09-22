@@ -33,16 +33,45 @@ pub enum MenuAction {
     ToggleRecording,
 }
 
+const SELECT_TAB_PREFIX: &str = "drift.select-tab.";
+
 impl MenuAction {
     /// The menu item id.
     pub fn id(self) -> String {
-        todo!("M6-2")
+        match self {
+            Self::NewTab => "drift.new-tab".to_owned(),
+            Self::CloseTab => "drift.close-tab".to_owned(),
+            Self::SelectTab(n) => format!("{SELECT_TAB_PREFIX}{n}"),
+            Self::PreviousTab => "drift.previous-tab".to_owned(),
+            Self::NextTab => "drift.next-tab".to_owned(),
+            Self::SendCtrlAltDel => "drift.send-ctrl-alt-del".to_owned(),
+            Self::Reconnect => "drift.reconnect".to_owned(),
+            Self::Disconnect => "drift.disconnect".to_owned(),
+            Self::Quit => "drift.quit".to_owned(),
+            Self::ToggleRecording => "drift.toggle-recording".to_owned(),
+        }
     }
 
     /// Parses a menu item id.
     pub fn from_id(id: &str) -> Option<Self> {
-        let _ = id;
-        todo!("M6-2")
+        if let Some(n) = id.strip_prefix(SELECT_TAB_PREFIX) {
+            return match n.parse::<u8>() {
+                Ok(n @ 1..=9) => Some(Self::SelectTab(n)),
+                _ => None,
+            };
+        }
+        match id {
+            "drift.new-tab" => Some(Self::NewTab),
+            "drift.close-tab" => Some(Self::CloseTab),
+            "drift.previous-tab" => Some(Self::PreviousTab),
+            "drift.next-tab" => Some(Self::NextTab),
+            "drift.send-ctrl-alt-del" => Some(Self::SendCtrlAltDel),
+            "drift.reconnect" => Some(Self::Reconnect),
+            "drift.disconnect" => Some(Self::Disconnect),
+            "drift.quit" => Some(Self::Quit),
+            "drift.toggle-recording" => Some(Self::ToggleRecording),
+            _ => None,
+        }
     }
 }
 
@@ -97,6 +126,12 @@ pub enum MenuEntry {
     Separator,
 }
 
+impl MenuEntry {
+    fn action(action: MenuAction, title: &str, shortcut: Option<MenuShortcut>) -> Self {
+        Self::Action { action, title: title.to_owned(), shortcut }
+    }
+}
+
 /// One top-level menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubmenuSpec {
@@ -108,13 +143,90 @@ pub struct SubmenuSpec {
     pub is_window_menu: bool,
 }
 
+fn submenu(title: &str, entries: Vec<MenuEntry>) -> SubmenuSpec {
+    SubmenuSpec { title: title.to_owned(), entries, is_window_menu: false }
+}
+
 /// The menu bar: Drift, File, Edit, Session, Window (+ Debug with feature `recording`).
 pub fn menu_spec() -> Vec<SubmenuSpec> {
-    todo!("M6-2")
+    use MenuAction as A;
+    use MenuEntry as E;
+    use Standard as S;
+
+    let drift = submenu(
+        "Drift",
+        vec![
+            E::Standard(S::About),
+            E::Separator,
+            E::Standard(S::Services),
+            E::Separator,
+            E::Standard(S::Hide),
+            E::Standard(S::HideOthers),
+            E::Standard(S::ShowAll),
+            E::Separator,
+            E::action(A::Quit, "Quit Drift", Some(MenuShortcut::Quit)),
+        ],
+    );
+    let file = submenu(
+        "File",
+        vec![
+            E::action(A::NewTab, "New Tab", Some(MenuShortcut::NewTab)),
+            E::action(A::CloseTab, "Close Tab", Some(MenuShortcut::CloseTab)),
+        ],
+    );
+    let edit = submenu(
+        "Edit",
+        vec![
+            E::Standard(S::Undo),
+            E::Standard(S::Redo),
+            E::Separator,
+            E::Standard(S::Cut),
+            E::Standard(S::Copy),
+            E::Standard(S::Paste),
+            E::Standard(S::SelectAll),
+        ],
+    );
+    let session = submenu(
+        "Session",
+        vec![
+            E::action(A::SendCtrlAltDel, "Send Ctrl+Alt+Del", None),
+            E::action(A::Reconnect, "Reconnect", None),
+            E::action(A::Disconnect, "Disconnect", None),
+        ],
+    );
+    let mut window_entries = vec![
+        MenuEntry::Standard(S::Minimize),
+        MenuEntry::Standard(S::Zoom),
+        MenuEntry::Standard(S::Fullscreen),
+        MenuEntry::Separator,
+        MenuEntry::action(A::PreviousTab, "Show Previous Tab", Some(MenuShortcut::PreviousTab)),
+        MenuEntry::action(A::NextTab, "Show Next Tab", Some(MenuShortcut::NextTab)),
+        MenuEntry::Separator,
+    ];
+    window_entries.extend((1..=9u8).map(|n| {
+        MenuEntry::action(A::SelectTab(n), &format!("Show Tab {n}"), Some(MenuShortcut::SelectTab(n)))
+    }));
+    let window = SubmenuSpec { title: "Window".to_owned(), entries: window_entries, is_window_menu: true };
+
+    let mut menus = vec![drift, file, edit, session, window];
+    if cfg!(feature = "recording") {
+        menus.push(submenu(
+            "Debug",
+            vec![E::action(A::ToggleRecording, "Record Session (experimental)", None)],
+        ));
+    }
+    menus
 }
 
 /// Tauri accelerator string for an allow-listed shortcut.
 pub fn accelerator(shortcut: MenuShortcut) -> String {
-    let _ = shortcut;
-    todo!("M6-2")
+    match shortcut {
+        MenuShortcut::NewTab => "CmdOrCtrl+T".to_owned(),
+        MenuShortcut::CloseTab => "CmdOrCtrl+W".to_owned(),
+        MenuShortcut::Quit => "CmdOrCtrl+Q".to_owned(),
+        MenuShortcut::SelectTab(n) => format!("CmdOrCtrl+{n}"),
+        MenuShortcut::PreviousTab => "CmdOrCtrl+Shift+BracketLeft".to_owned(),
+        MenuShortcut::NextTab => "CmdOrCtrl+Shift+BracketRight".to_owned(),
+        MenuShortcut::CycleWindows => "CmdOrCtrl+Backquote".to_owned(),
+    }
 }

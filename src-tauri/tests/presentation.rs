@@ -1,4 +1,5 @@
 //! M1-6 / M6-2 / M3-2 Red: pure presentation rules for session windows.
+#![allow(clippy::unwrap_used, clippy::expect_used)] // test fixtures
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -35,6 +35,7 @@ export type Api = Pick<
   | "reconnectNow"
   | "cancelReconnect"
   | "closeSession"
+  | "disconnect"
 >;
 
 type Result<T> = { status: "ok"; data: T } | { status: "error"; error: CommandError };
@@ -49,6 +50,8 @@ export function describeError(e: CommandError): string {
     case "storage":
     case "platform":
       return e.message;
+    case "no-session":
+      return "This tab is not connected.";
     case "not-implemented":
       return `${e.what} is not available yet.`;
   }
@@ -221,7 +224,8 @@ export class DriftApp {
         mount(this.root);
         break;
       case "connecting":
-        renderConnecting(this.root, view, { cancel: () => void this.intent(this.api.closeSession() as Promise<Result<null>>) });
+        // Cancelling while connecting ends the session but keeps the tab open.
+        renderConnecting(this.root, view, { cancel: () => void this.intent(this.api.disconnect() as Promise<Result<null>>) });
         break;
       case "certificate":
         if (view.certificate) {

@@ -3,6 +3,7 @@
 //!
 //! Actors are fakes built from `SessionHandle::from_sender` (ADR M0-5); the host is a
 //! recorder standing in for Tauri/AppKit.
+#![allow(clippy::unwrap_used, clippy::expect_used)] // test fixtures
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -80,6 +81,14 @@ impl FakeHost {
     fn ended(&self) -> Vec<String> {
         self.ended.lock().unwrap().clone()
     }
+    /// Ends every fake actor that is still running (wedged ones).
+    fn kill_all(&self) {
+        for actor in self.actors.lock().unwrap().values_mut().flatten() {
+            if let Some(kill) = actor.kill.take() {
+                let _ = kill.send(());
+            }
+        }
+    }
     fn all_actors_gone(&self) -> bool {
         self.actors
             .lock()
@@ -113,7 +122,13 @@ impl SessionHost for FakeHost {
                 tokio::select! {
                     _ = &mut kill_rx => return,
                     cmd = cmd_rx.recv() => {
-                        let Some(cmd) = cmd else { return };
+                        let Some(cmd) = cmd else {
+                            if behaviour == Behaviour::Stuck {
+                                // A wedged actor: keeps running until the test kills it.
+                                let _ = (&mut kill_rx).await;
+                            }
+                            return;
+                        };
                         log.lock().unwrap().push(cmd.clone());
                         if cmd == SessionCommand::Close && behaviour == Behaviour::Graceful {
                             let _ = ev_tx.send(SessionEvent::State(SessionState::Disconnected {
@@ -181,6 +196,13 @@ fn connected() -> SessionEvent {
     SessionEvent::State(SessionState::Connected { desktop: DesktopSize::new(1280, 800), scale: 100 })
 }
 
+/// Opens a session and waits for the actor's first event, so later `emit`s cannot overtake it.
+async fn open_session(host: &FakeHost, manager: &SessionManager, window: &str, profile: ConnectionProfile) {
+    let before = host.views_for(window).len();
+    manager.open(window, profile).unwrap();
+    eventually("the first view", || host.views_for(window).len() > before).await;
+}
+
 async fn open_three(host: &FakeHost, manager: &SessionManager) {
     for (w, name) in [("w1", "Alpha"), ("w2", "Bravo"), ("w3", "Charlie")] {
         manager.open(w, profile(name)).unwrap();
@@ -231,8 +253,7 @@ async fn events_reach_only_their_own_window() {
 #[tokio::test]
 async fn unchanged_views_are_not_re_emitted() {
     let (host, manager) = setup();
-    manager.open("w1", profile("Alpha")).unwrap();
-    eventually("connecting", || host.views_for("w1").len() == 1).await;
+    open_session(&host, &manager, "w1", profile("Alpha")).await;
     host.emit("w1", 0, connected());
     host.emit("w1", 0, SessionEvent::Stats(Default::default()));
     eventually("live", || host.views_for("w1").len() == 2).await;
@@ -245,7 +266,7 @@ async fn certificate_answers_are_forwarded_and_pins_persisted() {
     let (host, manager) = setup();
     let p = profile("Alpha");
     let id = p.id;
-    manager.open("w1", p).unwrap();
+    open_session(&host, &manager, "w1", p).await;
     let fp = CertFingerprint::from_bytes([0xf3; 32]);
     host.emit(
         "w1",
@@ -321,7 +342,7 @@ async fn an_ended_session_keeps_its_window_and_can_be_reopened() {
     let (host, manager) = setup();
     let p = profile("Alpha");
     let id = p.id;
-    manager.open("w1", p.clone()).unwrap();
+    open_session(&host, &manager, "w1", p.clone()).await;
     host.emit("w1", 0, SessionEvent::State(SessionState::Failed { reason: DisconnectReason::AuthFailed }));
     host.with_actor("w1", 0, |a| a.kill.take().unwrap().send(()).unwrap());
 
@@ -362,7 +383,7 @@ async fn open_replaces_a_live_session() {
 #[tokio::test]
 async fn disconnect_returns_the_window_to_profiles() {
     let (host, manager) = setup();
-    manager.open("w1", profile("Alpha")).unwrap();
+    open_session(&host, &manager, "w1", profile("Alpha")).await;
     host.emit("w1", 0, connected());
     eventually("live", || manager.view("w1").is_some_and(|v| v.screen == Screen::Live)).await;
 
@@ -426,6 +447,7 @@ async fn no_handles_leak_after_close_and_quit() {
     manager.open("w1", profile("Alpha again")).unwrap(); // replaces w1's first actor
     assert!(manager.close("w2").await);
     let _ = manager.shutdown().await;
+    host.kill_all(); // the wedged actor would run forever; nothing of Drift's is left in it
     eventually("all fake actors exited and every sender dropped", || host.all_actors_gone()).await;
     assert_eq!(manager.live_sessions(), 0);
     let mut ended = host.ended();

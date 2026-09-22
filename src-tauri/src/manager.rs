@@ -115,101 +115,277 @@ struct Live {
 
 impl std::fmt::Debug for SessionManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SessionManager").field("cap", &self.shared.cap).finish_non_exhaustive()
+        f.debug_struct("SessionManager")
+            .field("cap", &self.shared.cap)
+            .field("windows", &self.windows())
+            .finish_non_exhaustive()
     }
 }
 
 impl SessionManager {
     /// A manager whose pump tasks run on `runtime`.
     pub fn new(host: Arc<dyn SessionHost>, runtime: Handle) -> Self {
-        let _ = (host, runtime);
-        todo!("M6-1")
+        Self {
+            shared: Arc::new(Shared { host, runtime, cap: CLOSE_CAP, state: Mutex::new(State::default()) }),
+        }
     }
 
-    /// Replaces the close/shutdown cap (tests).
+    /// Replaces the close/shutdown cap (tests). Only call it on a fresh manager.
     #[must_use]
     pub fn with_close_cap(self, cap: Duration) -> Self {
-        let _ = cap;
-        todo!("M6-1")
+        let state = std::mem::take(&mut *self.shared.lock());
+        Self {
+            shared: Arc::new(Shared {
+                host: self.shared.host.clone(),
+                runtime: self.shared.runtime.clone(),
+                cap,
+                state: Mutex::new(state),
+            }),
+        }
     }
 
-    /// Starts a session for `profile` in `window`, replacing (closing) any live one.
+    /// Starts a session for `profile` in `window`.
+    ///
+    /// A live session in the same window is replaced: it is told to `Close`, its pump stops and
+    /// [`SessionHost::session_ended`] runs for it *before* the new actor is spawned, so the host
+    /// can reuse the window's resources.
     pub fn open(&self, window: &str, profile: ConnectionProfile) -> Result<(), CommandError> {
-        let _ = (window, profile);
-        todo!("M6-1")
+        let old = self.shared.lock().windows.get_mut(window).and_then(|slot| slot.live.take());
+        if let Some(old) = old {
+            let _ = old.handle.send(SessionCommand::Close);
+            old.pump.abort();
+            self.shared.host.session_ended(window);
+        }
+        let (handle, events) = self.shared.host.spawn(window, &profile)?;
+        let mut state = self.shared.lock();
+        state.next_generation += 1;
+        let generation = state.next_generation;
+        let pump = self.shared.runtime.spawn(pump(
+            self.shared.clone(),
+            window.to_owned(),
+            generation,
+            profile.id,
+            events,
+        ));
+        let view = SessionView::new(&profile);
+        state.windows.insert(
+            window.to_owned(),
+            Slot { profile, view, live: Some(Live { generation, handle, pump }), back_to_profiles: false },
+        );
+        Ok(())
     }
 
     /// Sends `cmd` to `window`'s live session.
     pub fn send(&self, window: &str, cmd: SessionCommand) -> Result<(), CommandError> {
-        let _ = (window, cmd);
-        todo!("M6-1")
+        let state = self.shared.lock();
+        let live = state.windows.get(window).and_then(|s| s.live.as_ref()).ok_or(CommandError::NoSession)?;
+        live.handle.send(cmd).map_err(|_| CommandError::NoSession)
     }
 
-    /// Answers the pending certificate prompt with "trust" (`pin` = remember).
+    /// Answers the pending certificate prompt with "trust" (`pin` = remember it).
     pub fn accept_certificate(
         &self,
         window: &str,
         fingerprint: CertFingerprint,
         pin: bool,
     ) -> Result<(), CommandError> {
-        let _ = (window, fingerprint, pin);
-        todo!("M6-1")
+        self.answer_certificate(window, SessionCommand::AcceptCertificate { fingerprint, pin })
     }
 
     /// Answers the pending certificate prompt with "reject".
     pub fn reject_certificate(&self, window: &str) -> Result<(), CommandError> {
-        let _ = window;
-        todo!("M6-1")
+        self.answer_certificate(window, SessionCommand::RejectCertificate)
+    }
+
+    fn answer_certificate(&self, window: &str, answer: SessionCommand) -> Result<(), CommandError> {
+        self.send(window, answer)?;
+        // Dismiss the prompt at once; the actor's next state reports the outcome.
+        let view = {
+            let mut state = self.shared.lock();
+            let slot = state.windows.get_mut(window).ok_or(CommandError::NoSession)?;
+            if slot.view.certificate.is_none() {
+                return Ok(());
+            }
+            slot.view.clear_certificate();
+            slot.view.clone()
+        };
+        self.shared.host.view_changed(window, &view);
+        Ok(())
     }
 
     /// "Reconnect now": skip the backoff of a live session, or ask the caller to reopen.
     pub fn reconnect_now(&self, window: &str) -> Result<Reconnect, CommandError> {
-        let _ = window;
-        todo!("M6-1")
+        let state = self.shared.lock();
+        let slot = state.windows.get(window).ok_or(CommandError::NoSession)?;
+        match &slot.live {
+            Some(live) => {
+                live.handle.send(SessionCommand::ReconnectNow).map_err(|_| CommandError::NoSession)?;
+                Ok(Reconnect::Sent)
+            }
+            None => Ok(Reconnect::Reopen(slot.profile.id)),
+        }
     }
 
     /// Ends `window`'s session gracefully and returns the window to the profiles screen.
     pub fn disconnect(&self, window: &str) -> Result<(), CommandError> {
-        let _ = window;
-        todo!("M6-1")
+        let mut state = self.shared.lock();
+        let slot = state.windows.get_mut(window).ok_or(CommandError::NoSession)?;
+        let live = slot.live.as_ref().ok_or(CommandError::NoSession)?;
+        live.handle.send(SessionCommand::Close).map_err(|_| CommandError::NoSession)?;
+        slot.back_to_profiles = true;
+        Ok(())
     }
 
     /// Closes `window`'s session (if any) and forgets the window. Resolves when the actor has
-    /// exited or the cap expired; returns `true` if it exited gracefully (or there was none).
+    /// exited or the cap expired; `true` means it exited gracefully (or there was none).
+    ///
+    /// The window is forgotten immediately (before the future is polled), so no later view or
+    /// session event reaches it.
     pub fn close(&self, window: &str) -> impl Future<Output = bool> + Send + 'static {
-        let _ = window;
-        async { todo!("M6-1") }
+        let live = self.shared.lock().windows.remove(window).and_then(|slot| slot.live);
+        if let Some(live) = &live {
+            let _ = live.handle.send(SessionCommand::Close);
+        }
+        let shared = self.shared.clone();
+        let window = window.to_owned();
+        async move {
+            let Some(live) = live else { return true };
+            let deadline = tokio::time::Instant::now() + shared.cap;
+            let graceful = finish(live, deadline).await;
+            shared.host.session_ended(&window);
+            graceful
+        }
     }
 
-    /// Closes every session (quit). Resolves within the cap.
+    /// Closes every session (quit): all actors are told to `Close` at once and awaited until a
+    /// common deadline ([`CLOSE_CAP`] from now); the rest are abandoned. Every window is
+    /// forgotten immediately.
     pub fn shutdown(&self) -> impl Future<Output = ShutdownReport> + Send + 'static {
-        async { todo!("M6-1") }
+        let mut lives: Vec<(String, Live)> = self
+            .shared
+            .lock()
+            .windows
+            .drain()
+            .filter_map(|(window, slot)| slot.live.map(|live| (window, live)))
+            .collect();
+        lives.sort_by(|a, b| a.0.cmp(&b.0));
+        for (_, live) in &lives {
+            let _ = live.handle.send(SessionCommand::Close);
+        }
+        let shared = self.shared.clone();
+        async move {
+            let deadline = tokio::time::Instant::now() + shared.cap;
+            let mut report = ShutdownReport::default();
+            for (window, live) in lives {
+                if finish(live, deadline).await {
+                    report.graceful += 1;
+                } else {
+                    report.abandoned += 1;
+                }
+                shared.host.session_ended(&window);
+            }
+            report
+        }
     }
 
     /// The current view of `window`, if the window has had a session.
     pub fn view(&self, window: &str) -> Option<SessionView> {
-        let _ = window;
-        todo!("M6-1")
+        self.shared.lock().windows.get(window).map(|s| s.view.clone())
     }
 
     /// The profile id of `window`'s (current or last) session.
     pub fn profile_id(&self, window: &str) -> Option<Uuid> {
-        let _ = window;
-        todo!("M6-1")
+        self.shared.lock().windows.get(window).map(|s| s.profile.id)
+    }
+
+    /// Whether `window` has a live session actor.
+    pub fn is_live(&self, window: &str) -> bool {
+        self.shared.lock().windows.get(window).is_some_and(|s| s.live.is_some())
     }
 
     /// Number of live session actors.
     pub fn live_sessions(&self) -> usize {
-        todo!("M6-1")
+        self.shared.lock().windows.values().filter(|s| s.live.is_some()).count()
     }
 
     /// Windows the manager knows (sorted).
     pub fn windows(&self) -> Vec<String> {
-        todo!("M6-1")
+        let mut windows: Vec<String> = self.shared.lock().windows.keys().cloned().collect();
+        windows.sort();
+        windows
     }
+}
 
-    #[allow(dead_code)]
+impl Shared {
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.shared.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// Drops the manager's handle (the caller has already sent `Close`) and waits until `deadline`
+/// for the pump — that is, for the actor to exit and its event stream to end. Aborts it after.
+async fn finish(live: Live, deadline: tokio::time::Instant) -> bool {
+    let Live { handle, mut pump, .. } = live;
+    drop(handle);
+    if tokio::time::timeout_at(deadline, &mut pump).await.is_ok() {
+        true
+    } else {
+        pump.abort();
+        false
+    }
+}
+
+/// One session's event pump: folds events into its window's view and forwards them to the host
+/// for that window only. Events of a session that no longer owns its window (closed or
+/// replaced) are drained and dropped, so the pump ends exactly when the actor's stream ends.
+async fn pump(
+    shared: Arc<Shared>,
+    window: String,
+    generation: u64,
+    profile_id: Uuid,
+    mut events: SessionEvents,
+) {
+    while let Some(event) = events.recv().await {
+        let view = {
+            let mut state = shared.lock();
+            match state.windows.get_mut(&window) {
+                Some(slot) if slot.live.as_ref().is_some_and(|l| l.generation == generation) => {
+                    slot.view.apply(&event).then(|| slot.view.clone())
+                }
+                _ => continue,
+            }
+        };
+        match &event {
+            SessionEvent::State(_) | SessionEvent::CertificatePrompt { .. } => {}
+            SessionEvent::CertificatePinned(fingerprint) => {
+                shared.host.certificate_pinned(profile_id, *fingerprint);
+            }
+            other => shared.host.session_event(&window, other),
+        }
+        if let Some(view) = view {
+            shared.host.view_changed(&window, &view);
+        }
+    }
+    // The actor exited by itself (failure, remote logoff, or after `disconnect`).
+    let ended = {
+        let mut state = shared.lock();
+        match state.windows.get_mut(&window) {
+            Some(slot) if slot.live.as_ref().is_some_and(|l| l.generation == generation) => {
+                slot.live = None;
+                if std::mem::take(&mut slot.back_to_profiles) {
+                    slot.view = SessionView::new(&slot.profile);
+                    Some(Some(slot.view.clone()))
+                } else {
+                    Some(None)
+                }
+            }
+            _ => None,
+        }
+    };
+    if let Some(reset) = ended {
+        shared.host.session_ended(&window);
+        if let Some(view) = reset {
+            shared.host.view_changed(&window, &view);
+        }
     }
 }

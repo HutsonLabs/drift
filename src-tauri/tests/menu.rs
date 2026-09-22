@@ -1,4 +1,5 @@
 //! M6-2 / M2-4 / M8-3 Red: the menu bar model.
+#![allow(clippy::unwrap_used, clippy::expect_used)] // test fixtures
 
 use drift_app::menu::{MenuAction, MenuEntry, SubmenuSpec, accelerator, menu_spec};
 use drift_input::MenuShortcut;
