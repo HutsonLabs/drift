@@ -5,8 +5,10 @@ ui/dist/
 .claude/worktrees/
 *.dmg
 .DS_Store
-/fuzz/artifacts/
-/fuzz/corpus/
+**/fuzz/artifacts/
+**/fuzz/corpus/
+**/fuzz/coverage/
+**/fuzz/target/
 *.profraw
 lcov.info
 src-tauri/gen/

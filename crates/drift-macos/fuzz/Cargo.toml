@@ -1,0 +1,28 @@
+[package]
+name = "drift-macos-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "cargo-fuzz target for drift-macos' pointer decoder (plan M9-2, docs/adr/M9-2-fuzzing-and-malformed-input.md)."
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+drift-macos = { path = ".." }
+
+[[bin]]
+name = "pointer"
+path = "fuzz_targets/pointer.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone workspace: nightly-only sanitizer builds stay out of the main workspace.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1

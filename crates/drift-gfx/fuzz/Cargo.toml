@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2024"
 publish = false
 license = "MIT"
-description = "cargo-fuzz targets for drift-gfx (GFX PDUs + ZGFX); run nightly, see docs/adr/M1-2-gfx-client.md."
+description = "cargo-fuzz targets for drift-gfx (GFX PDUs + ZGFX); run nightly, see docs/adr/M1-2-gfx-client.md and docs/adr/M9-2-fuzzing-and-malformed-input.md."
 
 [package.metadata]
 cargo-fuzz = true
@@ -12,12 +12,20 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 drift-codec = { path = "../../drift-codec" }
+ironrdp-graphics = { path = "../../../third_party/ironrdp/crates/ironrdp-graphics" }
 drift-core = { path = "../../drift-core" }
 drift-gfx = { path = ".." }
 
 [[bin]]
 name = "gfx_pdu_zgfx"
 path = "fuzz_targets/gfx_pdu_zgfx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "zgfx"
+path = "fuzz_targets/zgfx.rs"
 test = false
 doc = false
 bench = false
