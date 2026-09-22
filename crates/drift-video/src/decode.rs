@@ -18,15 +18,10 @@ use std::sync::Mutex;
 
 use drift_core::video::{DecodeError, H264Decoder, Nv12Frame, Nv12Source};
 use drift_core::{Nv12Planes, Size};
-use objc2_core_foundation::{CFBoolean, CFDictionary, CFMutableDictionary, CFRetained, CFString, CFType};
+use objc2_core_foundation::{CFBoolean, CFDictionary, CFRetained, CFString, CFType};
 use objc2_core_media::{
-    CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMTime, CMVideoFormatDescriptionCreate,
-    CMVideoFormatDescriptionCreateFromH264ParameterSets, CMVideoFormatDescriptionGetDimensions,
-    kCMBlockBufferAssureMemoryNowFlag, kCMFormatDescriptionColorPrimaries_ITU_R_709_2,
-    kCMFormatDescriptionExtension_ColorPrimaries, kCMFormatDescriptionExtension_FullRangeVideo,
-    kCMFormatDescriptionExtension_TransferFunction, kCMFormatDescriptionExtension_YCbCrMatrix,
-    kCMFormatDescriptionTransferFunction_ITU_R_709_2, kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2,
-    kCMVideoCodecType_H264,
+    CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMTime, CMVideoFormatDescriptionCreateFromH264ParameterSets,
+    kCMBlockBufferAssureMemoryNowFlag,
 };
 use objc2_core_video::{CVImageBuffer, CVPixelBuffer};
 use objc2_video_toolbox::{
@@ -285,16 +280,17 @@ fn build_session(ps: &ParameterSets, slot: &OutputSlot) -> Result<Session, Decod
 }
 
 /// Builds an H.264 `CMVideoFormatDescription` (4-byte NAL lengths) from one SPS/PPS pair.
+///
+/// The SPS is first rewritten to signal BT.709 full range ([`crate::sps`]): g-r-d's SPS omits
+/// the colour description although its samples are full range (plan §1.4); untagged,
+/// VideoToolbox would expand them as video range into the `420f` output.
 pub(crate) fn format_description(ps: &ParameterSets) -> Result<CFRetained<CMFormatDescription>, DecodeError> {
-    let (Some(sps), Some(pps)) = (NonNull::new(ps.sps.as_ptr().cast_mut()), NonNull::new(ps.pps.as_ptr().cast_mut()))
-    else {
-        return Err(DecodeError("empty parameter set".into()));
-    };
-    if ps.sps.is_empty() || ps.pps.is_empty() {
-        return Err(DecodeError("empty parameter set".into()));
+    let sps = crate::sps::with_bt709_full_range(&ps.sps).map_err(|e| DecodeError(format!("SPS: {e}")))?;
+    if ps.pps.is_empty() {
+        return Err(DecodeError("empty PPS".into()));
     }
-    let pointers = [sps, pps];
-    let sizes = [ps.sps.len(), ps.pps.len()];
+    let pointers = [NonNull::from(&sps[0]), NonNull::from(&ps.pps[0])];
+    let sizes = [sps.len(), ps.pps.len()];
     let mut out: *const CMFormatDescription = std::ptr::null();
     // SAFETY: two valid parameter-set pointers with matching sizes (live for the call); `out` is
     // a valid out-pointer. CoreMedia copies the bytes.
@@ -310,65 +306,6 @@ pub(crate) fn format_description(ps: &ParameterSets) -> Result<CFRetained<CMForm
     };
     if status != 0 {
         return Err(DecodeError(format!("CMVideoFormatDescriptionCreateFromH264ParameterSets: OSStatus {status}")));
-    }
-    let out = NonNull::new(out.cast_mut()).ok_or_else(|| DecodeError("null format description".into()))?;
-    // SAFETY: the Create function returned a +1 retained format description.
-    let plain: CFRetained<CMFormatDescription> = unsafe { CFRetained::from_raw(out) };
-    tag_bt709_full_range(&plain)
-}
-
-/// Re-creates `desc` with BT.709 full-range colour extensions.
-///
-/// g-r-d's AVC420 stream carries no colour description in the VUI, but its encoder shader
-/// produces BT.709 full-range samples (plan §1.4). Untagged, VideoToolbox assumes video range and
-/// expands the samples into the full-range output buffer, which corrupts every value. Tagging
-/// the format description as full range makes the decoder pass samples through unchanged.
-fn tag_bt709_full_range(desc: &CMFormatDescription) -> Result<CFRetained<CMFormatDescription>, DecodeError> {
-    // SAFETY: `desc` is a valid format description; the returned dictionary is retained.
-    let extensions = unsafe { desc.extensions() };
-    // SAFETY: copying a (possibly absent) CFDictionary into a new mutable dictionary.
-    let ext = unsafe { CFMutableDictionary::new_copy(None, 0, extensions.as_deref()) }
-        .ok_or_else(|| DecodeError("CFDictionaryCreateMutableCopy failed".into()))?;
-    let yes = CFBoolean::new(true);
-    // SAFETY: the extension keys and values are immutable framework CFString constants.
-    let pairs: [(&CFString, &CFType); 4] = unsafe {
-        [
-            (kCMFormatDescriptionExtension_FullRangeVideo, yes.as_ref()),
-            (kCMFormatDescriptionExtension_YCbCrMatrix, kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2.as_ref()),
-            (kCMFormatDescriptionExtension_ColorPrimaries, kCMFormatDescriptionColorPrimaries_ITU_R_709_2.as_ref()),
-            (
-                kCMFormatDescriptionExtension_TransferFunction,
-                kCMFormatDescriptionTransferFunction_ITU_R_709_2.as_ref(),
-            ),
-        ]
-    };
-    for (key, value) in pairs {
-        // SAFETY: `ext` is a valid mutable CFDictionary with CFType callbacks; key and value are
-        // valid CF objects (retained by the dictionary).
-        unsafe {
-            CFMutableDictionary::set_value(
-                Some(&ext),
-                std::ptr::from_ref(key).cast(),
-                std::ptr::from_ref(value).cast(),
-            );
-        }
-    }
-    // SAFETY: `desc` is a valid video format description.
-    let dims = unsafe { CMVideoFormatDescriptionGetDimensions(desc) };
-    let mut out: *const CMFormatDescription = std::ptr::null();
-    // SAFETY: valid codec, dimensions and extensions dictionary; `out` is a valid out-pointer.
-    let status = unsafe {
-        CMVideoFormatDescriptionCreate(
-            None,
-            kCMVideoCodecType_H264,
-            dims.width,
-            dims.height,
-            Some(&ext),
-            NonNull::from(&mut out),
-        )
-    };
-    if status != 0 {
-        return Err(DecodeError(format!("CMVideoFormatDescriptionCreate: OSStatus {status}")));
     }
     let out = NonNull::new(out.cast_mut()).ok_or_else(|| DecodeError("null format description".into()))?;
     // SAFETY: the Create function returned a +1 retained format description.
