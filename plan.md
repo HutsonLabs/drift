@@ -436,7 +436,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - a greeter progressive replay (captured with caps `v81noavc`) whose final image matches `fixtures/goldens/greeter.png` at PSNR ≥ 45 dB;
   - a malformed-input proptest that never panics;
   - a criterion bench: a 64×64 progressive tile in < 100 µs (release build).
-- [ ] **M1-5 Metal compositor** (B). `drift-render` implements `FrameSink`:
+- [x] **M1-5 Metal compositor** (B). `drift-render` implements `FrameSink`:
   - one BGRA8 `MTLTexture` per surface;
   - an NV12→RGB **BT.709 full-range** fragment shader that writes only the region rects;
   - blit encoders for surface-to-surface and cache operations;
@@ -509,7 +509,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - a loopback reset test;
   - a mode-based Fit selection test;
   - e2e `e2e_resize` (1600×1000@100, then 2560×1600@200, then 1281×801, each producing a matching ResetGraphics).
-- [ ] **M4-3 Crisp present** (B). When the drawable equals the desktop, sampling is nearest and bit-exact; otherwise linear with an aspect-preserving letterbox.
+- [x] **M4-3 Crisp present** (B). When the drawable equals the desktop, sampling is nearest and bit-exact; otherwise linear with an aspect-preserving letterbox.
   **Red:** a bit-exact 1:1 golden; a scaled golden; a letterbox colour golden.
   **Done (manual M4):** a window resize reflows GNOME in under 0.5 s, text is pixel-sharp on Retina, and moving to a 1× display re-layouts.
 
@@ -571,7 +571,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Done (manual M7):** Wi-Fi off/on and sleep/wake reconnect automatically; `systemctl restart gnome-remote-desktop` on the host → reconnect.
 
 ### M8 — H.264 encoder (future session recording)
-- [ ] **M8-1 Composite capture** (B). Render the composite into an IOSurface-backed BGRA texture from a `CVPixelBufferPool` (zero copy); only enabled while recording.
+- [x] **M8-1 Composite capture** (B). Render the composite into an IOSurface-backed BGRA texture from a `CVPixelBufferPool` (zero copy); only enabled while recording.
   **Red:** the captured buffer equals the on-screen composite (golden); the pool doesn't grow over 1 000 frames.
 - [x] **M8-2 Encoder** (B). `VTCompressionSession`: hardware, High profile, real-time, no reordering, 8 Mbit/s, 2 s GOP, variable frame rate on `Clock` timestamps.
   **Red:** encode 120 synthetic frames, decode them back with `drift-video::decode`, and require PSNR ≥ 35 dB; SPS says High; PTS monotonic; keyframe interval honoured; a resize rebuilds the encoder and emits a keyframe.
