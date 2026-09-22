@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use drift_core::{ConnectMode, ConnectionProfile, SessionState, SystemClock};
 use drift_rdp::{SessionCommand, SessionEvent, SessionEvents, SessionHandle, SessionOptions, SessionSecrets};
-use drift_testkit::{PresentMode, RecordingFrameSink};
+use drift_testkit::{FrameLog, PresentMode, RecordingFrameSink};
 
 /// Reads a `DRIFT_E2E_*` variable, returning `None` when unset or empty.
 pub fn var(name: &str) -> Option<String> {
@@ -164,6 +164,8 @@ pub struct E2eSession {
     events: SessionEvents,
     /// Everything received so far.
     pub seen: Arc<Mutex<Vec<SessionEvent>>>,
+    /// Everything the GFX pipeline drew (the tab's `FrameSink` is a recording sink).
+    pub frames: FrameLog,
 }
 
 impl std::fmt::Debug for E2eSession {
@@ -184,7 +186,7 @@ impl E2eSession {
             connect_timeout: Duration::from_secs(20),
             ..SessionOptions::default()
         };
-        let (sink, _log) = RecordingFrameSink::new(PresentMode::Immediate);
+        let (sink, frames) = RecordingFrameSink::new(PresentMode::Immediate);
         let (handle, events) = drift_rdp::spawn_session(
             profile,
             SessionSecrets::new(password),
@@ -192,7 +194,7 @@ impl E2eSession {
             Arc::new(SystemClock),
             options,
         );
-        Self { handle, events, seen: Arc::default() }
+        Self { handle, events, seen: Arc::default(), frames }
     }
 
     /// Waits for an event matching `pred`, accepting (without pinning) any certificate prompt on

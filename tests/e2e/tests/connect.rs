@@ -7,6 +7,7 @@ use std::time::Duration;
 use drift_core::{ConnectMode, ConnectStage, DesktopSize, SessionState};
 use drift_e2e::{E2eSession, forwarded_port, init_logging, require, var};
 use drift_rdp::{SessionCommand, SessionEvent};
+use drift_testkit::FrameSinkCall;
 use drift_testkit::e2e::Script;
 
 fn port(var_name: &str, remote: u16) -> u16 {
@@ -33,8 +34,18 @@ async fn e2e_headless_connects() {
             scale: 100
         })
     );
-    // The session stays up (the server does not drop a client that advertises the GFX pipeline).
+    // The session stays up and the graphics pipeline draws into the tab's FrameSink.
     tokio::time::sleep(Duration::from_secs(3)).await;
+    let calls = s.frames.calls();
+    assert!(
+        calls.iter().any(|c| matches!(c, FrameSinkCall::Reset { output } if output.width == 1280 && output.height == 800)),
+        "ResetGraphics 1280x800 reached the sink: {} calls",
+        calls.len()
+    );
+    assert!(calls.iter().any(|c| matches!(c, FrameSinkCall::CreateSurface { .. })), "a surface was created");
+    let frames = calls.iter().filter(|c| matches!(c, FrameSinkCall::EndFrame { .. })).count();
+    assert!(frames >= 1, "at least one frame was presented");
+    eprintln!("[e2e] {frames} frames presented, {} sink calls", calls.len());
     assert_eq!(
         s.close().await,
         Some(SessionState::Disconnected { reason: drift_core::DisconnectReason::UserClosed })
