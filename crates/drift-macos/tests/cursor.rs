@@ -27,6 +27,7 @@ const BITMAP: u8 = 0x1;
 const FRAG_SINGLE: u8 = 0;
 const FRAG_LAST: u8 = 1;
 const FRAG_FIRST: u8 = 2;
+const FRAG_NEXT: u8 = 3;
 
 fn update(code: u8, frag: u8, body: &[u8]) -> Vec<u8> {
     let mut u = vec![code | (frag << 4)];
@@ -369,8 +370,13 @@ fn large_pointer_update() {
     body.extend_from_slice(&0u32.to_le_bytes());
     body.extend_from_slice(&(xor.len() as u32).to_le_bytes());
     body.extend_from_slice(&xor);
+    // 36 KB does not fit one update (u16 size): FIRST, NEXT, LAST fragments, as g-r-d sends.
+    let (a, rest) = body.split_at(16_000);
+    let (b, c) = rest.split_at(16_000);
     let mut dec = PointerDecoder::default();
-    let img = only_image(dec.decode_output_pdu(&pdu(&[update(PTR_LARGE, FRAG_SINGLE, &body)])).unwrap());
+    assert!(dec.decode_output_pdu(&pdu(&[update(PTR_LARGE, FRAG_FIRST, a)])).unwrap().is_empty());
+    assert!(dec.decode_output_pdu(&pdu(&[update(PTR_LARGE, FRAG_NEXT, b)])).unwrap().is_empty());
+    let img = only_image(dec.decode_output_pdu(&pdu(&[update(PTR_LARGE, FRAG_LAST, c)])).unwrap());
     assert_eq!(img.size, Size::new(96, 96));
     assert_eq!(img.hotspot, Point::new(48, 40));
     assert_eq!(img.pixel(95, 95), Some([10, 20, 30, 255]));
@@ -392,17 +398,18 @@ fn hotspot_outside_the_bitmap_is_clamped() {
 }
 
 #[test]
-fn zero_sized_pointer_is_hidden() {
+fn zero_sized_pointer_is_an_error_not_a_panic() {
+    // IronRDP's TS_COLORPOINTERATTRIBUTE decoder rejects a zero height/width.
     let mut dec = PointerDecoder::default();
-    let shape = only_shape(
-        dec.decode_output_pdu(&pdu(&[update(
+    let err = dec
+        .decode_output_pdu(&pdu(&[update(
             PTR_POINTER,
             FRAG_SINGLE,
             &pointer32_body(0, 0, 0, (0, 0), [0; 4]),
         )]))
-        .unwrap(),
-    );
-    assert_eq!(shape, CursorShape::Hidden);
+        .unwrap_err();
+    assert!(matches!(err, PointerError::Malformed(_)), "{err:?}");
+    assert!(dec.cached(0).is_none());
 }
 
 // ---------------------------------------------------------------------------------------

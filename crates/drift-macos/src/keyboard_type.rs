@@ -14,11 +14,24 @@ pub const K_KEYBOARD_ISO: u32 = u32::from_be_bytes(*b"ISO ");
 
 /// Maps a `KBGetLayoutType` result to a [`KeyboardType`] (unknown values are ANSI).
 pub const fn from_layout_type(layout: u32) -> KeyboardType {
-    let _ = layout;
-    KeyboardType::Jis
+    match layout {
+        K_KEYBOARD_ISO => KeyboardType::Iso,
+        K_KEYBOARD_JIS => KeyboardType::Jis,
+        _ => KeyboardType::Ansi,
+    }
+}
+
+#[link(name = "Carbon", kind = "framework")]
+unsafe extern "C" {
+    /// `PhysicalKeyboardLayoutType KBGetLayoutType(SInt16 iKeyboardType)` (HIToolbox).
+    fn KBGetLayoutType(keyboard_type: i16) -> u32;
+    /// `UInt8 LMGetKbdType(void)` (HIToolbox).
+    fn LMGetKbdType() -> u8;
 }
 
 /// The type of the keyboard used most recently.
 pub fn detect() -> KeyboardType {
-    KeyboardType::Ansi
+    // SAFETY: both HIToolbox functions take/return plain integers and have no preconditions.
+    let layout = unsafe { KBGetLayoutType(i16::from(LMGetKbdType())) };
+    from_layout_type(layout)
 }

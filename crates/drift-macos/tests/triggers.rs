@@ -88,7 +88,7 @@ fn path_monitor_reports_the_initial_status() {
     });
     let status = rx.recv_timeout(Duration::from_secs(5)).expect("nw_path_monitor delivers an initial update");
     assert_ne!(status, PathStatus::Invalid, "the initial update is determined");
-    drop(monitor);
+    drop(monitor.expect("monitor created"));
 }
 
 #[test]

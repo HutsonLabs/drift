@@ -19,7 +19,6 @@ macos-ui-tests = []
 [dependencies]
 drift-core.workspace = true
 drift-input.workspace = true
-ironrdp-core.workspace = true
 ironrdp-graphics.workspace = true
 ironrdp-pdu.workspace = true
 thiserror.workspace = true
@@ -39,6 +38,7 @@ tauri = { workspace = true, optional = true }
 [dev-dependencies]
 drift-testkit.workspace = true
 proptest.workspace = true
+tempfile.workspace = true
 
 # AppKit smoke tests must run on the process main thread (views and windows are
 # main-thread-only), so they use a tiny libtest-compatible harness (tests/support/harness.rs).

@@ -1,17 +1,31 @@
-//! M3-2: Keychain adapter against the real login keychain, under a unique test-only service
-//! name (never Drift's real service). Every test cleans up after itself.
+//! M3-2: Keychain adapter against a real (throw-away) keychain file, under a unique test-only
+//! service name (never Drift's real service, never the user's login keychain). Every test
+//! cleans up after itself.
 #![allow(missing_docs, clippy::unwrap_used)]
+
+use std::path::PathBuf;
 
 use drift_core::SecretRole;
 use drift_macos::keychain::Keychain;
 use uuid::Uuid;
 
-/// A unique service per test so parallel test processes never collide.
-struct TestKeychain(Keychain, Vec<Uuid>);
+/// Password of the temporary test keychain file (not a credential).
+const KEYCHAIN_PASSWORD: &str = "drift-test-keychain";
+
+/// A fresh keychain file and a unique service per test.
+struct TestKeychain(Keychain, Vec<Uuid>, tempfile::TempDir);
 
 impl TestKeychain {
     fn new() -> Self {
-        Self(Keychain::with_service(format!("com.hutsonlabs.drift.tests.{}", Uuid::new_v4())), Vec::new())
+        let dir = tempfile::tempdir().unwrap();
+        let service = format!("com.hutsonlabs.drift.tests.{}", Uuid::new_v4());
+        let kc =
+            Keychain::create_file(&dir.path().join("test.keychain-db"), KEYCHAIN_PASSWORD, service).unwrap();
+        Self(kc, Vec::new(), dir)
+    }
+
+    fn path(&self) -> PathBuf {
+        self.2.path().join("test.keychain-db")
     }
 
     fn profile(&mut self) -> Uuid {
@@ -105,8 +119,26 @@ fn delete_profile_removes_every_role() {
 #[test]
 fn services_are_isolated() {
     let mut a = TestKeychain::new();
-    let b = TestKeychain::new();
+    // A second service in the same keychain file.
+    let b = Keychain::open_file(&a.path(), KEYCHAIN_PASSWORD, format!("{}.other", a.0.service()));
     let p = a.profile();
     a.0.set(p, SecretRole::RdpUser, FAKE).unwrap();
-    assert_eq!(b.0.get(p, SecretRole::RdpUser).unwrap(), None);
+    assert_eq!(b.get(p, SecretRole::RdpUser).unwrap(), None);
+    b.set(p, SecretRole::RdpUser, FAKE2).unwrap();
+    assert_eq!(a.0.get(p, SecretRole::RdpUser).unwrap().as_deref().map(String::as_str), Some(FAKE));
+}
+
+#[test]
+fn a_wrong_keychain_password_is_an_error_not_a_panic() {
+    let a = TestKeychain::new();
+    let wrong = Keychain::open_file(&a.path(), "not-the-password", a.0.service());
+    assert!(wrong.get(Uuid::new_v4(), SecretRole::RdpUser).is_err());
+}
+
+#[test]
+fn debug_output_never_contains_the_keychain_password() {
+    let a = TestKeychain::new();
+    let dbg = format!("{:?}", a.0);
+    assert!(!dbg.contains(KEYCHAIN_PASSWORD), "{dbg}");
+    assert!(dbg.contains(a.0.service()));
 }

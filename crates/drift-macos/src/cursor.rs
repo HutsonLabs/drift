@@ -18,6 +18,10 @@
 use std::sync::Arc;
 
 use drift_core::{Point, Size};
+use ironrdp_graphics::pointer::{DecodedPointer, PointerBitmapTarget};
+use ironrdp_pdu::fast_path::{FastPathHeader, FastPathUpdate, FastPathUpdatePdu, Fragmentation, UpdateCode};
+use ironrdp_pdu::pointer::PointerUpdateData;
+use ironrdp_pdu::{Decode as _, ReadCursor};
 
 /// Default number of pointer cache slots Drift advertises (`TS_POINTER_CAPABILITYSET`).
 pub const DEFAULT_CACHE_SIZE: usize = 25;
@@ -33,23 +37,60 @@ pub struct CursorImage {
     pub bgra: Arc<[u8]>,
 }
 
+/// Points per bitmap pixel for a desktop scale factor in percent (bogus scales count as 100).
+fn points_per_pixel(scale_percent: u32) -> f64 {
+    if scale_percent == 0 { 1.0 } else { 100.0 / f64::from(scale_percent) }
+}
+
 impl CursorImage {
     /// Size in view points for a desktop scale factor in percent (`bitmap * 100 / scale`).
     pub fn size_points(&self, scale_percent: u32) -> Size<f64> {
-        let _ = scale_percent;
-        Size::new(0.0, 0.0)
+        let k = points_per_pixel(scale_percent);
+        Size::new(f64::from(self.size.width) * k, f64::from(self.size.height) * k)
     }
 
     /// Hotspot in view points for a desktop scale factor in percent.
     pub fn hotspot_points(&self, scale_percent: u32) -> Point<f64> {
-        let _ = scale_percent;
-        Point::new(0.0, 0.0)
+        let k = points_per_pixel(scale_percent);
+        Point::new(f64::from(self.hotspot.x) * k, f64::from(self.hotspot.y) * k)
     }
 
     /// The pixel at `(x, y)` as premultiplied `[b, g, r, a]`, or `None` outside the bitmap.
     pub fn pixel(&self, x: u32, y: u32) -> Option<[u8; 4]> {
-        let _ = (x, y);
-        None
+        if x >= self.size.width || y >= self.size.height {
+            return None;
+        }
+        let i = (y as usize * self.size.width as usize + x as usize) * 4;
+        let p = self.bgra.get(i..i + 4)?;
+        Some([p[0], p[1], p[2], p[3]])
+    }
+
+    /// Converts IronRDP's straight-alpha RGBA ([`PointerBitmapTarget::Accelerated`]) into a
+    /// premultiplied BGRA image with the hotspot clamped into the bitmap. `None` for an empty
+    /// (invisible) pointer.
+    pub fn from_decoded(decoded: &DecodedPointer) -> Option<Self> {
+        let (w, h) = (u32::from(decoded.width), u32::from(decoded.height));
+        if w == 0 || h == 0 || decoded.bitmap_data.len() != (w * h * 4) as usize {
+            return None;
+        }
+        let bgra: Vec<u8> = decoded
+            .bitmap_data
+            .chunks_exact(4)
+            .flat_map(|p| {
+                let a = u32::from(p[3]);
+                // (c * a + 127) / 255 <= a <= 255, so the cast is exact.
+                let m = |c: u8| ((u32::from(c) * a + 127) / 255) as u8;
+                [m(p[2]), m(p[1]), m(p[0]), p[3]]
+            })
+            .collect();
+        Some(Self {
+            size: Size::new(w, h),
+            hotspot: Point::new(
+                u32::from(decoded.hotspot_x).min(w - 1),
+                u32::from(decoded.hotspot_y).min(h - 1),
+            ),
+            bgra: bgra.into(),
+        })
     }
 }
 
@@ -98,10 +139,16 @@ pub enum PointerError {
     Fragment,
 }
 
+/// Largest reassembled update accepted (a 384×384 32 bpp large pointer is ~600 KB).
+const MAX_REASSEMBLED: usize = 1 << 20;
+
 /// Stateful fast-path pointer decoder with the pointer cache.
 #[derive(Debug, Clone)]
 pub struct PointerDecoder {
-    cache: Vec<Option<Arc<CursorImage>>>,
+    /// One entry per cache slot: `Hidden` for an empty pointer image, `Image` otherwise.
+    cache: Vec<Option<CursorShape>>,
+    /// A `FIRST`/`NEXT` fragment sequence being reassembled.
+    partial: Option<(UpdateCode, Vec<u8>)>,
 }
 
 impl Default for PointerDecoder {
@@ -113,7 +160,7 @@ impl Default for PointerDecoder {
 impl PointerDecoder {
     /// A decoder with `cache_size` slots (as advertised in the pointer capability set).
     pub fn new(cache_size: usize) -> Self {
-        Self { cache: vec![None; cache_size] }
+        Self { cache: vec![None; cache_size], partial: None }
     }
 
     /// Number of cache slots.
@@ -123,16 +170,143 @@ impl PointerDecoder {
 
     /// The image in cache slot `index`, if any.
     pub fn cached(&self, index: u16) -> Option<Arc<CursorImage>> {
-        self.cache.get(usize::from(index)).cloned().flatten()
+        match self.cache.get(usize::from(index)) {
+            Some(Some(CursorShape::Image(img))) => Some(img.clone()),
+            _ => None,
+        }
     }
 
     /// Clears the cache and any partial fragment (new connection / deactivation-reactivation).
-    pub fn reset(&mut self) {}
+    pub fn reset(&mut self) {
+        self.cache.iter_mut().for_each(|slot| *slot = None);
+        self.partial = None;
+    }
 
     /// Decodes one complete fast-path output PDU (`TS_FP_UPDATE_PDU`: header, length, updates).
     /// Non-pointer updates are skipped. Fragments are kept until their `LAST` part arrives.
     pub fn decode_output_pdu(&mut self, pdu: &[u8]) -> Result<Vec<PointerEvent>, PointerError> {
-        let _ = pdu;
-        Err(PointerError::Malformed("not implemented".into()))
+        let mut src = ReadCursor::new(pdu);
+        let header = FastPathHeader::decode(&mut src).map_err(|e| PointerError::Malformed(e.to_string()))?;
+        if header.data_length > src.len() {
+            return Err(PointerError::Malformed(format!(
+                "fast-path length {} exceeds the {} bytes present",
+                header.data_length,
+                src.len()
+            )));
+        }
+        let mut body = ReadCursor::new(src.read_slice(header.data_length));
+        let mut events = Vec::new();
+        while !body.is_empty() {
+            let update =
+                FastPathUpdatePdu::decode(&mut body).map_err(|e| PointerError::Malformed(e.to_string()))?;
+            if let Some(event) = self.decode_update(&update)? {
+                events.push(event);
+            }
+        }
+        Ok(events)
     }
+
+    /// Decodes one `TS_FP_UPDATE` (with fragment reassembly). Non-pointer updates yield `None`.
+    pub fn decode_update(
+        &mut self,
+        update: &FastPathUpdatePdu<'_>,
+    ) -> Result<Option<PointerEvent>, PointerError> {
+        let code = update.update_code;
+        if !is_pointer_code(code) {
+            return Ok(None);
+        }
+        if update.compression_flags.is_some() {
+            return Err(PointerError::Malformed("bulk-compressed pointer updates are not supported".into()));
+        }
+        let whole: Vec<u8>;
+        let data: &[u8] = match update.fragmentation {
+            Fragmentation::Single => {
+                self.partial = None;
+                update.data
+            }
+            Fragmentation::First => {
+                self.partial = Some((code, update.data.to_vec()));
+                return Ok(None);
+            }
+            Fragmentation::Next | Fragmentation::Last => {
+                let Some((first_code, mut buf)) = self.partial.take() else {
+                    return Err(PointerError::Fragment);
+                };
+                if first_code != code {
+                    return Err(PointerError::Fragment);
+                }
+                buf.extend_from_slice(update.data);
+                if buf.len() > MAX_REASSEMBLED {
+                    return Err(PointerError::Malformed("reassembled pointer update too large".into()));
+                }
+                if update.fragmentation == Fragmentation::Next {
+                    self.partial = Some((code, buf));
+                    return Ok(None);
+                }
+                whole = buf;
+                &whole
+            }
+        };
+        let parsed = FastPathUpdate::decode_with_code(data, code)
+            .map_err(|e| PointerError::Malformed(e.to_string()))?;
+        match parsed {
+            FastPathUpdate::Pointer(p) => self.apply(&p).map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    /// Applies one parsed pointer update (for callers that already parsed the PDU).
+    pub fn apply(&mut self, update: &PointerUpdateData<'_>) -> Result<PointerEvent, PointerError> {
+        let target = PointerBitmapTarget::Accelerated;
+        let (index, decoded) = match update {
+            PointerUpdateData::SetHidden => return Ok(PointerEvent::Shape(CursorShape::Hidden)),
+            PointerUpdateData::SetDefault => return Ok(PointerEvent::Shape(CursorShape::Default)),
+            PointerUpdateData::SetPosition(p) => return Ok(PointerEvent::Position(Point::new(p.x, p.y))),
+            PointerUpdateData::Cached(c) => {
+                return match self.slot(c.cache_index)? {
+                    Some(shape) => Ok(PointerEvent::Shape(shape.clone())),
+                    None => Err(PointerError::CacheMiss(c.cache_index)),
+                };
+            }
+            PointerUpdateData::Color(c) => {
+                (c.cache_index, DecodedPointer::decode_color_pointer_attribute(c, target))
+            }
+            PointerUpdateData::New(n) => {
+                (n.color_pointer.cache_index, DecodedPointer::decode_pointer_attribute(n, target))
+            }
+            PointerUpdateData::Large(l) => {
+                (l.cache_index, DecodedPointer::decode_large_pointer_attribute(l, target))
+            }
+        };
+        // Validate the slot before the bitmap so an out-of-range index is reported as such.
+        self.slot(index)?;
+        let decoded = decoded.map_err(|e| PointerError::Bitmap(e.to_string()))?;
+        let shape = match CursorImage::from_decoded(&decoded) {
+            Some(img) => CursorShape::Image(Arc::new(img)),
+            None => CursorShape::Hidden,
+        };
+        if let Some(slot) = self.cache.get_mut(usize::from(index)) {
+            *slot = Some(shape.clone());
+        }
+        Ok(PointerEvent::Shape(shape))
+    }
+
+    fn slot(&self, index: u16) -> Result<&Option<CursorShape>, PointerError> {
+        self.cache
+            .get(usize::from(index))
+            .ok_or(PointerError::CacheIndexOutOfRange { index, size: self.cache.len() })
+    }
+}
+
+fn is_pointer_code(code: UpdateCode) -> bool {
+    matches!(
+        code,
+        UpdateCode::HiddenPointer
+            | UpdateCode::DefaultPointer
+            | UpdateCode::PositionPointer
+            | UpdateCode::ColorPointer
+            | UpdateCode::CachedPointer
+            | UpdateCode::NewPointer
+            | UpdateCode::LargePointer
+    )
 }

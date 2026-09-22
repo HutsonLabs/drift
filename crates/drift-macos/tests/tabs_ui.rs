@@ -99,8 +99,9 @@ mod ui {
         }
         assert!(select_tab(&windows[0], 2));
         assert!(!select_tab(&windows[0], 3), "out of range");
-        let selected = windows[0].tabGroup().and_then(|g| g.selectedWindow()).unwrap();
-        assert_eq!(Retained::as_ptr(&selected), Retained::as_ptr(&windows[2]));
+        let group = windows[0].tabGroup().unwrap();
+        let selected = group.selectedWindow().unwrap();
+        assert_eq!(Retained::as_ptr(&selected), Retained::as_ptr(&group.windows().objectAtIndex(2)));
         for w in &windows {
             w.close();
         }

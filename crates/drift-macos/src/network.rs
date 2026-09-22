@@ -9,9 +9,17 @@
 //!   debounced.
 //! * [`ReconnectTriggers`] owns all three for the app's lifetime.
 
-use std::sync::Arc;
+use std::ffi::{c_int, c_void};
+use std::ptr::NonNull;
+use std::sync::{Arc, Mutex};
 
-use drift_core::{Clock, Trigger, TriggerAction};
+use block2::{DynBlock, RcBlock};
+use dispatch2::{DispatchQueue, DispatchRetained};
+use drift_core::{Clock, Trigger, TriggerAction, TriggerMerger};
+use objc2::rc::Retained;
+use objc2::runtime::ProtocolObject;
+use objc2_app_kit::{NSWorkspace, NSWorkspaceDidWakeNotification};
+use objc2_foundation::{NSNotification, NSNotificationCenter, NSObjectProtocol};
 
 /// `nw_path_status_t`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,24 +38,36 @@ pub enum PathStatus {
 impl PathStatus {
     /// Converts the raw `nw_path_status_t` value (unknown values are `Invalid`).
     pub const fn from_raw(raw: i32) -> Self {
-        let _ = raw;
-        Self::Invalid
+        match raw {
+            1 => Self::Satisfied,
+            2 => Self::Unsatisfied,
+            3 => Self::Satisfiable,
+            _ => Self::Invalid,
+        }
     }
 
     /// The reconnect trigger for this status (`None` for `Invalid`).
     pub const fn trigger(self) -> Option<Trigger> {
-        None
+        match self {
+            Self::Satisfied | Self::Satisfiable => Some(Trigger::NetworkOnline),
+            Self::Unsatisfied => Some(Trigger::NetworkOffline),
+            Self::Invalid => None,
+        }
     }
 }
 
+type ActionSink = Box<dyn Fn(TriggerAction) + Send + Sync>;
+
 /// Merges platform triggers and forwards the resulting actions.
 pub struct TriggerFeed {
-    _sink: Box<dyn Fn(TriggerAction) + Send + Sync>,
+    merger: Mutex<TriggerMerger>,
+    clock: Arc<dyn Clock>,
+    sink: ActionSink,
 }
 
 impl std::fmt::Debug for TriggerFeed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TriggerFeed").finish_non_exhaustive()
+        f.debug_struct("TriggerFeed").field("online", &self.is_online()).finish_non_exhaustive()
     }
 }
 
@@ -58,55 +78,139 @@ impl TriggerFeed {
         clock: Arc<dyn Clock>,
         sink: impl Fn(TriggerAction) + Send + Sync + 'static,
     ) -> Self {
-        let _ = (online, clock);
-        Self { _sink: Box::new(sink) }
+        Self { merger: Mutex::new(TriggerMerger::new(online)), clock, sink: Box::new(sink) }
     }
 
-    /// Feeds one trigger.
+    /// Feeds one trigger. The sink runs after the internal lock is released.
     pub fn trigger(&self, trigger: Trigger) {
-        let _ = trigger;
+        let now = self.clock.now();
+        let action = match self.merger.lock() {
+            Ok(mut m) => m.on_trigger(trigger, now),
+            Err(poisoned) => poisoned.into_inner().on_trigger(trigger, now),
+        };
+        if let Some(action) = action {
+            (self.sink)(action);
+        }
     }
 
     /// Feeds a path status update.
     pub fn path_status(&self, status: PathStatus) {
-        let _ = status;
+        if let Some(trigger) = status.trigger() {
+            self.trigger(trigger);
+        }
     }
 
     /// Whether the network is currently considered reachable.
     pub fn is_online(&self) -> bool {
-        false
+        match self.merger.lock() {
+            Ok(m) => m.is_online(),
+            Err(poisoned) => poisoned.into_inner().is_online(),
+        }
     }
+}
+
+#[link(name = "Network", kind = "framework")]
+unsafe extern "C" {
+    fn nw_path_monitor_create() -> *mut c_void;
+    fn nw_path_monitor_set_queue(monitor: *mut c_void, queue: NonNull<DispatchQueue>);
+    fn nw_path_monitor_set_update_handler(monitor: *mut c_void, handler: &DynBlock<dyn Fn(*mut c_void)>);
+    fn nw_path_monitor_start(monitor: *mut c_void);
+    fn nw_path_monitor_cancel(monitor: *mut c_void);
+    fn nw_path_get_status(path: *mut c_void) -> c_int;
+    fn nw_release(object: *mut c_void);
 }
 
 /// A running `nw_path_monitor`. Cancelled on drop.
 #[derive(Debug)]
-pub struct PathMonitor {}
+pub struct PathMonitor {
+    monitor: NonNull<c_void>,
+    _queue: DispatchRetained<DispatchQueue>,
+}
+
+// SAFETY: Network.framework objects are thread-safe reference-counted objects; we only call
+// `nw_path_monitor_cancel` and `nw_release` on the handle after construction.
+unsafe impl Send for PathMonitor {}
+// SAFETY: as above; no method takes `&self` and mutates through the handle.
+unsafe impl Sync for PathMonitor {}
 
 impl PathMonitor {
     /// Starts monitoring; `handler` is called on a private serial queue with the initial status
-    /// and every change.
-    pub fn start(handler: impl Fn(PathStatus) + Send + Sync + 'static) -> Self {
-        let _ = handler;
-        Self {}
+    /// and every change. Returns `None` if Network.framework cannot create a monitor.
+    pub fn start(handler: impl Fn(PathStatus) + Send + Sync + 'static) -> Option<Self> {
+        let handler: Arc<dyn Fn(PathStatus) + Send + Sync> = Arc::new(handler);
+        let queue = DispatchQueue::new("com.hutsonlabs.drift.path-monitor", None);
+        // SAFETY: plain constructor; returns a +1 object or null.
+        let monitor = NonNull::new(unsafe { nw_path_monitor_create() })?;
+        let block = RcBlock::new(move |path: *mut c_void| {
+            // SAFETY: Network.framework passes a valid `nw_path_t` for the duration of the call.
+            let raw = if path.is_null() { 0 } else { unsafe { nw_path_get_status(path) } };
+            handler(PathStatus::from_raw(raw));
+        });
+        // SAFETY: `monitor` is a live monitor; the queue is retained by the monitor and by us;
+        // the block is copied by Network.framework and only captures Send + Sync state.
+        unsafe {
+            nw_path_monitor_set_queue(monitor.as_ptr(), DispatchRetained::as_ptr(&queue));
+            nw_path_monitor_set_update_handler(monitor.as_ptr(), &block);
+            nw_path_monitor_start(monitor.as_ptr());
+        }
+        Some(Self { monitor, _queue: queue })
+    }
+}
+
+impl Drop for PathMonitor {
+    fn drop(&mut self) {
+        // SAFETY: we own one reference to a live monitor; cancel stops future callbacks.
+        unsafe {
+            nw_path_monitor_cancel(self.monitor.as_ptr());
+            nw_release(self.monitor.as_ptr());
+        }
     }
 }
 
 /// An `NSWorkspaceDidWakeNotification` observer. Removed on drop.
 #[derive(Debug)]
-pub struct WakeObserver {}
+pub struct WakeObserver {
+    center: Retained<NSNotificationCenter>,
+    token: Retained<ProtocolObject<dyn NSObjectProtocol>>,
+}
+
+// SAFETY: NSNotificationCenter is thread-safe; the token is only used to remove the observer.
+unsafe impl Send for WakeObserver {}
+// SAFETY: as above.
+unsafe impl Sync for WakeObserver {}
 
 impl WakeObserver {
     /// Calls `handler` (on the posting thread, the main thread for real wakes) after every wake.
     pub fn start(handler: impl Fn() + Send + Sync + 'static) -> Self {
-        let _ = handler;
-        Self {}
+        let center = NSWorkspace::sharedWorkspace().notificationCenter();
+        let block = RcBlock::new(move |_note: NonNull<NSNotification>| handler());
+        // SAFETY: a constant notification name, no object filter, synchronous delivery on the
+        // posting thread; the block is copied by the center and removed in `Drop`.
+        let token = unsafe {
+            center.addObserverForName_object_queue_usingBlock(
+                Some(NSWorkspaceDidWakeNotification),
+                None,
+                None,
+                &block,
+            )
+        };
+        Self { center, token }
+    }
+}
+
+impl Drop for WakeObserver {
+    fn drop(&mut self) {
+        // SAFETY: removing the observer token we registered.
+        unsafe { self.center.removeObserver(self.token.as_ref()) };
     }
 }
 
 /// Path monitor + wake observer feeding one [`TriggerFeed`].
 #[derive(Debug)]
 pub struct ReconnectTriggers {
-    _feed: Arc<TriggerFeed>,
+    feed: Arc<TriggerFeed>,
+    _path: Option<PathMonitor>,
+    _wake: WakeObserver,
 }
 
 impl ReconnectTriggers {
@@ -114,11 +218,16 @@ impl ReconnectTriggers {
     /// the main thread) and should forward them to every session (`NetworkReachable`,
     /// `ReconnectNow`).
     pub fn start(clock: Arc<dyn Clock>, sink: impl Fn(TriggerAction) + Send + Sync + 'static) -> Self {
-        Self { _feed: Arc::new(TriggerFeed::new(true, clock, sink)) }
+        let feed = Arc::new(TriggerFeed::new(true, clock, sink));
+        let f = feed.clone();
+        let path = PathMonitor::start(move |status| f.path_status(status));
+        let f = feed.clone();
+        let wake = WakeObserver::start(move || f.trigger(Trigger::Wake));
+        Self { feed, _path: path, _wake: wake }
     }
 
     /// The shared feed (e.g. to inject a trigger).
     pub fn feed(&self) -> &Arc<TriggerFeed> {
-        &self._feed
+        &self.feed
     }
 }

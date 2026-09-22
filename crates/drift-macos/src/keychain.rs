@@ -1,31 +1,68 @@
 //! Keychain password adapter (task **M3-2**, plan §2 decision 7).
 //!
-//! Passwords are generic-password items in the user's login keychain. The **service** is
-//! Drift's bundle identifier ([`Keychain::SERVICE`]); the **account** is
-//! `SecretRole::account(profile_id)` = `<uuid>/<role>` (`rdp-system`, `rdp-user`,
-//! `linux-login`), so every (profile, role) pair has exactly one item. Tests use a unique
-//! throw-away service name ([`Keychain::with_service`]) and never touch Drift's real items.
+//! Passwords are generic-password items. The **service** is Drift's bundle identifier
+//! ([`Keychain::SERVICE`]); the **account** is `SecretRole::account(profile_id)` =
+//! `<uuid>/<role>` (`rdp-system`, `rdp-user`, `linux-login`), so every (profile, role) pair has
+//! exactly one item.
+//!
+//! Production items live in the user's default (login) keychain. Tests never touch it: they use
+//! a throw-away keychain file in a temporary directory ([`Keychain::create_file`]) and a unique
+//! test-only service name. (This also keeps the tests working where the login keychain is
+//! locked, e.g. over SSH or in CI, which report `errSecInteractionNotAllowed`.)
 //!
 //! One-time Server Redirection credentials never come here: they only live in memory.
 
+use std::path::{Path, PathBuf};
+
 use drift_core::SecretRole;
+use security_framework::os::macos::keychain::{CreateOptions, SecKeychain};
+use security_framework::os::macos::passwords::find_generic_password;
 use uuid::Uuid;
 use zeroize::Zeroizing;
+
+/// `errSecItemNotFound`.
+const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 
 /// A Keychain operation failed (the message never contains the secret).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("Keychain error {code}: {message}")]
 pub struct KeychainError {
-    /// The `OSStatus`.
+    /// The `OSStatus` (0 for a stored value that is not UTF-8).
     pub code: i32,
     /// Human-readable description from Security.framework.
     pub message: String,
 }
 
+impl From<security_framework::base::Error> for KeychainError {
+    fn from(e: security_framework::base::Error) -> Self {
+        Self { code: e.code(), message: e.to_string() }
+    }
+}
+
+/// Which keychain holds the items.
+#[derive(Clone, PartialEq, Eq)]
+enum Location {
+    /// The user's default keychain (login).
+    Default,
+    /// An explicit keychain file, unlocked with `password` on every use (tests).
+    File { path: PathBuf, password: Zeroizing<String> },
+}
+
 /// Generic-password store keyed by profile id and role.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Keychain {
     service: String,
+    location: Location,
+}
+
+impl std::fmt::Debug for Keychain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let location = match &self.location {
+            Location::Default => "default".to_owned(),
+            Location::File { path, .. } => path.display().to_string(),
+        };
+        f.debug_struct("Keychain").field("service", &self.service).field("keychain", &location).finish()
+    }
 }
 
 impl Default for Keychain {
@@ -38,14 +75,33 @@ impl Keychain {
     /// The service name of Drift's items (the app's bundle identifier).
     pub const SERVICE: &'static str = "com.hutsonlabs.drift";
 
-    /// The production store.
+    /// The production store: Drift's service in the default keychain.
     pub fn new() -> Self {
         Self::with_service(Self::SERVICE)
     }
 
-    /// A store under another service name (tests).
+    /// Another service name in the default keychain.
     pub fn with_service(service: impl Into<String>) -> Self {
-        Self { service: service.into() }
+        Self { service: service.into(), location: Location::Default }
+    }
+
+    /// Creates a new keychain file at `path` protected by `password` (tests and tooling) and
+    /// returns a store for `service` in it. The file is not added to the search list.
+    pub fn create_file(
+        path: &Path,
+        password: &str,
+        service: impl Into<String>,
+    ) -> Result<Self, KeychainError> {
+        CreateOptions::new().password(password).prompt_user(false).create(path)?;
+        Ok(Self::open_file(path, password, service))
+    }
+
+    /// A store for `service` in an existing keychain file (see [`Keychain::create_file`]).
+    pub fn open_file(path: &Path, password: &str, service: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+            location: Location::File { path: path.to_owned(), password: Zeroizing::new(password.to_owned()) },
+        }
     }
 
     /// The service name.
@@ -53,27 +109,56 @@ impl Keychain {
         &self.service
     }
 
+    fn keychain(&self) -> Result<SecKeychain, KeychainError> {
+        match &self.location {
+            Location::Default => Ok(SecKeychain::default()?),
+            Location::File { path, password } => {
+                let mut kc = SecKeychain::open(path)?;
+                kc.unlock(Some(password))?;
+                Ok(kc)
+            }
+        }
+    }
+
     /// Stores (creates or replaces) the secret for `profile`/`role`.
     pub fn set(&self, profile: Uuid, role: SecretRole, secret: &str) -> Result<(), KeychainError> {
-        let _ = (profile, role, secret);
-        Err(KeychainError { code: -4, message: "not implemented".into() })
+        Ok(self.keychain()?.set_generic_password(&self.service, &role.account(profile), secret.as_bytes())?)
     }
 
     /// Reads the secret for `profile`/`role`; `None` if there is no item.
     pub fn get(&self, profile: Uuid, role: SecretRole) -> Result<Option<Zeroizing<String>>, KeychainError> {
-        let _ = (profile, role);
-        Err(KeychainError { code: -4, message: "not implemented".into() })
+        let kc = self.keychain()?;
+        match find_generic_password(Some(std::slice::from_ref(&kc)), &self.service, &role.account(profile)) {
+            Ok((password, _item)) => {
+                let text = std::str::from_utf8(password.as_ref()).map_err(|_| KeychainError {
+                    code: 0,
+                    message: "stored password is not valid UTF-8".into(),
+                })?;
+                Ok(Some(Zeroizing::new(text.to_owned())))
+            }
+            Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 
     /// Deletes the secret for `profile`/`role`; deleting a missing item succeeds.
     pub fn delete(&self, profile: Uuid, role: SecretRole) -> Result<(), KeychainError> {
-        let _ = (profile, role);
-        Err(KeychainError { code: -4, message: "not implemented".into() })
+        let kc = self.keychain()?;
+        match find_generic_password(Some(std::slice::from_ref(&kc)), &self.service, &role.account(profile)) {
+            Ok((_password, item)) => {
+                item.delete();
+                Ok(())
+            }
+            Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
+            Err(e) => Err(e.into()),
+        }
     }
 
     /// Deletes every role's secret for `profile` (profile deleted).
     pub fn delete_profile(&self, profile: Uuid) -> Result<(), KeychainError> {
-        let _ = profile;
-        Err(KeychainError { code: -4, message: "not implemented".into() })
+        for role in [SecretRole::RdpSystem, SecretRole::RdpUser, SecretRole::LinuxLogin] {
+            self.delete(profile, role)?;
+        }
+        Ok(())
     }
 }

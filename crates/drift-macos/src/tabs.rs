@@ -8,8 +8,13 @@
 //! [`install_new_window_for_tab`] adds it to the **real** window class (`TaoWindow`), not to the
 //! `NSKVONotifying_` subclass that key-value observing installs.
 
+use std::sync::{Mutex, OnceLock};
+
 use drift_core::SessionState;
-use objc2_app_kit::NSWindow;
+use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
+use objc2::sel;
+use objc2_app_kit::{NSWindow, NSWindowOrderingMode, NSWindowTabbingMode};
+use objc2_foundation::NSString;
 
 /// The tabbing identifier shared by all session windows.
 pub const TABBING_IDENTIFIER: &str = "drift.sessions";
@@ -25,50 +30,122 @@ pub const TABBING_IDENTIFIER: &str = "drift.sessions";
 /// | `Idle`, `Disconnected` | `○` |
 /// | `Failed` | `⚠` |
 pub fn tab_title(profile_name: &str, state: &SessionState) -> String {
-    let _ = (profile_name, state);
-    String::new()
+    let glyph = match state {
+        SessionState::Connected { .. } => '●',
+        SessionState::AwaitingGreeterLogin => '◐',
+        SessionState::Connecting { .. } => '◌',
+        SessionState::Reconnecting { .. } => '↻',
+        SessionState::Idle | SessionState::Disconnected { .. } => '○',
+        SessionState::Failed { .. } => '⚠',
+    };
+    let cleaned: String = profile_name.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let name = cleaned.trim();
+    let name = if name.is_empty() { "Untitled" } else { name };
+    format!("{glyph} {name}")
 }
 
 /// Makes `window` a tab-group member candidate: sets [`TABBING_IDENTIFIER`] and
 /// `NSWindowTabbingMode::Preferred`.
 pub fn prepare_for_tabs(window: &NSWindow) {
-    let _ = window;
+    window.setTabbingIdentifier(&NSString::from_str(TABBING_IDENTIFIER));
+    window.setTabbingMode(NSWindowTabbingMode::Preferred);
 }
 
-/// Adds `new` as a tab to `group`'s tab group (after the selected tab) and selects it.
+/// Adds `new` as a tab to `group`'s tab group, after `group`'s tab. Selecting (and showing) it
+/// is up to the caller (`makeKeyAndOrderFront:`).
 pub fn add_tab(group: &NSWindow, new: &NSWindow) {
-    let _ = (group, new);
+    group.addTabbedWindow_ordered(new, NSWindowOrderingMode::Above);
 }
 
 /// Number of tabs in `window`'s group (1 for a window without tabs).
 pub fn tab_count(window: &NSWindow) -> usize {
-    let _ = window;
-    0
+    window.tabbedWindows().map_or(1, |w| w.count())
 }
 
 /// Selects the tab at `index` (0-based) in `window`'s group; `false` if out of range.
 pub fn select_tab(window: &NSWindow, index: usize) -> bool {
-    let _ = (window, index);
-    false
+    let Some(group) = window.tabGroup() else { return false };
+    let windows = group.windows();
+    if index >= windows.count() {
+        return false;
+    }
+    group.setSelectedWindow(Some(&windows.objectAtIndex(index)));
+    true
 }
 
 /// `newWindowForTab:` could not be installed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TabError {
-    /// A different handler was already installed for this process.
-    #[error("newWindowForTab: handler already installed")]
-    AlreadyInstalled,
     /// The class already implements `newWindowForTab:` (and it is not ours).
     #[error("{0} already implements newWindowForTab:")]
     ClassHasMethod(String),
+    /// The Objective-C runtime refused to add the method.
+    #[error("could not add newWindowForTab: to {0}")]
+    AddFailed(String),
+}
+
+type NewTabHandler = Box<dyn Fn() + Send + Sync>;
+
+/// The process-wide "+" handler (the first one installed wins).
+static NEW_TAB_HANDLER: OnceLock<NewTabHandler> = OnceLock::new();
+
+/// Classes we added the method to (by class pointer).
+static INSTALLED_CLASSES: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+/// `-[TaoWindow newWindowForTab:]`.
+extern "C-unwind" fn new_window_for_tab(_this: &AnyObject, _cmd: Sel, _sender: *mut AnyObject) {
+    if let Some(handler) = NEW_TAB_HANDLER.get() {
+        handler();
+    }
+}
+
+fn our_imp() -> Imp {
+    let f: extern "C-unwind" fn(&AnyObject, Sel, *mut AnyObject) = new_window_for_tab;
+    // SAFETY: an `extern "C-unwind"` function with the `v@:@` method signature, stored as the
+    // untyped `Imp` the runtime expects (it is called with exactly these arguments).
+    unsafe { std::mem::transmute::<extern "C-unwind" fn(&AnyObject, Sel, *mut AnyObject), Imp>(f) }
 }
 
 /// Adds `newWindowForTab:` to `window`'s real class, calling `handler` (on the main thread)
-/// when the tab bar's "+" is clicked. Idempotent for the same class.
+/// when the tab bar's "+" is clicked. Idempotent for the same class; the handler is process-wide
+/// and the first one installed is kept.
+///
+/// Key-value observing replaces a window's isa with an `NSKVONotifying_<Class>` subclass; the
+/// method goes on `<Class>` so every window of that class responds.
 pub fn install_new_window_for_tab(
     window: &NSWindow,
     handler: impl Fn() + Send + Sync + 'static,
 ) -> Result<(), TabError> {
-    let _ = (window, handler);
-    Err(TabError::AlreadyInstalled)
+    let isa: &AnyClass = window.class();
+    let class = if isa.name().to_bytes().starts_with(b"NSKVONotifying_") {
+        isa.superclass().unwrap_or(isa)
+    } else {
+        isa
+    };
+    let name = class.name().to_string_lossy().into_owned();
+    let _ = NEW_TAB_HANDLER.set(Box::new(handler));
+    let selector = sel!(newWindowForTab:);
+    let key = std::ptr::from_ref(class) as usize;
+    let mut installed = INSTALLED_CLASSES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if installed.contains(&key) {
+        return Ok(());
+    }
+    if class.instance_method(selector).is_some() {
+        return Err(TabError::ClassHasMethod(name));
+    }
+    // SAFETY: adding a method with a matching `v@:@` type encoding to a registered class; the
+    // class pointer comes from the runtime and `class_addMethod` is thread-safe.
+    let added = unsafe {
+        objc2::ffi::class_addMethod(
+            std::ptr::from_ref(class).cast_mut(),
+            selector,
+            our_imp(),
+            c"v@:@".as_ptr(),
+        )
+    };
+    if !added.as_bool() {
+        return Err(TabError::AddFailed(name));
+    }
+    installed.push(key);
+    Ok(())
 }
