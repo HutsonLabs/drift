@@ -247,12 +247,15 @@ async fn remote_login_reconnects_to_the_greeter_and_types_the_stored_password() 
         FastPathInputEvent::UnicodeKeyboardEvent(..)
     )));
 
+    let clicks_before = server.log().legs[4].fast_path_events.len();
     for ev in [
         InputEvent::MouseButton { button: MouseButton::Left, down: true, x: 640, y: 427 },
         InputEvent::MouseButton { button: MouseButton::Left, down: false, x: 640, y: 427 },
     ] {
         h.handle.send(SessionCommand::Input(ev)).unwrap();
     }
+    // The typist arms on the click, so the clock may only move once the click has landed.
+    wait_log(&server, "the click", WAIT, |l| l.legs[4].fast_path_events.len() > clicks_before + 1).await;
     clock.advance(TYPE_DELAY);
     let log = wait_log(&server, "typed password", WAIT, |l| {
         l.legs[4].fast_path_events.iter().any(|e| matches!(e, FastPathInputEvent::UnicodeKeyboardEvent(..)))

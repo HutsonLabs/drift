@@ -114,7 +114,10 @@ async fn a_local_copy_is_advertised_and_served() {
         }))
         .unwrap();
 
-    let log = wait_log(&server, "local format list", WAIT, |l| l.legs[0].client_format_lists.len() >= 2).await;
+    let log = wait_log(&server, "local format list", WAIT, |l| {
+        l.legs[0].client_format_lists.last().is_some_and(|f| !f.is_empty())
+    })
+    .await;
     assert_eq!(
         log.legs[0].client_format_lists.last().unwrap(),
         &vec![
