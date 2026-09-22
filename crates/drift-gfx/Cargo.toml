@@ -9,6 +9,11 @@ publish.workspace = true
 
 [dependencies]
 drift-core.workspace = true
+ironrdp-core.workspace = true
+ironrdp-dvc.workspace = true
+ironrdp-egfx.workspace = true
+ironrdp-graphics.workspace = true
+ironrdp-pdu.workspace = true
 
 [lints]
 workspace = true

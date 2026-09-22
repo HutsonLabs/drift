@@ -15,7 +15,12 @@ feature-depth = 1
 # transitive ones (via tauri/wry: paste, unic-*, …) are outside our control.
 unmaintained = "workspace"
 # Each ignore needs a justification in docs/adr/M0-6-dependency-policy.md.
-ignore = []
+ignore = [
+  # rsa "Marvin" timing side channel on *private-key* operations; pulled in by
+  # ironrdp-connector -> picky/sspi. Drift is a client that only performs RSA public-key
+  # operations (certificate parsing, CredSSP public-key binding). See the M0-6 ADR.
+  { id = "RUSTSEC-2023-0071", reason = "Drift holds no RSA private keys; public-key ops only (M0-6 ADR)" },
+]
 
 [licenses]
 confidence-threshold = 0.9

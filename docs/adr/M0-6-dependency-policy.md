@@ -23,4 +23,6 @@
 
 ## Advisory ignores
 
-None yet.
+| Advisory | Crate | Path | Why it does not apply |
+|---|---|---|---|
+| RUSTSEC-2023-0071 (Marvin attack) | `rsa` 0.10.0-rc | `ironrdp-connector` → `picky`, `sspi` (→ `winscard`) | The attack recovers a **private** key from the timing of private-key decryption/signing observed over the network. Drift is an RDP client using NLA with NTLM passwords: it only performs RSA public-key operations (parsing the server certificate, CredSSP public-key binding) and never holds an RSA private key. The only RSA private key in the tree is the test-only `FakeServer` certificate on loopback. Revisit if Drift ever adds smart-card/PKINIT auth. |
