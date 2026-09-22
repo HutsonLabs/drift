@@ -36,15 +36,15 @@ pub struct LocalChange {
 /// Tracks the last seen `changeCount` of one pasteboard.
 #[derive(Debug, Clone, Default)]
 pub struct PasteboardWatcher {
-    last_seen: Option<i64>,
+    last_seen: i64,
 }
 
 impl PasteboardWatcher {
-    /// A watcher that treats `initial` as already seen (the state at app start is not a
-    /// change; it is advertised through the initial format list instead).
+    /// A watcher that treats `initial` as already seen. The state at start-up is not a
+    /// change: a new session is seeded with [`Self::snapshot`] (as a
+    /// [`crate::SyncInput::LocalChanged`]) and advertises it in its initial format list.
     pub fn new(initial: i64) -> Self {
-        let _ = initial;
-        todo!()
+        Self { last_seen: initial }
     }
 
     /// Polls `port`; returns the change when `changeCount` moved. Changes caused by a
@@ -57,13 +57,22 @@ impl PasteboardWatcher {
         port: &P,
         level: ClipboardPrefs,
     ) -> Option<LocalChange> {
-        let _ = (port, level);
-        todo!()
+        let change_count = port.change_count();
+        if change_count == self.last_seen {
+            return None;
+        }
+        self.last_seen = change_count;
+        if level == ClipboardPrefs::Off {
+            return None;
+        }
+        Some(LocalChange { change_count, contents: port.read(level) })
     }
 
-    /// Reads the current contents regardless of `changeCount` (for an initial format list).
+    /// Reads the current contents regardless of `changeCount` (to seed a new session).
     pub fn snapshot<P: PasteboardPort + ?Sized>(port: &P, level: ClipboardPrefs) -> LocalChange {
-        let _ = (port, level);
-        todo!()
+        let change_count = port.change_count();
+        let contents =
+            if level == ClipboardPrefs::Off { ClipboardContents::empty() } else { port.read(level) };
+        LocalChange { change_count, contents }
     }
 }

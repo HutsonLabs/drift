@@ -45,14 +45,12 @@ fn png_round_trip_also_offers_tiff() {
 #[test]
 fn tiff_only_pasteboard_is_converted_to_png() {
     let pb = NsPasteboard::unique();
-    // Write PNG, read back the TIFF representation the adapter added, then write TIFF alone.
+    // Write PNG, take the TIFF representation the adapter added for Mac apps, then write
+    // TIFF alone.
     pb.write(&ClipboardContents { items: vec![ClipboardItem::Png(PNG.to_vec())] });
-    let tiff = pb
-        .read(ClipboardPrefs::TextAndImages)
-        .items
-        .into_iter()
-        .find_map(|i| if let ClipboardItem::Tiff(t) = i { Some(t) } else { None })
-        .expect("adapter offers TIFF alongside PNG");
+    // SAFETY: AppKit constant, initialised before main.
+    let tiff_type = unsafe { objc2_app_kit::NSPasteboardTypeTIFF };
+    let tiff = pb.raw().dataForType(tiff_type).expect("adapter offers TIFF alongside PNG").to_vec();
     pb.write(&ClipboardContents { items: vec![ClipboardItem::Tiff(tiff.clone())] });
     let read = pb.read(ClipboardPrefs::TextAndImages);
     let png = read
