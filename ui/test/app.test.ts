@@ -23,6 +23,7 @@ import {
   LNP_EXPLANATION,
   profile,
   sessionView,
+  stats,
   text,
   type,
 } from "./helpers";
@@ -258,6 +259,31 @@ describe("session screens", () => {
     app.onSessionView(sessionView("live", { state: "connected", desktop: { width: 1280, height: 800 }, scale: 100 }));
     expect(document.body.dataset.screen).toBe("live");
     expect(root.childElementCount).toBe(0);
+  });
+
+  test("the statistics HUD floats over the live picture when it is switched on", async () => {
+    const { root, app } = await start();
+    const live = { state: "connected", desktop: { width: 1280, height: 800 }, scale: 100 } as const;
+    app.onSessionView(sessionView("live", live, { stats: stats() }));
+    expect(root.childElementCount).toBe(0);
+    expect(document.body.dataset.hud ?? "").toBe("");
+
+    app.onSessionView(sessionView("live", live, { show_stats: true, stats: stats() }));
+    expect(document.body.dataset.screen).toBe("live");
+    expect(document.body.dataset.hud).toBe("stats");
+    expect(text(root.querySelector(".hud.stats"))).toContain("58.9 fps");
+
+    // No sample yet: nothing to draw, and nothing covering the picture.
+    app.onSessionView(sessionView("live", live, { show_stats: true, stats: null }));
+    expect(root.childElementCount).toBe(0);
+    expect(document.body.dataset.hud ?? "").toBe("");
+  });
+
+  test("the greeter hint is a banner over the picture", async () => {
+    const { root, app } = await start();
+    app.onSessionView(sessionView("greeter-hint", { state: "awaiting-greeter-login" }, { resuming: true }));
+    expect(document.body.dataset.hud).toBe("banner");
+    expect(text(root.querySelector(".banner"))).toContain("Session is still running");
   });
 
   test("back to profiles when the session is idle", async () => {

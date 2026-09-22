@@ -7,7 +7,7 @@ use drift_core::{
     CertFingerprint, ConnectMode, ConnectStage, ConnectionProfile, DesktopSize, DisconnectReason,
     ErrorAction, SessionState,
 };
-use drift_rdp::{CertificateRole, SessionEvent};
+use drift_rdp::{CertificateRole, SessionEvent, SessionStats};
 
 fn view(mode: ConnectMode) -> SessionView {
     let mut p = ConnectionProfile::new("Homelab", "10.1.2.40", mode);
@@ -146,8 +146,59 @@ fn ended_states_carry_mode_specific_explanations() {
 fn unrelated_events_do_not_change_the_view() {
     let mut v = view(ConnectMode::Headless);
     v.apply(&connected());
-    assert!(!v.apply(&SessionEvent::Stats(Default::default())));
+    assert!(!v.apply(&SessionEvent::Capabilities(Default::default())));
     assert!(!v.apply(&connected()), "same state again is not a change");
+}
+
+fn stats(fps: f32) -> SessionEvent {
+    SessionEvent::Stats(SessionStats {
+        fps,
+        bitrate_bps: 1_234_567,
+        frame_latency_p95_ms: 4.26,
+        unacked_frames: 2,
+    })
+}
+
+#[test]
+fn statistics_reach_the_view_so_the_hud_can_show_them() {
+    // Plan M1 "Done (manual M1)" and M9-1: the fps number must be visible in the app.
+    let mut v = view(ConnectMode::Headless);
+    v.apply(&connected());
+    assert!(v.stats.is_none() && !v.show_stats, "no sample yet, HUD off");
+    assert!(v.apply(&stats(58.93)), "a first sample changes the view");
+    let s = v.stats.expect("a sample");
+    assert!((s.fps - 58.9).abs() < f32::EPSILON, "rounded to one decimal: {s:?}");
+    assert!((s.mbit_per_second - 1.2).abs() < f32::EPSILON, "{s:?}");
+    assert!((s.latency_p95_ms - 4.3).abs() < f32::EPSILON, "{s:?}");
+    assert_eq!(s.unacked_frames, 2);
+    assert!(!v.apply(&stats(58.94)), "the same displayed numbers are not a change");
+    assert!(v.apply(&stats(60.0)));
+}
+
+#[test]
+fn statistics_are_dropped_when_the_picture_goes_away() {
+    let mut v = view(ConnectMode::Headless);
+    v.apply(&connected());
+    v.apply(&stats(60.0));
+    v.apply(&state(SessionState::Reconnecting {
+        attempt: 1,
+        next_in: Duration::from_secs(1),
+        reason: DisconnectReason::Network,
+    }));
+    assert!(v.stats.is_none(), "stale numbers must not linger under the reconnect overlay");
+}
+
+#[test]
+fn the_statistics_hud_is_a_per_tab_toggle_that_survives_state_changes() {
+    let mut v = view(ConnectMode::Headless);
+    v.show_stats = true;
+    v.apply(&connected());
+    v.apply(&stats(60.0));
+    assert!(v.show_stats, "Session ▸ Show Statistics is not reset by session events");
+    let json = serde_json::to_value(&v).unwrap();
+    assert_eq!(json["show_stats"], true);
+    assert_eq!(json["stats"]["unacked_frames"], 2);
+    assert_eq!(json["stats"]["fps"], 60.0);
 }
 
 #[test]

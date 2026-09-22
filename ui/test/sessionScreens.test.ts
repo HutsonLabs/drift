@@ -7,7 +7,8 @@ import { renderConnecting } from "../src/views/connecting";
 import { renderError } from "../src/views/error";
 import { renderGreeterHint } from "../src/views/greeter";
 import { reconnectMessage, renderReconnectOverlay, secondsLeft } from "../src/views/reconnect";
-import { button, certPrompt, check, field, GRDCTL_FINGERPRINT, hasButton, LNP_EXPLANATION, sessionView, text } from "./helpers";
+import { renderStatsHud, statsLine } from "../src/views/stats";
+import { button, certPrompt, check, field, GRDCTL_FINGERPRINT, hasButton, LNP_EXPLANATION, sessionView, stats, text } from "./helpers";
 
 function root(): HTMLElement {
   const r = document.createElement("main");
@@ -182,5 +183,26 @@ describe("error screens", () => {
     expect(hasButton(r, "Open Local Network Settings")).toBe(false);
     button(r, "Close").click();
     expect(calls).toEqual(["close"]);
+  });
+});
+
+describe("statistics HUD", () => {
+  // Plan M1 "Done (manual M1)": `anim.py` shows >= 55 fps in the stats overlay.
+  test("leads with the frame rate to one decimal", () => {
+    expect(statsLine(stats())).toBe("58.9 fps · 1.2 Mbit/s · 4.3 ms · 2 unacked");
+    expect(statsLine(stats({ fps: 60, mbit_per_second: 12, latency_p95_ms: 7, unacked_frames: 0 }))).toBe(
+      "60.0 fps · 12.0 Mbit/s · 7.0 ms · 0 unacked",
+    );
+  });
+
+  test("is a polite live region so it never steals focus from the picture", () => {
+    const r = root();
+    renderStatsHud(r, stats());
+    const hud = r.querySelector(".hud.stats");
+    expect(hud).not.toBeNull();
+    expect(hud?.getAttribute("role")).toBe("status");
+    expect(hud?.getAttribute("aria-live")).toBe("polite");
+    expect(text(hud)).toContain("58.9 fps");
+    expect(r.querySelectorAll("button").length).toBe(0);
   });
 });

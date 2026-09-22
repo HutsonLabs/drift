@@ -7,6 +7,7 @@ import type {
   ProfileEntry_Serialize,
   SessionState_Serialize,
   SessionView_Serialize,
+  StatsView,
 } from "../src/bindings";
 
 /** The form control labelled `text` (exact label text, ignoring a trailing hint). */
@@ -115,8 +116,15 @@ export function sessionView(
     explanation: null,
     resuming: false,
     max_attempts: 20,
+    show_stats: false,
+    stats: null,
     ...over,
   };
+}
+
+/** A statistics sample, as `StatsView` serialises it. */
+export function stats(over: Partial<StatsView> = {}): StatsView {
+  return { fps: 58.9, mbit_per_second: 1.2, latency_p95_ms: 4.3, unacked_frames: 2, ...over };
 }
 
 /** The homelab system daemon's real fingerprint, as `grdctl --system status` prints it. */

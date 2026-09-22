@@ -57,3 +57,22 @@ fn session_windows_are_created_by_the_app_not_the_config() {
     assert!(labels.contains(&"session-*"), "{labels:?}");
     assert_eq!(drift_app::windows::window_label(7), "session-7");
 }
+
+#[test]
+fn the_webview_is_transparent_so_overlays_can_be_drawn_over_the_picture() {
+    // M7-3 keeps "the last frame dimmed under an overlay" and M1's stats HUD floats over the
+    // live picture. Both need a non-opaque WKWebView, which wry only does under Tauri's
+    // `macos-private-api` feature plus the matching config flag
+    // (docs/adr/M7-3-overlays-over-the-live-picture.md).
+    let conf: serde_json::Value = serde_json::from_str(&read("tauri.conf.json")).unwrap();
+    assert_eq!(conf["app"]["macOSPrivateApi"], true, "the CSS transparency rules are dead without it");
+    let manifest = read("Cargo.toml");
+    let tauri_dep = manifest
+        .lines()
+        .find(|l| l.trim_start().starts_with("tauri = "))
+        .expect("a `tauri` dependency line");
+    assert!(
+        tauri_dep.contains("macos-private-api"),
+        "the config flag alone does nothing; wry needs the cargo feature: {tauri_dep}"
+    );
+}
