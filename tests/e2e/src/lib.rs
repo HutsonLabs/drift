@@ -217,10 +217,7 @@ impl E2eSession {
         password: &str,
         adjust: impl FnOnce(&mut ConnectionProfile),
     ) -> Self {
-        let host = var("DRIFT_E2E_HOST").unwrap_or_else(|| "127.0.0.1".into());
-        let mut profile = ConnectionProfile::new("e2e", host, mode);
-        profile.port = local_port;
-        profile.rdp_username = user.to_owned();
+        let mut profile = Self::profile(mode, local_port, user);
         adjust(&mut profile);
         let (sink, frames) = RecordingFrameSink::new(PresentMode::Immediate);
         Self::start_with_sink(profile, password, Box::new(sink), frames)
