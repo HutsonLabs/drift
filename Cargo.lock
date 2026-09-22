@@ -1410,6 +1410,8 @@ version = "0.1.0"
 dependencies = [
  "drift-core",
  "drift-rdp",
+ "objc2-app-kit",
+ "objc2-foundation",
  "serde",
  "serde_json",
  "specta",
@@ -1417,6 +1419,10 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-specta",
+ "tempfile",
+ "thiserror 2.0.20",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1456,6 +1462,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "serde",
+ "sha2 0.10.9",
  "specta",
  "thiserror 2.0.20",
  "toml 0.9.12+spec-1.1.0",

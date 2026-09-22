@@ -1,21 +1,46 @@
 //! # drift-app
 //!
-//! The Tauri shell: IPC commands (typed with tauri-specta), and later the
-//! `SessionManager`, windows/tabs and menus (M1-6, M6-*).
+//! The Tauri shell: IPC commands (typed with tauri-specta), saved profiles, the per-window
+//! [`view::SessionView`] model, and later the `SessionManager`, windows/tabs and menus (M6-*).
 //!
 //! The TypeScript bindings in `ui/src/bindings.ts` are generated from [`specta_builder`]
 //! by `cargo xtask bindings`; CI fails when they are stale.
 
 pub mod commands;
+pub mod platform;
+pub mod profiles;
+pub mod secrets;
+pub mod view;
 
 use std::path::Path;
+use std::sync::Arc;
 
-/// The tauri-specta builder listing every IPC command and exported type.
+use tauri::Manager as _;
+
+/// The tauri-specta builder listing every IPC command, event and exported type.
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
-        .commands(tauri_specta::collect_commands![commands::app_info])
+        .commands(tauri_specta::collect_commands![
+            commands::app_info,
+            commands::list_profiles,
+            commands::new_profile,
+            commands::validate_profile,
+            commands::save_profile,
+            commands::delete_profile,
+            commands::forget_certificate,
+            commands::explain,
+            commands::open_local_network_settings,
+            commands::connect,
+            commands::accept_certificate,
+            commands::reject_certificate,
+            commands::reconnect_now,
+            commands::cancel_reconnect,
+            commands::close_session,
+        ])
+        .events(tauri_specta::collect_events![view::SessionViewChanged])
         .typ::<drift_core::ConnectionProfile>()
         .typ::<drift_core::SessionState>()
+        .typ::<view::SessionView>()
 }
 
 /// Writes the TypeScript bindings to `path`.
@@ -41,6 +66,12 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
+            let config_dir = app.path().app_config_dir()?;
+            // Keychain adapter (drift-macos, M3-2) replaces the in-memory store when it lands.
+            let secrets = Arc::new(secrets::MemorySecretStore::new());
+            let profiles =
+                profiles::ProfileService::open(profiles::ProfileFile::in_dir(&config_dir), secrets)?;
+            app.manage(commands::AppState { profiles });
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -1,12 +1,13 @@
-// Webview entry point: wires Tauri IPC (generated bindings) to the pure view functions.
-import { commands } from "./bindings";
-import { renderHome } from "./app";
+// Webview entry point (humble): wires the generated tauri-specta bindings to the controller.
+// Everything testable lives in app.ts and views/; this file only touches the Tauri runtime.
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { commands, events } from "./bindings";
+import { DriftApp } from "./app";
 
 const root = document.getElementById("app");
 if (root) {
-  renderHome(root, { name: "Drift", version: null });
-  commands
-    .appInfo()
-    .then((info) => renderHome(root, { name: info.name, version: info.version }))
-    .catch(() => renderHome(root, { name: "Drift", version: "unknown" }));
+  const app = new DriftApp(root, commands);
+  void app.start();
+  // Session views are emitted to this window only (SessionManager → emit_to(window)).
+  void events.sessionViewChanged(getCurrentWebviewWindow()).listen((e) => app.onSessionView(e.payload));
 }
