@@ -62,3 +62,44 @@ pub fn rdstls_failure(error: &ironrdp_connector::ConnectorError) -> Option<u32> 
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ironrdp_connector::rdstls::RdstlsResultCode;
+    use ironrdp_connector::{ConnectorError, ConnectorErrorKind};
+
+    use super::*;
+
+    #[test]
+    fn failure_code_is_extracted_only_from_rdstls_errors() {
+        let logon = ConnectorError::new(
+            "RDSTLS",
+            ConnectorErrorKind::RdstlsAuthFailed(RdstlsResultCode::LOGON_FAILURE),
+        );
+        assert_eq!(rdstls_failure(&logon), Some(0x52E));
+        assert_eq!(rdstls_failure(&ConnectorError::new("x", ConnectorErrorKind::General)), None);
+    }
+
+    #[test]
+    fn incomplete_pdus_yield_no_credentials() {
+        let complete = ServerRedirectionPdu {
+            username: Some("u".into()),
+            password: Some(vec![1, 2]),
+            redirection_guid: Some(vec![3]),
+            ..Default::default()
+        };
+        assert!(OneTimeCredentials::from_redirection(&complete).is_some());
+        for strip in 0..3 {
+            let mut pdu = complete.clone();
+            match strip {
+                0 => pdu.username = None,
+                1 => pdu.password = None,
+                _ => pdu.redirection_guid = None,
+            }
+            assert!(OneTimeCredentials::from_redirection(&pdu).is_none(), "field {strip}");
+        }
+        let with_domain = ServerRedirectionPdu { domain: Some("D".into()), ..complete };
+        let creds = OneTimeCredentials::from_redirection(&with_domain).unwrap_or_else(|| unreachable!());
+        assert_eq!(creds.into_connector().domain, "D");
+    }
+}
