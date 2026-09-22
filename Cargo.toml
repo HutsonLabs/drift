@@ -1,0 +1,117 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/drift-core",
+  "crates/drift-input",
+  "crates/drift-clipboard",
+  "crates/drift-gfx",
+  "crates/drift-codec",
+  "crates/drift-video",
+  "crates/drift-render",
+  "crates/drift-rdp",
+  "crates/drift-macos",
+  "crates/drift-testkit",
+  "src-tauri",
+  "tests/e2e",
+  "xtask",
+]
+# The vendored IronRDP tree is its own cargo workspace (see docs/adr/M0-2-ironrdp-vendored-fork.md).
+exclude = ["third_party"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+repository = "https://github.com/HutsonLabs/drift"
+publish = false
+
+[workspace.dependencies]
+# --- Drift crates ---
+drift-core = { path = "crates/drift-core" }
+drift-input = { path = "crates/drift-input" }
+drift-clipboard = { path = "crates/drift-clipboard" }
+drift-gfx = { path = "crates/drift-gfx" }
+drift-codec = { path = "crates/drift-codec" }
+drift-video = { path = "crates/drift-video" }
+drift-render = { path = "crates/drift-render" }
+drift-rdp = { path = "crates/drift-rdp" }
+drift-macos = { path = "crates/drift-macos" }
+drift-testkit = { path = "crates/drift-testkit" }
+
+# --- IronRDP (vendored at rev b149f50 + Drift patches; third_party/ironrdp) ---
+ironrdp-async = { path = "third_party/ironrdp/crates/ironrdp-async" }
+ironrdp-blocking = { path = "third_party/ironrdp/crates/ironrdp-blocking" }
+ironrdp-cliprdr = { path = "third_party/ironrdp/crates/ironrdp-cliprdr" }
+ironrdp-connector = { path = "third_party/ironrdp/crates/ironrdp-connector" }
+ironrdp-core = { path = "third_party/ironrdp/crates/ironrdp-core" }
+ironrdp-displaycontrol = { path = "third_party/ironrdp/crates/ironrdp-displaycontrol" }
+ironrdp-dvc = { path = "third_party/ironrdp/crates/ironrdp-dvc" }
+ironrdp-egfx = { path = "third_party/ironrdp/crates/ironrdp-egfx" }
+ironrdp-graphics = { path = "third_party/ironrdp/crates/ironrdp-graphics" }
+ironrdp-pdu = { path = "third_party/ironrdp/crates/ironrdp-pdu" }
+ironrdp-server = { path = "third_party/ironrdp/crates/ironrdp-server", default-features = false }
+ironrdp-session = { path = "third_party/ironrdp/crates/ironrdp-session" }
+ironrdp-svc = { path = "third_party/ironrdp/crates/ironrdp-svc" }
+ironrdp-tls = { path = "third_party/ironrdp/crates/ironrdp-tls" }
+ironrdp-tokio = { path = "third_party/ironrdp/crates/ironrdp-tokio" }
+
+# --- third-party ---
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+toml = "0.9"
+tracing = "0.1"
+uuid = { version = "1", features = ["serde", "v4"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+sha2 = "0.10"
+
+# macOS FFI (versions verified in the spikes, plan §1.8)
+objc2 = "0.6.4"
+block2 = "0.6.2"
+objc2-foundation = "0.3.2"
+objc2-app-kit = "0.3.2"
+objc2-metal = "0.3.2"
+objc2-quartz-core = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-core-video = "0.3.2"
+objc2-io-surface = "0.3.2"
+
+# Tauri
+tauri = "2.11"
+tauri-build = "2.6"
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+specta-typescript = "=0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+
+# test tooling
+insta = "1"
+proptest = "1"
+tempfile = "3"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+unwrap_used = "warn"
+dbg_macro = "warn"
+print_stderr = "allow"
+large_futures = "warn"
+
+# §0: optimised dependencies in dev. A debug-built decoder acks frames late and
+# g-r-d throttles from 60 to ~30 fps (verified).
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.drift-codec]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
