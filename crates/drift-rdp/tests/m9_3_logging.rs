@@ -60,17 +60,21 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CaptureWriter {
 /// `RUST_LOG=trace` is the worst case an operator can ask for, so that is what the test runs:
 /// everything is on except the targets Drift refuses to let log credentials.
 fn capture_logs() -> Captured {
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+
     let buffer: Captured = Arc::default();
-    let writer = CaptureWriter(Arc::clone(&buffer));
-    let mut filter = tracing_subscriber::EnvFilter::new("trace");
-    for directive in drift_rdp::logging::credential_safe_directives() {
-        filter = filter.add_directive(directive.parse().expect("a valid directive"));
-    }
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_ansi(false)
-        .with_target(true)
-        .with_writer(writer)
+    let credentials =
+        tracing_subscriber::filter::filter_fn(|m| drift_rdp::logging::allows(m.target(), *m.level()));
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::new("trace"))
+        .with(credentials)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_target(true)
+                .with_writer(CaptureWriter(Arc::clone(&buffer))),
+        )
         .init();
     buffer
 }
@@ -82,10 +86,7 @@ fn capture_logs() -> Captured {
 /// wire. Byte lists are matched without their brackets so a secret nested in a longer list
 /// still counts.
 fn renderings(secret: &[u8]) -> Vec<(String, String)> {
-    let utf16: Vec<u8> = String::from_utf8_lossy(secret)
-        .encode_utf16()
-        .flat_map(u16::to_le_bytes)
-        .collect();
+    let utf16: Vec<u8> = String::from_utf8_lossy(secret).encode_utf16().flat_map(u16::to_le_bytes).collect();
     let list = |bytes: &[u8]| bytes.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
     let hex_lower = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
     let hex_upper = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02X}")).collect::<String>();
@@ -109,10 +110,7 @@ async fn a_full_remote_login_logs_no_credential() {
     let pdu1 = redirection_pdu(424_242, cert.der(), 1);
     let pdu2 = redirection_pdu(424_242, cert.der(), 2);
     let redirect = |pdu: &ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu| {
-        vec![
-            ServerAction::Wait(Duration::from_millis(50)),
-            ServerAction::Redirect(Box::new(pdu.clone())),
-        ]
+        vec![ServerAction::Wait(Duration::from_millis(50)), ServerAction::Redirect(Box::new(pdu.clone()))]
     };
     let server = FakeServer::start(vec![
         LegScript { actions: redirect(&pdu1), ..LegScript::nla(cert.clone(), USER, NLA_PASSWORD) },
@@ -136,8 +134,7 @@ async fn a_full_remote_login_logs_no_credential() {
     let text = String::from_utf8_lossy(&logs.lock().unwrap_or_else(PoisonError::into_inner)).into_owned();
     assert!(text.contains("following Server Redirection"), "the actor did log its progress:\n{text}");
 
-    let mut secrets: Vec<(String, Vec<u8>)> =
-        vec![("NLA password".into(), NLA_PASSWORD.as_bytes().to_vec())];
+    let mut secrets: Vec<(String, Vec<u8>)> = vec![("NLA password".into(), NLA_PASSWORD.as_bytes().to_vec())];
     for (i, pdu) in [&pdu1, &pdu2].into_iter().enumerate() {
         let leg = i + 2;
         secrets.push((format!("leg {leg} one-time user name"), pdu.username.clone().unwrap().into_bytes()));
@@ -146,10 +143,7 @@ async fn a_full_remote_login_logs_no_credential() {
     }
     for (what, secret) in secrets {
         for (how, rendering) in renderings(&secret) {
-            assert!(
-                !text.contains(&rendering),
-                "the {what} appears in the logs as {how}:\n{text}"
-            );
+            assert!(!text.contains(&rendering), "the {what} appears in the logs as {how}:\n{text}");
         }
     }
 }

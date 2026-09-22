@@ -151,16 +151,19 @@ pub fn run_with(options: RunOptions) {
 /// formatted here, and the third-party targets that *do* log credentials below `INFO` are
 /// capped by `drift_rdp::logging` whatever `RUST_LOG` asks for (M9-3).
 fn init_logging() {
-    use tracing_subscriber::EnvFilter;
-    let mut filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    for directive in drift_rdp::logging::credential_safe_directives() {
-        match directive.parse() {
-            // Appended last so it replaces any directive `RUST_LOG` set for the same target.
-            Ok(directive) => filter = filter.add_directive(directive),
-            Err(e) => eprintln!("drift: ignoring malformed log directive {directive}: {e}"),
-        }
-    }
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    use tracing_subscriber::{EnvFilter, filter};
+
+    let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    // Second global filter: `RUST_LOG` chooses verbosity, this one refuses the targets that
+    // log credentials below INFO, whatever `RUST_LOG` asked for (M9-3).
+    let credentials = filter::filter_fn(|m| drift_rdp::logging::allows(m.target(), *m.level()));
+    let _ = tracing_subscriber::registry()
+        .with(env)
+        .with(credentials)
+        .with(tracing_subscriber::fmt::layer())
+        .try_init();
 }
 
 /// Runs the application (called from `main`).

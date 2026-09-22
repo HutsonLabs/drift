@@ -557,5 +557,8 @@ fn credentials_debug_shows_no_secret() {
     assert!(!rendered.contains("one-time-user"), "user name in {rendered}");
     assert!(!rendered.contains("s3cr3t-p4ssw0rd"), "password in {rendered}");
     assert!(rendered.contains("EXAMPLE"), "the domain is not a secret: {rendered}");
-    assert!(rendered.contains("13 chars"), "the length stays useful for debugging: {rendered}");
+    assert!(
+        rendered.contains("13 chars"),
+        "the length stays useful for debugging: {rendered}"
+    );
 }

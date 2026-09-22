@@ -92,11 +92,7 @@ async fn the_pin_accepted_for_this_session_also_covers_the_redirect_target() {
         *e == SessionEvent::State(SessionState::AwaitingGreeterLogin)
     })
     .await;
-    let prompts = h
-        .seen
-        .iter()
-        .filter(|e| matches!(e, SessionEvent::CertificatePrompt { .. }))
-        .count();
+    let prompts = h.seen.iter().filter(|e| matches!(e, SessionEvent::CertificatePrompt { .. })).count();
     assert_eq!(prompts, 1, "the accepted pin covers the redirect target too: {:?}", h.seen);
     assert_eq!(server.log().legs.len(), 2);
     h.close().await;
@@ -132,7 +128,6 @@ async fn a_redirect_target_that_changes_its_certificate_fails_closed() {
     let log = server.log();
     assert_eq!(log.legs.len(), 2);
     assert_eq!(log.legs[1].rdstls_request, None, "one-time credentials are never sent");
-    let prompts =
-        h.seen.iter().filter(|e| matches!(e, SessionEvent::CertificatePrompt { .. })).count();
+    let prompts = h.seen.iter().filter(|e| matches!(e, SessionEvent::CertificatePrompt { .. })).count();
     assert_eq!(prompts, 1, "only leg 1 is ever prompted for: {:?}", h.seen);
 }

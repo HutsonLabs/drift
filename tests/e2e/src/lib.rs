@@ -175,20 +175,25 @@ impl<W: Write> Drop for RedactingWriter<W> {
 pub fn init_logging() {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
+        use tracing_subscriber::layer::SubscriberExt as _;
+        use tracing_subscriber::util::SubscriberInitExt as _;
+
         let redactor = Redactor::from_env();
-        let mut filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        let env = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-        // M9-3: `sspi` prints the TS credentials at DEBUG/TRACE, and the redactor only knows
-        // the values the suite injected. Cap those targets last so `RUST_LOG` cannot undo it.
-        for directive in drift_rdp::logging::credential_safe_directives() {
-            if let Ok(directive) = directive.parse() {
-                filter = filter.add_directive(directive);
-            }
-        }
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_ansi(false)
-            .with_writer(move || RedactingWriter::new(redactor.clone(), io::stderr()))
+        // M9-3: `sspi` prints the TS credentials at DEBUG/TRACE and the redactor only knows the
+        // values the suite injected, so those targets are refused below INFO regardless of
+        // `RUST_LOG` (`drift_rdp::logging`).
+        let credentials =
+            tracing_subscriber::filter::filter_fn(|m| drift_rdp::logging::allows(m.target(), *m.level()));
+        let _ = tracing_subscriber::registry()
+            .with(env)
+            .with(credentials)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(move || RedactingWriter::new(redactor.clone(), io::stderr())),
+            )
             .try_init();
     });
 }

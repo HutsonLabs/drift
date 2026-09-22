@@ -31,8 +31,7 @@ fn complete_crates() -> Vec<FuzzCrate> {
     dirs.dedup();
     dirs.into_iter()
         .map(|dir| {
-            let targets: Vec<&str> =
-                REQUIRED.iter().filter(|r| r.dir == dir).map(|r| r.target).collect();
+            let targets: Vec<&str> = REQUIRED.iter().filter(|r| r.dir == dir).map(|r| r.target).collect();
             krate(dir, &targets)
         })
         .collect()

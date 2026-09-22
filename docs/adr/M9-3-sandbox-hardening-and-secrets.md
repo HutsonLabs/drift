@@ -8,8 +8,8 @@
   `crates/drift-rdp/src/logging.rs`, `src-tauri/src/lib.rs`, `tests/e2e/src/lib.rs`,
   `third_party/ironrdp-patches/0007-fix-never-log-credentials.patch`
 - Tests: `src-tauri/tests/m9_3_hardening.rs`, `crates/drift-rdp/tests/m9_3_logging.rs`,
-  `crates/drift-rdp/tests/m9_3_zeroize.rs`, `crates/drift-rdp/tests/m9_3_tofu.rs`,
-  `docs/acceptance.md` § M9-3
+  `crates/drift-rdp/tests/m9_3_log_filter.rs`, `crates/drift-rdp/tests/m9_3_zeroize.rs`,
+  `crates/drift-rdp/tests/m9_3_tofu.rs`, `docs/acceptance.md` § M9-3
 
 ## 1. Credentials in logs: refuse to enable the targets that leak
 
@@ -28,14 +28,21 @@ found three leaks that a redactor would only have covered inside `cargo xtask e2
 
 Decisions:
 
-- **(1) is a policy, not a patch.** `drift_rdp::logging::credential_safe_directives()` returns
-  `["sspi=info"]`, and every place Drift installs a subscriber (`drift-app`'s `init_logging`,
-  `drift-e2e`'s `init_logging`) appends those directives **after** the `RUST_LOG` ones, so a
-  later directive for the same target replaces the user's. `RUST_LOG=trace` therefore still
-  gives full Drift and IronRDP tracing, but `sspi` stops at `INFO` — its warnings and errors
-  (the useful part when NLA fails) survive, its credential spans do not. The policy is data in
-  `drift-rdp` (no `tracing-subscriber` dependency there); the proof is behavioural, in
-  `m9_3_logging.rs`, which installs exactly this filter at `trace` and then greps the output.
+- **(1) is a policy, not a patch.** `drift_rdp::logging::allows(target, level)` refuses
+  `sspi` (and anything under it) below `INFO`, and every place Drift installs a subscriber
+  (`drift-app`'s `init_logging`, `drift-e2e`'s `init_logging`) adds it as a second **global
+  filter layer** beside the `EnvFilter`. `RUST_LOG=trace` therefore still gives full Drift and
+  IronRDP tracing, but `sspi` stops at `INFO` — its warnings and errors (the useful part when
+  NLA fails) survive, its credential spans do not.
+
+  The first attempt appended an `sspi=info` *directive* to the `EnvFilter` instead. That is not
+  enough, and `m9_3_log_filter.rs` caught it: `EnvFilter` matches the **most specific** target
+  first, so `RUST_LOG=sspi::credssp=trace` still enables the `write_ts_credentials` span, and
+  its credential field is then printed in the context of every event inside it — including the
+  `WARN` ones the cap deliberately keeps. A predicate over the callsite's target cannot be
+  out-specified that way. The policy stays a pure function in `drift-rdp` (no
+  `tracing-subscriber` dependency there); the proof is behavioural, in `m9_3_log_filter.rs`
+  (every `RUST_LOG` shape) and `m9_3_logging.rs` (a whole connection at `trace`, grepped).
 - **(2) and (3) are fixed in the vendored fork**
   (`0007-fix-never-log-credentials.patch`): the RDSTLS line no longer names the user, and
   `Credentials`'s `Debug` prints `username: <13 chars>` instead of the value. The length keeps

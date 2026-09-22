@@ -94,7 +94,8 @@ fn the_entitlements_enable_the_app_sandbox_and_outgoing_network_only() {
             "a sandbox temporary exception needs an ADR and a review: {key}"
         );
         assert!(
-            !key.contains("cs.allow-unsigned-executable-memory") && !key.contains("cs.disable-library-validation"),
+            !key.contains("cs.allow-unsigned-executable-memory")
+                && !key.contains("cs.disable-library-validation"),
             "that entitlement would defeat the Hardened Runtime: {key}"
         );
     }
@@ -122,8 +123,8 @@ fn the_sandboxed_app_can_still_reach_its_keychain_items_and_its_config() {
     // Metal, VideoToolbox and NSPasteboard need no entitlement, but they only keep working
     // because nothing asks for a second process or a helper tool; the manual checklist
     // confirms them on a signed, sandboxed build.
-    let acceptance = std::fs::read_to_string(manifest_dir().join("../docs/acceptance.md"))
-        .expect("docs/acceptance.md");
+    let acceptance =
+        std::fs::read_to_string(manifest_dir().join("../docs/acceptance.md")).expect("docs/acceptance.md");
     let section = acceptance
         .split("## ")
         .find(|s| s.starts_with("M9-3"))

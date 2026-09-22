@@ -553,7 +553,9 @@ async fn serve_leg(
                     }
                 }
                 ServerAction::GfxReset(w, h) => active.gfx_reset(&mut framed, w, h).await?,
-                ServerAction::GfxRaw(bytes) => active.gfx_send(&mut framed, fake_channels::gfx_raw_message(bytes)).await?,
+                ServerAction::GfxRaw(bytes) => {
+                    active.gfx_send(&mut framed, fake_channels::gfx_raw_message(bytes)).await?
+                }
             }
             update(log, index, |r| r.actions_done += 1);
         }
