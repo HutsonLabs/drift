@@ -4,6 +4,7 @@ use ironrdp_pdu::rdp::capability_sets::{MajorPlatformType, RailSupportLevel};
 
 mod autodetect;
 mod early_capabilities;
+mod rdstls;
 
 fn test_config() -> ironrdp_connector::Config {
     ironrdp_connector::Config {
