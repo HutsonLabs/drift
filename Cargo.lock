@@ -2710,6 +2710,7 @@ dependencies = [
 name = "ironrdp-connector"
 version = "0.10.0"
 dependencies = [
+ "bitflags 2.13.2",
  "ironrdp-core",
  "ironrdp-error",
  "ironrdp-pdu",
