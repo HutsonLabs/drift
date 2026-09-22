@@ -36,6 +36,7 @@ Any decision not already fixed by `plan.md` gets an ADR in `docs/adr/<TASKID>-<s
 | `M0-3-fixture-capture-and-sanitization` | fixture capture, layout, `.rec` format, sanitizer |
 | `M0-4-host-setup` | check-first host setup script, host-setup-check |
 | `M1-2-gfx-client` | GFX client: suspend-ack timing, queueDepth, surface/cache validation, fuzz crate |
+| `M1-1-connect-and-redirect` | TLS pin/TOFU, error classification, redirect loop, GFX wiring, FakeServer, e2e redaction |
 
 ## Commands
 
