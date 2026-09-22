@@ -93,3 +93,30 @@ These need a person, a real keyboard/IME, physical network changes or sleep
       attempts counted); Wi-Fi on reconnects within ~1 s without waiting for the backoff.
 - [ ] **Wake trigger:** sleep the Mac for > 1 min with a live session; after wake it reconnects
       immediately (single attempt, not one per trigger).
+
+## M6-1 / M6-2 / M8-3 — Sessions, tabs and menus (drift-app)
+
+Automated: `cargo nextest run -p drift-app` (fake-actor lifecycle, menu model, presentation) and
+`cargo test -p drift-app --features macos-ui-tests --test tabs_ui` (three real windows in one tab
+group, `newWindowForTab:`). These need a person:
+
+- [ ] **Three live sessions:** open Remote Login, Headless and Desktop Sharing profiles in three
+      tabs of one window; switching tabs shows each desktop instantly, and background tabs stay
+      below ~2 % CPU (Activity Monitor).
+- [ ] **Tab bar:** the "+" button opens a new tab with the connect form; Cmd+1…9 select tabs;
+      Cmd+Shift+[ / ] move between them; the tab overview (Window ▸ Show All Tabs) shows live
+      thumbnails; dragging a tab out into its own window keeps that session running, and dragging
+      it back rejoins the group.
+- [ ] **Title and subtitle:** the tab title is the profile name with its state glyph; at the GDM
+      greeter the title bar subtitle reads "Log in as “<user>” to start your session", and after a
+      reconnect of a running session "Session is still running — log in as “<user>” to resume".
+- [ ] **Close and quit:** Cmd+W on a connected tab closes the session (the GNOME host shows no
+      leftover session) and then the tab; Cmd+Q with three live sessions quits within about two
+      seconds; the red close button behaves like Cmd+W. Closing the last tab leaves Drift running
+      (Dock icon); clicking the Dock icon opens a new tab.
+- [ ] **Session menu:** Send Ctrl+Alt+Del shows GNOME's screen; Reconnect restarts a failed
+      session in the same tab; Disconnect returns the tab to the connect form without closing it.
+- [ ] **Recording (feature `recording` only):** `cargo run -p drift-app --features recording`,
+      connect, then Debug ▸ Record Session (experimental); after a minute toggle it off and play
+      `~/Movies/Drift <profile> <timestamp>.mp4` in QuickTime — it shows the session at the right
+      size and duration.

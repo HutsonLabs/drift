@@ -41,6 +41,7 @@ objc2-app-kit = { workspace = true, features = ["NSWorkspace", "NSWindow", "NSAp
 objc2-foundation = { workspace = true, features = ["NSString", "NSURL", "NSArray"] }
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 specta.workspace = true

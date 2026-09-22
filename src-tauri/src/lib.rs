@@ -72,6 +72,7 @@ pub fn export_bindings(path: &Path) -> Result<(), String> {
 /// Panics if the Tauri runtime fails to start (unrecoverable at launch).
 #[allow(clippy::expect_used)]
 pub fn run_with(options: RunOptions) {
+    init_logging();
     let RunOptions { config_dir, memory_secrets, autoconnect, on_ready } = options;
     let builder = specta_builder();
     let on_ready = std::sync::Mutex::new(on_ready);
@@ -139,6 +140,14 @@ pub fn run_with(options: RunOptions) {
         tauri::RunEvent::Exit => windows::shutdown_blocking(handle),
         _ => {}
     });
+}
+
+/// Sets up `tracing` (`RUST_LOG`, default `info`). Secrets never reach a log: passwords live
+/// in `Zeroizing` values whose `Debug` is redacted (ADR M0-5) and are never formatted here.
+fn init_logging() {
+    use tracing_subscriber::EnvFilter;
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
 /// Runs the application (called from `main`).
