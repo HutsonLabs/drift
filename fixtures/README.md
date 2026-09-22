@@ -43,9 +43,11 @@ A sequence of records, each a little-endian `u32` byte length followed by the by
 | File | Bytes | SHA-256 | Replaced | Source | Contents |
 |---|---:|---|---:|---|---|
 | `h264/leg2.h264` | 34429 | `d20732eb25b3…` | 0 | Run 1, Remote Login leg 2 (GDM greeter) | AVC420 Annex-B, High@4.0, 8 frames 1280x800: greeter, user tile click, password dots. AUD `09 30` first, no VUI colour description |
-| `h264/leg3.h264` | 1625588 | `7c1433ca7ce5…` | 0 | Run 1, Remote Login leg 3 (user session) | AVC420 Annex-B, 431 frames 1280x800: desktop, then 7 s of full-screen motion (anim.py) |
+| `h264/leg3_motion.h264` | 1625588 | `7c1433ca7ce5…` | 0 | Run 1, Remote Login leg 3 (user session) | AVC420 Annex-B, 431 frames 1280x800: desktop, then 7 s of full-screen motion (anim.py) |
 | `h264/headless_motion.h264` | 1100720 | `075f8aefd7ab…` | 0 | Run 4, headless :3392 | AVC420 Annex-B, 425 frames 1280x800: desktop, then 7 s of full-screen motion |
 | `h264/headless_scale200.h264` | 109922 | `955a85e4e48b…` | 0 | Run 5, headless :3392 at 2560x1600 scale 200 | AVC420 Annex-B, 7 frames 2560x1600 (GNOME at 2x) |
+| `h264/leg3.h264` | 55628 | `b36077f6ce82…` | 0 | Spike capture (2026-09-21), Remote Login leg 3, preserved from /private/tmp/leg3.h264 by M1-3 | AVC420 Annex-B, 42 access units 1280x800 (the 398-frame run quoted in plan §1.4 was not preserved; h264/leg3_motion.h264 is a long leg-3 stream) |
+| `h264/headless_anim.h264` | 1522464 | `a3d3ae8dcef2…` | 0 | M1-3 capture (2026-09-22): headless :3392 with anim.py | AVC420 Annex-B, 407 access units 1280x800, full-screen motion |
 
 ## Graphics pipeline (GFX DVC) streams
 
@@ -101,7 +103,21 @@ A sequence of records, each a little-endian `u32` byte length followed by the by
 | `goldens/greeter.png` | 226437 | `0767275b9ddf…` | 0 | Frame 0 of h264/leg2.h264 | GDM greeter 1280x800 RGB, decoded BT.709 full range by ffmpeg (golden for the Metal renderer, tolerance 2 per channel) |
 | `screenshots/desktop_headless.png` | 209310 | `00b58f22004c…` | 0 | Frame 0 of h264/headless_motion.h264 | Headless GNOME desktop 1280x800 |
 | `screenshots/retina200.png` | 441493 | `d736043254ca…` | 0 | Frame 0 of h264/headless_scale200.h264 | Headless desktop 2560x1600 at 200% (GNOME 2x, pixel-doubled layout) |
-| `screenshots/leg3_motion_frame200.png` | 49670 | `bbd125afb256…` | 0 | Frame 200 of h264/leg3.h264 | Full-screen motion (anim.py) in the Remote Login user session |
+| `screenshots/leg3_motion_frame200.png` | 49670 | `bbd125afb256…` | 0 | Frame 200 of h264/leg3_motion.h264 | Full-screen motion (anim.py) in the Remote Login user session |
 | `goldens/greeter_progressive.png` | 300128 | `df94eb42bb68…` | 0 | M1-4: IronRDP GraphicsPipelineClient compositor output for gfx/greeter_v81noavc.gfx at capture time | Reference image for the progressive greeter capture (alpha forced to 255) |
 | `goldens/headless_progressive.png` | 297491 | `fa1680cbd08b…` | 0 | M1-4: IronRDP GraphicsPipelineClient compositor output for gfx/headless_v81noavc.gfx at capture time | Reference image for the progressive headless capture (alpha forced to 255) |
+| `h264/goldens/headless_anim_f000.nv12` | 1536000 | `1357588eb7ec…` | 0 | M1-3: ffmpeg 9.0.2 decode of h264/headless_anim.h264 | NV12 frame 0, 1280x800 |
+| `h264/goldens/headless_anim_f203.nv12` | 1536000 | `24bb544348a1…` | 0 | M1-3: ffmpeg 9.0.2 decode of h264/headless_anim.h264 | NV12 frame 203, 1280x800 |
+| `h264/goldens/headless_anim_f406.nv12` | 1536000 | `af6c8190bc47…` | 0 | M1-3: ffmpeg 9.0.2 decode of h264/headless_anim.h264 | NV12 frame 406, 1280x800 |
+| `h264/goldens/leg3_f000.nv12` | 1536000 | `5e4d2a65dc83…` | 0 | M1-3: ffmpeg 9.0.2 decode of h264/leg3.h264 | NV12 frame 0, 1280x800 |
+| `h264/goldens/leg3_f020.nv12` | 1536000 | `1cce09759b92…` | 0 | M1-3: ffmpeg 9.0.2 decode of h264/leg3.h264 | NV12 frame 20, 1280x800 |
+| `h264/goldens/leg3_f041.nv12` | 1536000 | `f20cf0a0e9e2…` | 0 | M1-3: ffmpeg 9.0.2 decode of h264/leg3.h264 | NV12 frame 41, 1280x800 |
+| `h264/goldens/sps_change_640x400_f011.nv12` | 384000 | `46ac2bf7e44f…` | 0 | M1-3: ffmpeg 9.0.2 decode of h264/sps_change_640x400.h264 | NV12 frame 11, 640x400 |
+
+## Reference data (not captured from g-r-d)
+
+| File | Bytes | SHA-256 | Replaced | Source | Contents |
+|---|---:|---|---:|---|---|
+| `h264/sps_change_640x400.h264` | 47827 | `c1ba7e2d338e…` | 0 | Synthetic (M1-3): ffmpeg testsrc2, libx264 High, no B-frames | 12 frames 640x400: a different SPS for decoder-rebuild tests |
+| `pdus/avc420_bitmap_stream_msrdpegfx.bin` | 84 | `44edc7afdb1e…` | 0 | MS-RDPEGFX AVC444 example, AVC420 sub-stream (also in IronRDP's tests), added by M1-3 | RFX_AVC420_BITMAP_STREAM metablock and H.264 bytes from the specification |
 

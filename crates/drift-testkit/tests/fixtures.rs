@@ -65,8 +65,14 @@ fn lfs_pointers_are_detected() {
 
 #[test]
 fn h264_fixtures_are_annex_b_with_leading_aud() {
-    for n in [names::H264_LEG2, names::H264_LEG3, names::H264_HEADLESS_MOTION, names::H264_HEADLESS_SCALE200]
-    {
+    for n in [
+        names::H264_LEG2,
+        names::H264_LEG3,
+        names::H264_LEG3_MOTION,
+        names::H264_HEADLESS_MOTION,
+        names::H264_HEADLESS_SCALE200,
+        names::H264_HEADLESS_ANIM,
+    ] {
         let d = fixtures::read(n);
         assert!(d.starts_with(&[0, 0, 0, 1, 0x09, 0x30]), "{n} must start with an AUD (plan §1.4)");
     }

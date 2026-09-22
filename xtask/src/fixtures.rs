@@ -95,8 +95,11 @@ pub enum FileKind {
     Clipboard,
     /// A decoded screenshot.
     Screenshot,
-    /// A golden image for render tests.
+    /// A golden image (or decoded frame) for render/decode tests.
     Golden,
+    /// Reference data that was not captured from g-r-d (specification examples, synthetic
+    /// streams).
+    Reference,
 }
 
 /// One fixture file.
@@ -341,6 +344,7 @@ fn kind_title(kind: FileKind) -> &'static str {
         | FileKind::FastpathPointer => "PDUs, certificates and fast-path updates",
         FileKind::Clipboard => "Clipboard (CLIPRDR format data)",
         FileKind::Screenshot | FileKind::Golden => "Images (screenshots and goldens)",
+        FileKind::Reference => "Reference data (not captured from g-r-d)",
     }
 }
 

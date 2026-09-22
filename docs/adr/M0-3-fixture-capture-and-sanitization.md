@@ -51,3 +51,8 @@ including one-time Remote Login credentials that are already invalid.
   and `goldens/*_progressive.png`) before this import. They are adopted into the staging
   provenance so the manifest covers them and re-imports keep them; any new fixture must be
   added through the staging directory, otherwise the manifest test reports it as unlisted.
+- Task M1-3 likewise landed `h264/leg3.h264` (the spike's 42-access-unit leg-3 stream),
+  `h264/headless_anim.h264`, `h264/sps_change_640x400.h264`, NV12 goldens under `h264/goldens/`
+  and `pdus/avc420_bitmap_stream_msrdpegfx.bin`; they are adopted unchanged (kind `reference`
+  for non-captured data). This import's long Remote Login leg-3 capture is therefore named
+  `h264/leg3_motion.h264` so M1-3's goldens keep matching `h264/leg3.h264`.

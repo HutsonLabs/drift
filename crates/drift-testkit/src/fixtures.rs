@@ -19,8 +19,30 @@ use std::path::PathBuf;
 pub mod names {
     /// GDM greeter, Remote Login leg 2, AVC420 Annex-B (8 frames, 1280×800).
     pub const H264_LEG2: &str = "h264/leg2.h264";
-    /// Remote Login leg 3 user session with full-screen motion, AVC420 Annex-B (431 frames).
+    /// Remote Login leg 3 from the spike, AVC420 Annex-B (42 access units, 1280×800; M1-3).
     pub const H264_LEG3: &str = "h264/leg3.h264";
+    /// Remote Login leg 3 user session with full-screen motion, AVC420 Annex-B (431 frames).
+    pub const H264_LEG3_MOTION: &str = "h264/leg3_motion.h264";
+    /// Headless full-screen motion captured by M1-3, AVC420 Annex-B (407 access units).
+    pub const H264_HEADLESS_ANIM: &str = "h264/headless_anim.h264";
+    /// Synthetic 640×400 libx264 stream with a different SPS (12 frames; M1-3).
+    pub const H264_SPS_CHANGE_640X400: &str = "h264/sps_change_640x400.h264";
+    /// ffmpeg NV12 golden: frame 0 of [`H264_HEADLESS_ANIM`].
+    pub const NV12_HEADLESS_ANIM_F000: &str = "h264/goldens/headless_anim_f000.nv12";
+    /// ffmpeg NV12 golden: frame 203 of [`H264_HEADLESS_ANIM`].
+    pub const NV12_HEADLESS_ANIM_F203: &str = "h264/goldens/headless_anim_f203.nv12";
+    /// ffmpeg NV12 golden: frame 406 of [`H264_HEADLESS_ANIM`].
+    pub const NV12_HEADLESS_ANIM_F406: &str = "h264/goldens/headless_anim_f406.nv12";
+    /// ffmpeg NV12 golden: frame 0 of [`H264_LEG3`].
+    pub const NV12_LEG3_F000: &str = "h264/goldens/leg3_f000.nv12";
+    /// ffmpeg NV12 golden: frame 20 of [`H264_LEG3`].
+    pub const NV12_LEG3_F020: &str = "h264/goldens/leg3_f020.nv12";
+    /// ffmpeg NV12 golden: frame 41 of [`H264_LEG3`].
+    pub const NV12_LEG3_F041: &str = "h264/goldens/leg3_f041.nv12";
+    /// ffmpeg NV12 golden: frame 11 of [`H264_SPS_CHANGE_640X400`].
+    pub const NV12_SPS_CHANGE_640X400_F011: &str = "h264/goldens/sps_change_640x400_f011.nv12";
+    /// MS-RDPEGFX example `RFX_AVC420_BITMAP_STREAM` (M1-3).
+    pub const PDU_AVC420_BITMAP_STREAM_MSRDPEGFX: &str = "pdus/avc420_bitmap_stream_msrdpegfx.bin";
     /// Headless session with full-screen motion, AVC420 Annex-B (425 frames, 1280×800).
     pub const H264_HEADLESS_MOTION: &str = "h264/headless_motion.h264";
     /// Headless session at 2560×1600, desktop scale 200 (7 frames).
@@ -105,7 +127,7 @@ pub mod names {
     pub const SCREENSHOT_DESKTOP_HEADLESS: &str = "screenshots/desktop_headless.png";
     /// Screenshot: 2560×1600 at scale 200 (frame 0 of [`H264_HEADLESS_SCALE200`]).
     pub const SCREENSHOT_RETINA200: &str = "screenshots/retina200.png";
-    /// Screenshot: frame 200 of [`H264_LEG3`].
+    /// Screenshot: frame 200 of [`H264_LEG3_MOTION`].
     pub const SCREENSHOT_LEG3_MOTION: &str = "screenshots/leg3_motion_frame200.png";
 
     /// Every fixture above.
@@ -114,6 +136,17 @@ pub mod names {
         H264_LEG3,
         H264_HEADLESS_MOTION,
         H264_HEADLESS_SCALE200,
+        H264_LEG3_MOTION,
+        H264_HEADLESS_ANIM,
+        H264_SPS_CHANGE_640X400,
+        NV12_HEADLESS_ANIM_F000,
+        NV12_HEADLESS_ANIM_F203,
+        NV12_HEADLESS_ANIM_F406,
+        NV12_LEG3_F000,
+        NV12_LEG3_F020,
+        NV12_LEG3_F041,
+        NV12_SPS_CHANGE_640X400_F011,
+        PDU_AVC420_BITMAP_STREAM_MSRDPEGFX,
         GFX_LEG2_GREETER_AVC420,
         GFX_LEG2_GREETER_AVC420_RAW,
         GFX_LEG2_GREETER_AVC420_CLIENT,
