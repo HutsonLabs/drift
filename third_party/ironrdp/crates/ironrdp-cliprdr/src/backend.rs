@@ -66,6 +66,9 @@ pub trait ClipboardMessageProxy: core::fmt::Debug + Send {
 pub trait CliprdrBackend: AsAny + core::fmt::Debug + Send {
     /// Returns path to local temporary directory where clipboard-transferred files should be
     /// stored.
+    ///
+    /// Return an empty string when the client has no such directory: the optional
+    /// `CLIPRDR_TEMP_DIRECTORY` PDU ([MS-RDPECLIP] 2.2.2.3) is then not sent.
     fn temporary_directory(&self) -> &str;
 
     /// Returns capabilities of the client.
