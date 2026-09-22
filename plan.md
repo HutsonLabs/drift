@@ -457,7 +457,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Done (manual M1):** Headless-mode connect to drifttest2 shows a live, correctly coloured desktop. `anim.py` shows ≥ 55 fps in the stats overlay.
 
 ### M2 — Keyboard, mouse, trackpad
-- [ ] **M2-1 Keymap & modifiers** (C). Map `kVK_*` to set-1 scancodes plus the extended flag, for ANSI, ISO and JIS keyboards. Diff `flagsChanged` into left/right modifier transitions. `CmdAs::Super` (`0x5B` extended) is the default; `CmdAs::Ctrl` sends `0x1D`.
+- [x] **M2-1 Keymap & modifiers** (C). Map `kVK_*` to set-1 scancodes plus the extended flag, for ANSI, ISO and JIS keyboards. Diff `flagsChanged` into left/right modifier transitions. `CmdAs::Super` (`0x5B` extended) is the default; `CmdAs::Ctrl` sends `0x1D`.
   **Red:**
   - a table over every `kVK_*` constant;
   - a proptest that down/up events stay balanced for any flagsChanged sequence;
