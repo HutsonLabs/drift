@@ -1111,6 +1111,9 @@ impl iron_remote_desktop::Session for Session {
                     ActiveStageOutput::SaveSessionInfo { logon_complete: false } => {
                         debug!("RDP session info notification");
                     }
+                    ActiveStageOutput::ServerRedirect(_) => {
+                        break 'outer GracefulDisconnectReason::Other("server redirection is not supported".to_owned());
+                    }
                     ActiveStageOutput::Terminate(reason) => break 'outer reason,
                 }
             }

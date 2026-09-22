@@ -16,6 +16,7 @@ use ironrdp_pdu::rdp::client_info::CompressionType;
 use ironrdp_pdu::rdp::headers::ShareDataPdu;
 use ironrdp_pdu::rdp::multitransport::{MultitransportRequestPdu, MultitransportResponsePdu};
 use ironrdp_pdu::rdp::refresh_rectangle::RefreshRectanglePdu;
+use ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu;
 use ironrdp_pdu::rdp::session_info::ServerAutoReconnect;
 use ironrdp_pdu::rdp::suppress_output::SuppressOutputPdu;
 use ironrdp_pdu::slow_path::{self, GraphicsUpdateType};
@@ -833,6 +834,13 @@ pub enum ActiveStageOutput {
     AutoReconnectCookie(ServerAutoReconnect),
     /// Server rejected the automatic reconnection attempt.
     AutoReconnectFailed,
+    /// Enhanced Security Server Redirection PDU ([MS-RDPBCGR] 2.2.13.3.1).
+    ///
+    /// The consumer should close the transport and start a new connection: to the same host
+    /// and port unless a target address is given, with the load-balance info as the X.224
+    /// routing token and, when one-time credentials are present, RDSTLS authentication.
+    /// The PDU holds secrets (the password blob); do not persist it.
+    ServerRedirect(Box<ServerRedirectionPdu>),
 }
 
 impl TryFrom<x224::ProcessorOutput> for ActiveStageOutput {
@@ -860,6 +868,7 @@ impl TryFrom<x224::ProcessorOutput> for ActiveStageOutput {
             x224::ProcessorOutput::AutoReconnectCookie(cookie) => Ok(Self::AutoReconnectCookie(cookie)),
             x224::ProcessorOutput::AutoReconnectFailed => Ok(Self::AutoReconnectFailed),
             x224::ProcessorOutput::MonitorLayout(monitors) => Ok(Self::MonitorLayout(monitors)),
+            x224::ProcessorOutput::ServerRedirect(redirection) => Ok(Self::ServerRedirect(redirection)),
             // GraphicsUpdate and PointerUpdate are consumed in ActiveStage::process()
             // before reaching this conversion.
             x224::ProcessorOutput::GraphicsUpdate(_) | x224::ProcessorOutput::PointerUpdate(_) => Err(

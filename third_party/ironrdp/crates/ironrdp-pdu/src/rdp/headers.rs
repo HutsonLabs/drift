@@ -212,6 +212,10 @@ pub enum IoChannelPdu {
     ///
     /// Received when the server wants the client to establish a sideband UDP transport.
     MultitransportRequest(MultitransportRequestPdu),
+    /// Enhanced Security Server Redirection PDU ([MS-RDPBCGR] 2.2.13.3.1).
+    ///
+    /// The client should disconnect and reconnect using the redirection information.
+    ServerRedirect(Box<ServerRedirectionPdu>),
 }
 
 /// Decodes a PDU received on the RDP IO channel from the user data of a Send Data Indication.
@@ -240,6 +244,7 @@ pub fn decode_io_channel(ctx: SendDataIndicationCtx<'_>) -> DecodeResult<IoChann
 
     match ctx.pdu {
         ShareControlPdu::ServerDeactivateAll(deactivate_all) => Ok(IoChannelPdu::DeactivateAll(deactivate_all)),
+        ShareControlPdu::ServerRedirect(redirection) => Ok(IoChannelPdu::ServerRedirect(Box::new(redirection))),
         ShareControlPdu::Data(share_data_header) => {
             let share_data_ctx = ShareDataCtx {
                 initiator_id: ctx.initiator_id,
