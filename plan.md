@@ -420,7 +420,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - ResetGraphics followed by a new surface id tears down the old surface;
   - an unknown codec gives a `ProtocolError`, not a panic;
   - a `cargo fuzz` target for GfxPdu+ZGFX (5 minutes nightly).
-- [ ] **M1-3 AVC420 via VideoToolbox** (B). `drift-video::decode`:
+- [x] **M1-3 AVC420 via VideoToolbox** (B). `drift-video::decode`:
   - parse the `RFX_AVC420_METABLOCK` (region rects + quant/quality);
   - convert **Annex-B → AVCC**, dropping AUD NALs;
   - build `CMVideoFormatDescription` from SPS/PPS and rebuild it when they change;
@@ -573,7 +573,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
 ### M8 — H.264 encoder (future session recording)
 - [ ] **M8-1 Composite capture** (B). Render the composite into an IOSurface-backed BGRA texture from a `CVPixelBufferPool` (zero copy); only enabled while recording.
   **Red:** the captured buffer equals the on-screen composite (golden); the pool doesn't grow over 1 000 frames.
-- [ ] **M8-2 Encoder** (B). `VTCompressionSession`: hardware, High profile, real-time, no reordering, 8 Mbit/s, 2 s GOP, variable frame rate on `Clock` timestamps.
+- [x] **M8-2 Encoder** (B). `VTCompressionSession`: hardware, High profile, real-time, no reordering, 8 Mbit/s, 2 s GOP, variable frame rate on `Clock` timestamps.
   **Red:** encode 120 synthetic frames, decode them back with `drift-video::decode`, and require PSNR ≥ 35 dB; SPS says High; PTS monotonic; keyframe interval honoured; a resize rebuilds the encoder and emits a keyframe.
 - [ ] **M8-3 MP4 + hook** (B + D). `AVAssetWriter` in passthrough mode. `StartRecording`/`StopRecording` go behind the `recording` cargo feature and the hidden menu item "Debug ▸ Record Session (experimental)".
   **Red:** `AVAsset` reads back the right duration, track and dimensions; stop without start gives an error; a disk-full injection stops gracefully with an event.
