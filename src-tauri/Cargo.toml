@@ -16,15 +16,32 @@ path = "src/lib.rs"
 name = "drift-app"
 path = "src/main.rs"
 
+[features]
+default = []
+## Hidden "Debug ▸ Record Session (experimental)" menu item (M8-3 hook).
+recording = ["drift-video/recording", "dep:objc2-core-foundation"]
+## Real-window tab-group test (plan M6-2): `cargo test -p drift-app --features macos-ui-tests`.
+macos-ui-tests = []
+
 [build-dependencies]
 tauri-build = { workspace = true, features = [] }
 
 [dependencies]
 drift-core = { workspace = true, features = ["specta"] }
+drift-clipboard.workspace = true
+drift-gfx.workspace = true
+drift-input.workspace = true
 drift-rdp.workspace = true
+drift-render.workspace = true
+drift-video.workspace = true
 drift-macos = { workspace = true, features = ["tauri"] }
-objc2-app-kit = { workspace = true, features = ["NSWorkspace"] }
-objc2-foundation = { workspace = true, features = ["NSString", "NSURL"] }
+objc2.workspace = true
+objc2-core-foundation = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, features = ["NSWorkspace", "NSWindow", "NSApplication", "NSResponder", "NSView", "NSWindowTabGroup"] }
+objc2-foundation = { workspace = true, features = ["NSString", "NSURL", "NSArray"] }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 specta.workspace = true
@@ -36,7 +53,15 @@ uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+muda = { version = "0.19", default-features = false }
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+# M6-2: opens real windows in a tab group; needs the process main thread and a window server.
+[[test]]
+name = "tabs_ui"
+harness = false
+required-features = ["macos-ui-tests"]
 
 [lints]
 workspace = true

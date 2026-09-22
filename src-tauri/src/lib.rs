@@ -7,10 +7,20 @@
 //! by `cargo xtask bindings`; CI fails when they are stale.
 
 pub mod commands;
+mod host;
+pub mod manager;
+pub mod menu;
+mod options;
 pub mod platform;
+pub mod present;
 pub mod profiles;
+#[cfg(feature = "recording")]
+pub mod recording;
 pub mod secrets;
 pub mod view;
+pub mod windows;
+
+pub use options::RunOptions;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -36,6 +46,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::reconnect_now,
             commands::cancel_reconnect,
             commands::close_session,
+            commands::disconnect,
         ])
         .events(tauri_specta::collect_events![view::SessionViewChanged])
         .typ::<drift_core::ConnectionProfile>()
@@ -55,25 +66,91 @@ pub fn export_bindings(path: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Runs the application (called from `main`).
+/// Runs the application with explicit options (tests, smoke tests).
 ///
 /// # Panics
 /// Panics if the Tauri runtime fails to start (unrecoverable at launch).
-pub fn run() {
+#[allow(clippy::expect_used)]
+pub fn run_with(options: RunOptions) {
+    init_logging();
+    let RunOptions { config_dir, memory_secrets, autoconnect, on_ready } = options;
     let builder = specta_builder();
-    #[allow(clippy::expect_used)]
-    tauri::Builder::default()
+    let on_ready = std::sync::Mutex::new(on_ready);
+    let app = tauri::Builder::default()
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
-            let config_dir = app.path().app_config_dir()?;
-            // Passwords live in the Keychain (drift-macos, M3-2).
-            let secrets = Arc::new(secrets::KeychainSecretStore::new(drift_macos::Keychain::new()));
+            let handle = app.handle().clone();
+            let dir = match &config_dir {
+                Some(dir) => dir.clone(),
+                None => app.path().app_config_dir()?,
+            };
+            // Passwords live in the Keychain (drift-macos, M3-2); tests use memory.
+            let secrets: Arc<dyn secrets::SecretStore> = if memory_secrets {
+                Arc::new(secrets::MemorySecretStore::new())
+            } else {
+                Arc::new(secrets::KeychainSecretStore::new(drift_macos::Keychain::new()))
+            };
             let profiles =
-                profiles::ProfileService::open(profiles::ProfileFile::in_dir(&config_dir), secrets)?;
-            app.manage(commands::AppState { profiles });
+                Arc::new(profiles::ProfileService::open(profiles::ProfileFile::in_dir(&dir), secrets)?);
+            let session_host = Arc::new(host::TauriHost::new(handle.clone(), profiles.clone()));
+            let sessions =
+                manager::SessionManager::new(session_host, tauri::async_runtime::handle().inner().clone());
+            app.manage(commands::AppState::new(profiles.clone(), sessions));
+            app.set_menu(windows::build_menu(&handle)?)?;
+            let first_profile = autoconnect.as_deref().and_then(|name| {
+                let profiles = profiles.list().unwrap_or_default();
+                let all: Vec<_> = profiles.into_iter().map(|e| e.profile).collect();
+                present::find_autoconnect(&all, name).map(|p| p.id)
+            });
+            if autoconnect.is_some() && first_profile.is_none() {
+                tracing::warn!("DRIFT_AUTOCONNECT names no saved profile");
+            }
+            windows::open_tab_with(&handle, first_profile);
+            if let Some(ready) = on_ready.lock().ok().and_then(|mut r| r.take()) {
+                ready(handle);
+            }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Drift");
+        .on_menu_event(|app, event| {
+            if let Some(action) = menu::MenuAction::from_id(&event.id().0) {
+                windows::run_menu_action(app, action);
+            }
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label().to_owned();
+                let app = window.app_handle();
+                if !app.state::<commands::AppState>().is_closing(&label) {
+                    // Close the session first (graceful, capped), then destroy the window.
+                    api.prevent_close();
+                    windows::close_tab(app, &label);
+                }
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while starting Drift");
+
+    app.run(|handle, event| match event {
+        // Closing the last tab leaves Drift running, like other Mac apps; Cmd+Q exits.
+        tauri::RunEvent::ExitRequested { code, api, .. } if code.is_none() => api.prevent_exit(),
+        tauri::RunEvent::Reopen { has_visible_windows, .. } if !has_visible_windows => {
+            windows::open_tab(handle);
+        }
+        tauri::RunEvent::Exit => windows::shutdown_blocking(handle),
+        _ => {}
+    });
+}
+
+/// Sets up `tracing` (`RUST_LOG`, default `info`). Secrets never reach a log: passwords live
+/// in `Zeroizing` values whose `Debug` is redacted (ADR M0-5) and are never formatted here.
+fn init_logging() {
+    use tracing_subscriber::EnvFilter;
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+}
+
+/// Runs the application (called from `main`).
+pub fn run() {
+    run_with(RunOptions::from_env());
 }

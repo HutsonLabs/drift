@@ -5,6 +5,10 @@
 //! backend is not wired yet return [`CommandError::NotImplemented`] so the UI can already be
 //! built and tested against the final signatures.
 
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
 use drift_core::{
     CertFingerprint, ConnectMode, ConnectionProfile, DisconnectReason, ErrorExplanation, ProfileIssue,
     explain_disconnect,
@@ -13,13 +17,61 @@ use serde::Serialize;
 use tauri::State;
 use uuid::Uuid;
 
+use crate::manager::SessionManager;
 use crate::profiles::{CommandError, ProfileEntry, ProfileService, SecretsUpdate};
 
 /// Shared state managed by Tauri.
 #[derive(Debug)]
 pub struct AppState {
     /// Saved profiles and their passwords.
-    pub profiles: ProfileService,
+    pub profiles: Arc<ProfileService>,
+    /// Live sessions, one per window (tab).
+    pub sessions: SessionManager,
+    next_window: AtomicU64,
+    closing: Mutex<HashSet<String>>,
+    quitting: AtomicBool,
+}
+
+impl AppState {
+    /// The state for a running app.
+    pub fn new(profiles: Arc<ProfileService>, sessions: SessionManager) -> Self {
+        Self {
+            profiles,
+            sessions,
+            next_window: AtomicU64::new(0),
+            closing: Mutex::new(HashSet::new()),
+            quitting: AtomicBool::new(false),
+        }
+    }
+
+    /// The number of the next session window.
+    pub(crate) fn next_window(&self) -> u64 {
+        self.next_window.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn closing(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
+        self.closing.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Marks `window` as closing; `false` if it already was (the close is under way).
+    pub(crate) fn begin_closing(&self, window: &str) -> bool {
+        self.closing().insert(window.to_owned())
+    }
+
+    /// Whether `window` is being closed by Drift (its `CloseRequested` may proceed).
+    pub(crate) fn is_closing(&self, window: &str) -> bool {
+        self.closing().contains(window)
+    }
+
+    /// The window is gone.
+    pub(crate) fn finish_closing(&self, window: &str) {
+        self.closing().remove(window);
+    }
+
+    /// Starts the quit sequence; `false` if it is already running.
+    pub(crate) fn begin_quit(&self) -> bool {
+        !self.quitting.swap(true, Ordering::SeqCst)
+    }
 }
 
 /// Static information about the running app.
@@ -100,60 +152,59 @@ pub fn open_local_network_settings() -> Result<(), CommandError> {
     crate::platform::open_url(drift_core::messages::LOCAL_NETWORK_SETTINGS_URL)
 }
 
-fn session_manager_pending(what: &str) -> Result<(), CommandError> {
-    Err(CommandError::NotImplemented { what: format!("{what} (SessionManager, task M6-1)") })
-}
-
 /// Connects this window's session to the saved profile `profile_id`.
 #[tauri::command]
 #[specta::specta]
-pub fn connect(window: tauri::Window, profile_id: Uuid) -> Result<(), CommandError> {
-    let _ = (window, profile_id);
-    session_manager_pending("Connecting")
+pub fn connect(app: tauri::AppHandle, window: tauri::Window, profile_id: Uuid) -> Result<(), CommandError> {
+    crate::windows::connect_profile(&app, window.label(), profile_id)
 }
 
 /// Trusts the prompted certificate (`pin` = remember it for this profile).
 #[tauri::command]
 #[specta::specta]
 pub fn accept_certificate(
+    state: State<'_, AppState>,
     window: tauri::Window,
     fingerprint: CertFingerprint,
     pin: bool,
 ) -> Result<(), CommandError> {
-    let _ = (window, fingerprint, pin);
-    session_manager_pending("Accepting certificates")
+    state.sessions.accept_certificate(window.label(), fingerprint, pin)
 }
 
 /// Rejects the prompted certificate (the session fails with `CertMismatch`).
 #[tauri::command]
 #[specta::specta]
-pub fn reject_certificate(window: tauri::Window) -> Result<(), CommandError> {
-    let _ = window;
-    session_manager_pending("Rejecting certificates")
+pub fn reject_certificate(state: State<'_, AppState>, window: tauri::Window) -> Result<(), CommandError> {
+    state.sessions.reject_certificate(window.label())
 }
 
 /// Skips the backoff delay and reconnects now ("Now" button, error screen "Reconnect").
 #[tauri::command]
 #[specta::specta]
-pub fn reconnect_now(window: tauri::Window) -> Result<(), CommandError> {
-    let _ = window;
-    session_manager_pending("Reconnecting")
+pub fn reconnect_now(app: tauri::AppHandle, window: tauri::Window) -> Result<(), CommandError> {
+    crate::windows::reconnect(&app, window.label())
 }
 
 /// Stops reconnecting; the session stays disconnected ("Cancel" button).
 #[tauri::command]
 #[specta::specta]
-pub fn cancel_reconnect(window: tauri::Window) -> Result<(), CommandError> {
-    let _ = window;
-    session_manager_pending("Cancelling reconnection")
+pub fn cancel_reconnect(state: State<'_, AppState>, window: tauri::Window) -> Result<(), CommandError> {
+    state.sessions.send(window.label(), drift_rdp::SessionCommand::Cancel)
 }
 
-/// Closes this window's session gracefully (and the tab).
+/// Ends this window's session gracefully and returns it to the connect form.
 #[tauri::command]
 #[specta::specta]
-pub fn close_session(window: tauri::Window) -> Result<(), CommandError> {
-    let _ = window;
-    session_manager_pending("Closing sessions")
+pub fn disconnect(state: State<'_, AppState>, window: tauri::Window) -> Result<(), CommandError> {
+    state.sessions.disconnect(window.label())
+}
+
+/// Closes this window's session gracefully and then the tab.
+#[tauri::command]
+#[specta::specta]
+pub fn close_session(app: tauri::AppHandle, window: tauri::Window) -> Result<(), CommandError> {
+    crate::windows::close_tab(&app, window.label());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -197,9 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_session_intents_say_so() {
-        let e = session_manager_pending("Connecting").unwrap_err();
-        assert!(matches!(&e, CommandError::NotImplemented { what } if what.contains("M6-1")));
-        assert!(e.to_string().ends_with("is not available yet"));
+    fn no_session_error_is_user_readable() {
+        assert_eq!(CommandError::NoSession.to_string(), "this tab has no active session");
     }
 }

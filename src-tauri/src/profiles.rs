@@ -46,6 +46,9 @@ pub enum CommandError {
         /// Human-readable cause.
         message: String,
     },
+    /// The window has no session (or it has already ended).
+    #[error("this tab has no active session")]
+    NoSession,
     /// The command exists for the UI but its backend is not wired yet.
     #[error("{what} is not available yet")]
     NotImplemented {
@@ -283,5 +286,25 @@ impl ProfileService {
         self.file.save(&next)?;
         *store = next;
         Ok(())
+    }
+
+    /// The long-lived secrets for a session of profile `id` (M1-6/M3-2 wiring): the RDP
+    /// password of the profile's mode (empty if none is stored, so the server reports the
+    /// authentication failure) and, for Remote Login with the opt-in, the Linux password.
+    pub fn session_secrets(&self, id: Uuid) -> Result<drift_rdp::SessionSecrets, CommandError> {
+        let profile = self.lock()?.get(id).cloned().ok_or(CommandError::NotFound)?;
+        let rdp = self
+            .secrets
+            .get(id, SecretRole::rdp_for(profile.mode))
+            .map_err(CommandError::storage)?
+            .unwrap_or_default();
+        let linux = if profile.mode == ConnectMode::RemoteLogin {
+            self.secrets.get(id, SecretRole::LinuxLogin).map_err(CommandError::storage)?
+        } else {
+            None
+        };
+        let mut secrets = drift_rdp::SessionSecrets::new(rdp.to_string());
+        secrets.linux_password = linux;
+        Ok(secrets)
     }
 }

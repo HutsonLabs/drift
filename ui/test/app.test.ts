@@ -65,6 +65,7 @@ class FakeApi {
       reconnectNow: () => (log("reconnectNow"), ok(null)),
       cancelReconnect: () => (log("cancelReconnect"), ok(null)),
       closeSession: () => (log("closeSession"), ok(null)),
+      disconnect: () => (log("disconnect"), ok(null)),
     } as Api;
   }
 
@@ -142,12 +143,12 @@ describe("profiles screen", () => {
     const fake = new FakeApi();
     const p = profile("headless", { name: "Box" });
     fake.entries = [entry(p)];
-    fake.connectError = { kind: "not-implemented", what: "Connecting (SessionManager, task M6-1)" };
+    fake.connectError = { kind: "no-session" };
     const { root } = await start(fake);
     button(root, "Connect to Box").click();
     await flush();
     expect(fake.calls).toContainEqual(["connect", p.id]);
-    expect(text(root.querySelector("[role=alert]"))).toContain("Connecting (SessionManager, task M6-1) is not available yet");
+    expect(text(root.querySelector("[role=alert]"))).toContain("This tab is not connected.");
   });
 
   test("delete removes the profile", async () => {
@@ -181,6 +182,16 @@ describe("session screens", () => {
     button(root, "Cancel").click();
     await flush();
     expect(fake.names()).toContain("rejectCertificate");
+  });
+
+  test("cancelling while connecting disconnects but keeps the tab", async () => {
+    const fake = new FakeApi();
+    const { app, root } = await start(fake);
+    app.onSessionView(sessionView("connecting", { state: "connecting", leg: 1, stage: "tls" }));
+    button(root, "Cancel").click();
+    await flush();
+    expect(fake.names()).toContain("disconnect");
+    expect(fake.names()).not.toContain("closeSession");
   });
 
   test("reconnect overlay → reconnectNow / cancelReconnect", async () => {

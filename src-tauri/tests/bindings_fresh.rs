@@ -39,6 +39,8 @@ fn bindings_expose_the_ui_intents_and_view_event() {
         "reconnectNow:",
         "cancelReconnect:",
         "closeSession:",
+        "disconnect:",
+        "\"no-session\"",
         "sessionViewChanged:",
         "export type SessionView =",
         "export type Screen =",

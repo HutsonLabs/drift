@@ -35,8 +35,10 @@ export const commands = {
 	reconnectNow: () => typedError<null, CommandError>(__TAURI_INVOKE("reconnect_now")),
 	/**  Stops reconnecting; the session stays disconnected ("Cancel" button). */
 	cancelReconnect: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_reconnect")),
-	/**  Closes this window's session gracefully (and the tab). */
+	/**  Closes this window's session gracefully and then the tab. */
 	closeSession: () => typedError<null, CommandError>(__TAURI_INVOKE("close_session")),
+	/**  Ends this window's session gracefully and returns it to the connect form. */
+	disconnect: () => typedError<null, CommandError>(__TAURI_INVOKE("disconnect")),
 };
 
 /** Events */
@@ -115,6 +117,8 @@ message: string } |
 { kind: "platform"; 
 /**  Human-readable cause. */
 message: string } | 
+/**  The window has no session (or it has already ended). */
+{ kind: "no-session" } | 
 /**  The command exists for the UI but its backend is not wired yet. */
 { kind: "not-implemented"; 
 /**  What is missing. */
