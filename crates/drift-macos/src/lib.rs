@@ -2,15 +2,41 @@
 //!
 //! Humble-object FFI glue for AppKit and system services (plan §2):
 //!
-//! | Area | Task |
-//! |---|---|
-//! | `RemoteView` (layer-hosting NSView + CAMetalLayer, input capture) | M1-6, M2-* |
-//! | Remote cursor (`NSCursor`) | M2-5 |
-//! | Keychain adapter | M3-2 |
-//! | NSPasteboard polling | M5-3 |
-//! | Native tabs, occlusion | M6-2, M6-3 |
-//! | `NWPathMonitor`, sleep/wake | M7-2 |
-//! | Local Network Privacy (errno 65) UX | M1-1, M9-3 |
+//! | Module | Area | Task |
+//! |---|---|---|
+//! | [`view`] | `RemoteView`: layer-hosting NSView + CAMetalLayer, input capture, IME | M1-6, M2-2, M2-4 |
+//! | [`input`] | pure per-view input state behind `RemoteView` (keys, pointer, scroll, key equivalents) | M2-2, M2-4 |
+//! | [`webview`] | insert the RemoteView below the WKWebView; focus switching | M1-6 |
+//! | [`cursor`] | pure fast-path pointer decode + cache; [`cursor_ns`]: `NSCursor` | M2-5 |
+//! | [`keychain`] | Keychain password adapter | M3-2 |
+//! | [`window`] | occlusion / key-window observer | M6-3 |
+//! | [`tabs`] | native tab helpers (`addTabbedWindow:ordered:`, `newWindowForTab:`), tab titles | M6-2 |
+//! | [`network`] | `NWPathMonitor`, `NSWorkspace` wake → `TriggerMerger` | M7-2 |
+//! | [`lnp`] | Local Network Privacy (errno 65) detection and System Settings link | M1-1, M9-3 |
+//! | [`keyboard_type`] | ANSI/ISO/JIS detection of the local keyboard | M2-1 |
 //!
-//! Decision logic lives in pure crates (`drift-input`, `drift-core`); this crate only
-//! translates between AppKit and those crates. Every `unsafe` block has a `// SAFETY:`.
+//! Decision logic lives in pure code (`drift-input`, `drift-core`, and the pure modules
+//! [`input`], [`cursor`], [`tabs::tab_title`]); the AppKit-facing code only extracts plain
+//! values and applies results. Every `unsafe` block has a `// SAFETY:` comment.
+
+pub mod cursor;
+pub mod cursor_ns;
+pub mod input;
+pub mod keyboard_type;
+pub mod keychain;
+pub mod lnp;
+pub mod network;
+pub mod tabs;
+pub mod view;
+pub mod webview;
+pub mod window;
+
+#[cfg(feature = "tauri")]
+pub mod tauri_glue;
+
+pub use cursor::{CursorImage, CursorShape, PointerDecoder, PointerError, PointerEvent};
+pub use input::{InputController, KeyEquivalent};
+pub use keychain::{Keychain, KeychainError};
+pub use network::{PathMonitor, PathStatus, ReconnectTriggers, TriggerFeed, WakeObserver};
+pub use view::{RemoteView, RemoteViewHandler};
+pub use window::{WindowEvent, WindowObserver};

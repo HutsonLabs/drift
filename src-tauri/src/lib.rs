@@ -67,8 +67,8 @@ pub fn run() {
         .setup(move |app| {
             builder.mount_events(app);
             let config_dir = app.path().app_config_dir()?;
-            // Keychain adapter (drift-macos, M3-2) replaces the in-memory store when it lands.
-            let secrets = Arc::new(secrets::MemorySecretStore::new());
+            // Passwords live in the Keychain (drift-macos, M3-2).
+            let secrets = Arc::new(secrets::KeychainSecretStore::new(drift_macos::Keychain::new()));
             let profiles =
                 profiles::ProfileService::open(profiles::ProfileFile::in_dir(&config_dir), secrets)?;
             app.manage(commands::AppState { profiles });
