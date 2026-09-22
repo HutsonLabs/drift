@@ -21,7 +21,8 @@ use drift_app::view::SessionView;
 use drift_clipboard::poll::{PasteboardPort, POLL_INTERVAL};
 use drift_clipboard::{ClipboardContents, ClipboardItem};
 use drift_core::{
-    CertFingerprint, Clock, ClipboardPrefs, ConnectMode, ConnectionProfile, Trigger, TriggerAction,
+    CertFingerprint, Clock, ClipboardPrefs, ConnectMode, ConnectionProfile, DisconnectReason,
+    SessionState, Trigger, TriggerAction,
 };
 use drift_macos::TriggerFeed;
 use drift_rdp::{SessionCommand, SessionEvent, SessionEvents, SessionHandle};
@@ -83,14 +84,15 @@ impl FakeSessions {
         me
     }
 
+    fn with_live(sessions: &[LiveSession]) -> Arc<Self> {
+        let me = Arc::new(Self::default());
+        *me.live.lock().unwrap_or_else(PoisonError::into_inner) = sessions.to_vec();
+        me
+    }
+
     fn set(&self, sessions: &[(&str, ClipboardPrefs)]) {
-        *self.live.lock().unwrap_or_else(PoisonError::into_inner) = sessions
-            .iter()
-            .map(|(window, clipboard)| LiveSession {
-                window: (*window).to_owned(),
-                clipboard: *clipboard,
-            })
-            .collect();
+        *self.live.lock().unwrap_or_else(PoisonError::into_inner) =
+            sessions.iter().map(|(window, clipboard)| LiveSession::new(*window, *clipboard)).collect();
     }
 
     fn take(&self) -> Vec<(String, SessionCommand)> {
@@ -205,9 +207,10 @@ fn a_local_copy_reaches_every_live_session() {
         ("session-2", ClipboardPrefs::Off),
     ]);
     let mut pump = ClipboardPump::new(FakePasteboard::default());
-    // Nothing on the pasteboard: the seeding tick has nothing to advertise.
+    // Nothing on the pasteboard: the seeding tick reads it once and has nothing to advertise.
     assert_eq!(pump.tick(&*sessions), 0);
     assert_eq!(sessions.take(), vec![]);
+    assert_eq!(pump.port().reads(), vec![ClipboardPrefs::TextAndImages], "one seeding read");
 
     pump.port().user_copies(text_and_png("copy-me"));
     assert_eq!(pump.tick(&*sessions), 2, "both syncing sessions must be told");
@@ -220,12 +223,12 @@ fn a_local_copy_reaches_every_live_session() {
         "sessions whose clipboard is Off get nothing; the rest filter per-session"
     );
     // The pasteboard is read once per change, at the most permissive level.
-    assert_eq!(pump.port().reads(), vec![ClipboardPrefs::TextAndImages]);
+    assert_eq!(pump.port().reads(), vec![ClipboardPrefs::TextAndImages; 2]);
 
-    // No further change: no read, no command.
+    // No further change and nothing new to seed: no read, no command.
     assert_eq!(pump.tick(&*sessions), 0);
     assert_eq!(sessions.take(), vec![]);
-    assert_eq!(pump.port().reads().len(), 1);
+    assert_eq!(pump.port().reads().len(), 2);
 }
 
 #[test]
@@ -235,13 +238,13 @@ fn images_are_not_read_when_no_live_session_wants_them() {
     assert_eq!(pump.tick(&*sessions), 0);
     pump.port().user_copies(text_and_png("text only"));
     assert_eq!(pump.tick(&*sessions), 1);
-    assert_eq!(pump.port().reads(), vec![ClipboardPrefs::Text]);
+    assert_eq!(pump.port().reads(), vec![ClipboardPrefs::Text; 2], "never at TextAndImages");
     assert_eq!(sessions.take(), vec![("session-0".to_owned(), local(&text("text only")))]);
 }
 
 #[test]
 fn a_new_session_is_seeded_with_the_current_pasteboard() {
-    let sessions = FakeSessions::default();
+    let sessions = FakeSessions::with(&[]);
     let mut pump = ClipboardPump::new(FakePasteboard::default());
     // A copy made while no session is live is consumed without a read …
     pump.port().user_copies(text("copied-before-connecting"));
@@ -297,21 +300,32 @@ fn a_session_that_ends_and_returns_is_seeded_again() {
 #[test]
 fn trigger_actions_map_to_session_commands() {
     assert_eq!(
-        trigger_commands(TriggerAction::PauseReconnect),
+        trigger_commands(TriggerAction::PauseReconnect, false),
         vec![SessionCommand::NetworkReachable(false)]
     );
     assert_eq!(
-        trigger_commands(TriggerAction::RetryNow),
+        trigger_commands(TriggerAction::PauseReconnect, true),
+        vec![SessionCommand::NetworkReachable(false)]
+    );
+    // A session that is waiting out a backoff is also told to skip it.
+    assert_eq!(
+        trigger_commands(TriggerAction::RetryNow, true),
         vec![SessionCommand::NetworkReachable(true), SessionCommand::ReconnectNow],
         "reachability must be restored before the actor is asked to skip its backoff"
+    );
+    // Any other session only learns that the network is back: `ReconnectNow` would restart a
+    // session the user cancelled or one that ended in `Failed` (drift_rdp::actor::idle).
+    assert_eq!(
+        trigger_commands(TriggerAction::RetryNow, false),
+        vec![SessionCommand::NetworkReachable(true)]
     );
 }
 
 #[test]
 fn network_and_wake_triggers_reach_every_session() {
-    let sessions = FakeSessions::with(&[
-        ("session-0", ClipboardPrefs::TextAndImages),
-        ("session-1", ClipboardPrefs::Off),
+    let sessions = FakeSessions::with_live(&[
+        LiveSession::new("session-0", ClipboardPrefs::TextAndImages).reconnecting(true),
+        LiveSession::new("session-1", ClipboardPrefs::Off),
     ]);
     let clock = ManualClock::new();
     let fanout: Arc<dyn SessionFanout> = sessions.clone();
@@ -330,7 +344,7 @@ fn network_and_wake_triggers_reach_every_session() {
     feed.trigger(Trigger::NetworkOffline);
     assert_eq!(sessions.take(), vec![]);
 
-    // Wi-Fi on: reconnect immediately instead of waiting out the backoff.
+    // Wi-Fi on: the reconnecting session skips its backoff instead of waiting it out.
     feed.trigger(Trigger::NetworkOnline);
     assert_eq!(
         sessions.take(),
@@ -338,7 +352,6 @@ fn network_and_wake_triggers_reach_every_session() {
             ("session-0".to_owned(), SessionCommand::NetworkReachable(true)),
             ("session-0".to_owned(), SessionCommand::ReconnectNow),
             ("session-1".to_owned(), SessionCommand::NetworkReachable(true)),
-            ("session-1".to_owned(), SessionCommand::ReconnectNow),
         ]
     );
     // The wake that follows a wake-up reconnect is debounced.
@@ -355,9 +368,20 @@ fn network_and_wake_triggers_reach_every_session() {
             ("session-0".to_owned(), SessionCommand::NetworkReachable(true)),
             ("session-0".to_owned(), SessionCommand::ReconnectNow),
             ("session-1".to_owned(), SessionCommand::NetworkReachable(true)),
-            ("session-1".to_owned(), SessionCommand::ReconnectNow),
         ]
     );
+}
+
+#[test]
+fn a_cancelled_session_is_never_resurrected_by_a_wake() {
+    // "Cancel" on the reconnect overlay leaves the actor in `idle`, where `ReconnectNow` would
+    // reconnect it (drift_rdp::actor). The trigger service must not undo the user's decision.
+    let sessions = FakeSessions::with(&[("session-0", ClipboardPrefs::Text)]);
+    let clock = ManualClock::new();
+    let fanout: Arc<dyn SessionFanout> = sessions.clone();
+    let feed = TriggerFeed::new(false, Arc::new(clock), drift_app::services::trigger_sink(fanout));
+    feed.trigger(Trigger::NetworkOnline);
+    assert_eq!(sessions.take(), vec![("session-0".to_owned(), SessionCommand::NetworkReachable(true))]);
 }
 
 // ---- the real SessionManager is the production fanout ---------------------------------------
@@ -366,13 +390,26 @@ fn network_and_wake_triggers_reach_every_session() {
 /// window that records what it is told.
 #[derive(Default)]
 struct FakeHost {
-    actors: Mutex<HashMap<String, Arc<Mutex<Vec<SessionCommand>>>>>,
+    actors: Mutex<HashMap<String, FakeActor>>,
+}
+
+struct FakeActor {
+    commands: Arc<Mutex<Vec<SessionCommand>>>,
+    events: mpsc::UnboundedSender<SessionEvent>,
 }
 
 impl FakeHost {
     fn commands(&self, window: &str) -> Vec<SessionCommand> {
         let actors = self.actors.lock().unwrap_or_else(PoisonError::into_inner);
-        actors.get(window).map(|c| c.lock().unwrap_or_else(PoisonError::into_inner).clone()).unwrap_or_default()
+        actors
+            .get(window)
+            .map(|a| a.commands.lock().unwrap_or_else(PoisonError::into_inner).clone())
+            .unwrap_or_default()
+    }
+
+    fn emit(&self, window: &str, event: SessionEvent) {
+        let actors = self.actors.lock().unwrap_or_else(PoisonError::into_inner);
+        actors.get(window).expect("window has an actor").events.send(event).unwrap();
     }
 }
 
@@ -385,7 +422,10 @@ impl SessionHost for FakeHost {
         let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
         let (ev_tx, ev_rx) = mpsc::unbounded_channel::<SessionEvent>();
         let log = Arc::new(Mutex::new(Vec::new()));
-        self.actors.lock().unwrap_or_else(PoisonError::into_inner).insert(window.into(), log.clone());
+        self.actors
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(window.into(), FakeActor { commands: log.clone(), events: ev_tx.clone() });
         tokio::spawn(async move {
             let _keep_alive = ev_tx;
             while let Some(cmd) = cmd_rx.recv().await {
@@ -424,10 +464,28 @@ async fn the_session_manager_reports_and_reaches_live_sessions() {
     assert_eq!(
         live,
         vec![
-            LiveSession { window: "tab-0".into(), clipboard: ClipboardPrefs::Text },
-            LiveSession { window: "tab-1".into(), clipboard: ClipboardPrefs::TextAndImages },
+            LiveSession::new("tab-0", ClipboardPrefs::Text),
+            LiveSession::new("tab-1", ClipboardPrefs::TextAndImages),
         ],
         "the fanout must see each window's per-profile clipboard preference"
+    );
+
+    // A session waiting out a backoff is flagged, so the trigger service may skip its delay.
+    host.emit(
+        "tab-0",
+        SessionEvent::State(SessionState::Reconnecting {
+            attempt: 3,
+            next_in: Duration::from_secs(8),
+            reason: DisconnectReason::Network,
+        }),
+    );
+    eventually(|| {
+        SessionFanout::live_sessions(&manager).iter().any(|s| s.window == "tab-0" && s.reconnecting)
+    })
+    .await;
+    assert!(
+        !SessionFanout::live_sessions(&manager).iter().any(|s| s.window == "tab-1" && s.reconnecting),
+        "a connecting session is not waiting out a backoff"
     );
 
     assert!(SessionFanout::send(&manager, "tab-0", local(&text("hi"))));
@@ -438,17 +496,24 @@ async fn the_session_manager_reports_and_reaches_live_sessions() {
 
     // Closing a tab removes it from the fanout.
     assert!(manager.close("tab-1").await);
-    assert_eq!(SessionFanout::live_sessions(&manager), vec![LiveSession {
-        window: "tab-0".into(),
-        clipboard: ClipboardPrefs::Text
-    }]);
+    assert_eq!(
+        SessionFanout::live_sessions(&manager),
+        vec![LiveSession::new("tab-0", ClipboardPrefs::Text)]
+    );
     assert!(!SessionFanout::send(&manager, "tab-1", local(&text("gone"))));
 
-    for _ in 0..200 {
-        if host.commands("tab-0").contains(&local(&text("hi"))) {
-            break;
+    eventually(|| host.commands("tab-0").contains(&local(&text("hi")))).await;
+    assert_eq!(host.commands("tab-0"), vec![local(&text("hi"))]);
+}
+
+/// Polls `cond` (yielding to the manager's pumps) until it holds; panics after ~2 s.
+async fn eventually(mut cond: impl FnMut() -> bool) {
+    for _ in 0..2000 {
+        if cond() {
+            return;
         }
+        tokio::task::yield_now().await;
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
-    assert_eq!(host.commands("tab-0"), vec![local(&text("hi"))]);
+    panic!("condition never became true");
 }
