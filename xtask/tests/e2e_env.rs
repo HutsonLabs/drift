@@ -1,6 +1,22 @@
 //! `DRIFT_E2E_*` mapping tests (synthetic values only).
 
-use xtask::e2e_env::{parse_credentials, vars_from_dir};
+use xtask::e2e_env::{Redactor, parse_credentials, vars_from_dir};
+
+#[test]
+fn redactor_hides_credential_values_but_not_ports_or_hosts() {
+    let vars = vec![
+        ("DRIFT_E2E_SYS_USER".to_owned(), "fake-sys".to_owned()),
+        ("DRIFT_E2E_SYS_PASS".to_owned(), "Fake9-sys-pass".to_owned()),
+        ("DRIFT_E2E_HL_PORT".to_owned(), "13392".to_owned()),
+        ("DRIFT_E2E_LOGIN_PASS".to_owned(), String::new()),
+    ];
+    let r = Redactor::from_vars(&vars);
+    assert_eq!(
+        r.redact("user fake-sys pw Fake9-sys-pass port 13392"),
+        "user <redacted> pw <redacted> port 13392"
+    );
+    assert_eq!(r.redact("clean line"), "clean line");
+}
 
 #[test]
 fn parses_key_value_and_bare_credentials() {
