@@ -492,18 +492,18 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - e2e `e2e_remote_login`: greeter, then scripted login as drifttest, then desktop.
 - [ ] **M3-2 Credentials UX** (D + C). A Remote Login profile stores the **system RDP credentials**. The Linux password is entered by the user in the greeter, with an optional Keychain-stored "Linux password" that Drift types into the focused greeter password field only after an explicit per-profile opt-in. Headless and Sharing profiles store one set of RDP credentials.
   **Red:** Keychain adapter tests using a test-only service name; UI state tests showing the mode switches the visible fields.
-- [ ] **M3-3 Session reuse** (A).
+- [x] **M3-3 Session reuse** (A).
   **Red:**
   - e2e `e2e_login_reuses_session`: `loginctl` shows the same session id before and after disconnect → greeter → login;
   - e2e `e2e_takeover_stale`: the first client is `SIGSTOP`ed and a second client still reaches the same session.
-- [ ] **M3-4 Greeter hygiene** (A). Closing a tab while in `AwaitingGreeterLogin` sends a graceful Shutdown Request and disconnect, so no greeter session is left behind.
+- [x] **M3-4 Greeter hygiene** (A). Closing a tab while in `AwaitingGreeterLogin` sends a graceful Shutdown Request and disconnect, so no greeter session is left behind.
   **Red:** e2e `e2e_no_greeter_leak`: the `loginctl` greeter count is unchanged after 3 open/close cycles.
   **Done (manual M3):** a Remote Login profile goes greeter → desktop; disconnect → reconnect → greeter → same desktop.
 
 ### M4 — Adaptive size & Retina
 - [x] **M4-1 Layout policy** (D). `desired_layout(ViewGeometry, DisplayPrefs, caps) -> MonitorLayout`. Retina on means physical pixels (points × 2) with `DesktopScaleFactor=200`; off means points with 100. Width is even, dimensions are clamped to [200, 8192] and to the server's max area. `DeviceScaleFactor` is picked from {100, 140, 180}.
   **Red:** table tests (MBA 13" at 2×, external 1×, odd sizes such as 1281×801 → 1280×801, tiny and 6K); a proptest that the result satisfies MS-RDPEDISP.
-- [ ] **M4-2 Resize driver** (A). A 250 ms trailing debounce on `setFrameSize`/`viewDidChangeBackingProperties` sends DISP only when the layout changes. It handles ResetGraphics plus the new surface. In **DesktopSharing** mode (no DISP channel) it goes straight to `ScaleMode::Fit`, with no timeout guessing.
+- [x] **M4-2 Resize driver** (A). A 250 ms trailing debounce on `setFrameSize`/`viewDidChangeBackingProperties` sends DISP only when the layout changes. It handles ResetGraphics plus the new surface. In **DesktopSharing** mode (no DISP channel) it goes straight to `ScaleMode::Fit`, with no timeout guessing.
   **Red:**
   - `ManualClock` debounce tests (a burst gives 1 PDU; no change gives 0);
   - a loopback reset test;
@@ -527,7 +527,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - DIB decode fixtures (24/32 bpp, top-down and bottom-up);
   - the PNG fixture passes through unchanged;
   - a size cap (32 MiB) gives a rejection event.
-- [ ] **M5-2 CLIPRDR sync** (A). A `CliprdrBackend` that **answers the initial format-list request immediately** (the current local list, or empty). On a remote copy it eagerly fetches the preferred format, then writes the pasteboard. Loop prevention tracks our own `changeCount` writes and echoed lists. Only the focused tab syncs.
+- [x] **M5-2 CLIPRDR sync** (A). A `CliprdrBackend` that **answers the initial format-list request immediately** (the current local list, or empty). On a remote copy it eagerly fetches the preferred format, then writes the pasteboard. Loop prevention tracks our own `changeCount` writes and echoed lists. Only the focused tab syncs.
   **Red:**
   - a state test showing a missing initial list response gives no ready state, and with the fix, ready;
   - an echo-loop test;
@@ -543,7 +543,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Red:** fake-actor tests (open ×3, close the middle one, events reach only their own window); quit completes within the cap; no leaked handles.
 - [x] **M6-2 Native tab group** (D + C). Each session window is created hidden, then `setTabbingMode(Preferred)` + `addTabbedWindow:ordered:` join it to the group. `newWindowForTab:` is installed on the `TaoWindow` class and routes to "new tab". Menu items: Cmd+T, Cmd+W, Cmd+1…9. Tab title is the profile name plus a state glyph.
   **Red:** a title formatter test; a window-group integration test (spike approach: open 3 windows, assert `tabbedWindows.count == 3`) run under `cargo test -p drift-app --features macos-ui-tests`.
-- [ ] **M6-3 Background throttling** (A + B + C). On an occlusion notification (non-visible), send **Suppress Output (allow=0)**, stop the render thread, and suspend acks. On visible, send allow with the full rect; the server sends a full frame (verified), so no Refresh Rect is needed.
+- [x] **M6-3 Background throttling** (A + B + C). On an occlusion notification (non-visible), send **Suppress Output (allow=0)**, stop the render thread, and suspend acks. On visible, send allow with the full rect; the server sends a full frame (verified), so no Refresh Rect is needed.
   **Red:**
   - a loopback PDU-order test;
   - a renderer paused → zero presents test;
@@ -556,7 +556,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Red:** seeded-RNG delay tables; a bounds proptest; an exhaustive classification test; reset-after-stable.
 - [x] **M7-2 Triggers** (C). An `NWPathMonitor` wrapper and `NSWorkspace.didWakeNotification` feed a pure `TriggerMerger`: offline pauses, online retries immediately, wake retries immediately, and duplicates are debounced.
   **Red:** `TriggerMerger` tables.
-- [ ] **M7-3 Mode-specific resume** (A + D).
+- [x] **M7-3 Mode-specific resume** (A + D).
   - **Headless and DesktopSharing** reconnect straight into the session (verified), keeping the last frame dimmed under an overlay: "Reconnecting in N s… [Now] [Cancel]".
   - **RemoteLogin** reconnects the full chain and stops at the greeter in `AwaitingGreeterLogin`, with the overlay "Session is still running — log in to resume". With the M3-2 opt-in, Drift types the stored Linux password into the greeter field. After login the same session resumes (verified).
   - After any reconnect Drift sends `ReleaseAll` plus `SyncToggles`.
