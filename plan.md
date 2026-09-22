@@ -394,7 +394,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Done:** running the script on the homelab changes nothing (idempotent), and `host-setup-check` is green.
 - [ ] **M0-5 Core contracts** (D, reviewed by all). The §3 types, plus `RecordingFrameSink` and `ManualClock` in `drift-testkit`.
   **Red:** a TOML round-trip test for `ConnectionProfile`; a `SessionState` transition table test (invalid transitions return `Err`); an exhaustive `DisconnectReason::is_retryable` table test.
-- [ ] **M0-6 CI** (E). Workflow running `cargo xtask ci` with caches, and `cargo-deny` (MIT/Apache/BSD/ISC/Zlib/Unicode allowed; GPL denied).
+- [x] **M0-6 CI** (E). Workflow running `cargo xtask ci` with caches, and `cargo-deny` (MIT/Apache/BSD/ISC/Zlib/Unicode allowed; GPL denied).
   **Red:** a canary branch with a failing test turns CI red.
 
 ### M1 — First light (Headless mode first: the simplest verified path)
