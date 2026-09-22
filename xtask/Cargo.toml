@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Drift build automation: cargo xtask ci | check | e2e | bundle | bindings | host-setup-check | import-fixtures | npm-ban | secret-scan."
+description = "Drift build automation: cargo xtask ci | check | e2e | bundle | bindings | host-setup-check | import-fixtures | npm-ban | secret-scan | workflows."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

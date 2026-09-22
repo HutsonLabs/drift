@@ -1,0 +1,98 @@
+# Nightly e2e against the real GNOME 50 host (plan §5.3).
+#
+# This cannot run on a GitHub-hosted runner: the tests reach the GNOME host through SSH local
+# forwards (`ssh -N -L 1339x:localhost:339x`, required by macOS Local Network Privacy, plan
+# §1.9), so the runner must be a macOS machine on the same network with an SSH key for
+# `homelab@10.1.2.40`. Register it with the labels `self-hosted`, `macOS`, `ARM64`, `drift-lan`.
+#
+# Credentials never appear in the repository: they come from repository secrets and are mapped
+# onto the `DRIFT_E2E_*` variables the suite reads (plan §5.3). `cargo xtask e2e` also pipes the
+# whole run through a redact layer, so a leaked value cannot reach the workflow log.
+name: e2e-nightly
+
+on:
+  schedule:
+    # 04:17 UTC, after the nightly fuzz run.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      bench:
+        description: "Enforce the M9-1 performance budgets (needs an otherwise idle host)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run at a time: the suite shares one GNOME host and one daemon per mode.
+  group: e2e-nightly
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+  DRIFT_E2E_SSH: ${{ vars.DRIFT_E2E_SSH || 'homelab@10.1.2.40' }}
+
+jobs:
+  e2e:
+    name: cargo xtask e2e (self-hosted macOS, SSH to the GNOME host)
+    runs-on: [self-hosted, macOS, ARM64, drift-lan]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustc --version
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ui/package.json
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: true
+          cache-all-crates: true
+          workspaces: |
+            . -> target
+            third_party/ironrdp -> third_party/ironrdp/target
+
+      - name: Install cargo tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Build the webview bundle (cargo builds embed ui/dist)
+        run: |
+          cd ui
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Check the GNOME host is configured (plan M0-4)
+        run: cargo xtask host-setup-check
+
+      - name: cargo xtask e2e
+        env:
+          DRIFT_E2E_SYS_USER: ${{ secrets.DRIFT_E2E_SYS_USER }}
+          DRIFT_E2E_SYS_PASS: ${{ secrets.DRIFT_E2E_SYS_PASS }}
+          DRIFT_E2E_LOGIN_USER: ${{ secrets.DRIFT_E2E_LOGIN_USER }}
+          DRIFT_E2E_LOGIN_PASS: ${{ secrets.DRIFT_E2E_LOGIN_PASS }}
+          DRIFT_E2E_HL_USER: ${{ secrets.DRIFT_E2E_HL_USER }}
+          DRIFT_E2E_HL_PASS: ${{ secrets.DRIFT_E2E_HL_PASS }}
+          DRIFT_E2E_HL1_USER: ${{ secrets.DRIFT_E2E_HL1_USER }}
+          DRIFT_E2E_HL1_PASS: ${{ secrets.DRIFT_E2E_HL1_PASS }}
+          DRIFT_E2E_SHARE_USER: ${{ secrets.DRIFT_E2E_SHARE_USER }}
+          DRIFT_E2E_SHARE_PASS: ${{ secrets.DRIFT_E2E_SHARE_PASS }}
+          # Plan M9-1: the fps budget is only asserted in bench mode, on an idle host.
+          DRIFT_E2E_BENCH: ${{ inputs.bench && '1' || '' }}
+        run: cargo xtask e2e
+
+      - name: Leave no SSH forwards behind
+        if: always()
+        run: pkill -f "ssh -N .*:localhost:339" || true

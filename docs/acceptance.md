@@ -7,6 +7,23 @@ changes or a clean machine). Each milestone's owner appends its "Done (manual �
 
 - [ ] `cargo tauri dev` opens a window titled "Drift" showing the connections screen ("Add a GNOME computer" on first launch).
 
+### M0-6 / §5.3 — CI and the nightly e2e workflow
+
+The gate's *contents* are asserted by `cargo test -p xtask --test ci_plan --test workflows`
+(ADR `M0-6-ci-gate-coverage`). What is left needs a person, because nothing is pushed to the
+public GitHub remote (`docs/team-conventions.md`), so no workflow ever runs there.
+
+- [ ] **Canary (plan M0-6 Red):** on a throwaway branch, make one unit test fail (e.g. change an
+      assertion in `crates/drift-core`), run `cargo xtask ci`, and see it stop at the nextest step
+      with a non-zero exit; restore the test and see it pass again. The same command is the only
+      thing `.github/workflows/ci.yml` runs, so a red test is a red CI run.
+- [ ] **Nightly e2e (plan §5.3):** `.github/workflows/e2e-nightly.yml` is written against a
+      self-hosted macOS arm64 runner labelled `drift-lan` with an SSH key for the GNOME host and
+      the `DRIFT_E2E_*` repository secrets. Until a runner is registered and the repository is
+      published, exercise the same steps by hand: `cargo xtask host-setup-check` then
+      `cargo xtask e2e` (add `DRIFT_E2E_BENCH=1` on an idle host for the M9-1 budgets), and
+      confirm no credential appears in the output.
+
 ## M2 — Input translation (drift-input decisions to confirm by hand)
 
 These need a physical keyboard/trackpad and a person watching the remote desktop
@@ -118,7 +135,16 @@ These need a person, a real keyboard/IME, physical network changes or sleep
 
 Automated: `cargo nextest run -p drift-app` (fake-actor lifecycle, menu model, presentation) and
 `cargo test -p drift-app --features macos-ui-tests --test tabs_ui` (three real windows in one tab
-group, `newWindowForTab:`). These need a person:
+group, `newWindowForTab:`).
+
+- [ ] **Tab-group test (M6-2):** run `cargo test -p drift-app --features macos-ui-tests --test
+      tabs_ui` from a logged-in graphical session (not over SSH, not on a locked screen: it opens
+      real NSWindows and needs a window server) and see
+      `session_windows_join_one_native_tab_group ... ok`. `cargo xtask ci` compiles this binary on
+      every run (`clippy --all-features --all-targets`, see `docs/adr/M0-6-ci-gate-coverage.md`)
+      but cannot run it unattended.
+
+These need a person:
 
 - [ ] **Three live sessions:** open Remote Login, Headless and Desktop Sharing profiles in three
       tabs of one window; switching tabs shows each desktop instantly, and background tabs stay

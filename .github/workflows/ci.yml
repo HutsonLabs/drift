@@ -51,6 +51,7 @@ jobs:
           cache-all-crates: true
           workspaces: |
             . -> target
+            third_party/ironrdp -> third_party/ironrdp/target
 
       - name: Install cargo tools
         uses: taiki-e/install-action@v2

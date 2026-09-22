@@ -28,6 +28,7 @@ Any decision not already fixed by `plan.md` gets an ADR in `docs/adr/<TASKID>-<s
 | `M0-5-session-interface` | `spawn_session` / `SessionHandle` / `SessionEvent` seam |
 | `M0-5-nv12-frame-location` | `Nv12Frame` / `H264Decoder` live in `drift_core::video` |
 | `M0-6-dependency-policy` | cargo-deny licenses (MPL-2.0 allowance), advisories |
+| `M0-6-ci-gate-coverage` | the CI gate as data, `--all-features` lints, vendored fork tests, required workflows |
 | `M1-4-cpu-codecs` | parallel RFX Progressive, `BgraTile`, DRFTGFX1 GFX captures, release strip fix |
 | `M2-1-keyboard-translation` | drift-input: ISO/JIS mapping, deferred Command, lock keys, Unicode, scroll, viewport, allow-list |
 | `M1-6-macos-platform-layer` | drift-macos: RemoteView, key equivalents, IME, cursor decode, Keychain, NWPathMonitor, tabs, main-thread test harness |
@@ -49,10 +50,10 @@ another JS package manager.
 | Command | What it does |
 |---|---|
 | `cargo xtask check` | fast loop: `cargo fmt --check`, clippy `-D warnings`, nextest |
-| `cargo xtask ci` | the merge gate: npm-ban, secret-scan, `bun install --frozen-lockfile`, `bun test`, `bun run typecheck`, `bun run build`, bindings freshness, fmt, clippy, nextest under llvm-cov + coverage gate, `cargo deny` |
+| `cargo xtask ci` | the merge gate: npm-ban, secret-scan, workflow audit, `bun install --frozen-lockfile`, `bun test`, `bun run typecheck`, `bun run build`, bindings freshness, fmt, clippy `--all-features --all-targets`, the vendored IronRDP fork's fmt + tests, nextest under llvm-cov + coverage gate, `cargo deny`. The step list lives in `xtask/src/ci_plan.rs` and is asserted by `xtask/tests/ci_plan.rs` (ADR `M0-6-ci-gate-coverage`) |
 | `cargo xtask ci --no-coverage` | same, without instrumentation (faster locally) |
 | `cargo xtask bindings` | regenerate `ui/src/bindings.ts` after changing IPC commands/types |
-| `cargo xtask npm-ban` / `secret-scan` | the individual hygiene checks |
+| `cargo xtask npm-ban` / `secret-scan` / `workflows` | the individual hygiene checks |
 | `cargo xtask e2e [nextest args]` | real-host tests through SSH forwards (below) |
 | `cargo xtask import-fixtures [--staging DIR]` | sanitize + import `~/code/drift-spikes/fixtures-staging` into `fixtures/` (M0-3, ADR `M0-3-fixture-capture-and-sanitization`) |
 | `cargo xtask host-setup-check` | read-only check of the GNOME host over SSH (M0-4, `docs/gnome-host-setup.md`) |
