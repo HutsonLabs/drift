@@ -79,6 +79,7 @@ objc2-quartz-core = "0.3.2"
 objc2-core-foundation = "0.3.2"
 objc2-core-video = "0.3.2"
 objc2-io-surface = "0.3.2"
+objc2-core-graphics = "0.3.2"
 
 # Tauri
 tauri = "2.11"
