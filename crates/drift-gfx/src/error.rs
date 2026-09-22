@@ -53,7 +53,7 @@ pub enum GfxError {
 impl GfxError {
     /// The session-level reason this error ends the connection with.
     pub fn disconnect_reason(&self) -> DisconnectReason {
-        DisconnectReason::ProtocolError(String::new())
+        DisconnectReason::ProtocolError(format!("graphics pipeline: {self}"))
     }
 }
 

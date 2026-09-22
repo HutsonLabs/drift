@@ -53,7 +53,7 @@ fn codecs_drift_does_not_advertise_are_protocol_errors() {
 #[test]
 fn malformed_zgfx_is_a_protocol_error() {
     let mut h = ready();
-    let err = h.client.process_payload(&[0xE0, 0x04, 0x01]).unwrap_err();
+    let err = h.client.process_payload(&[0xAA, 0x00, 0x00]).unwrap_err();
     assert!(matches!(err, GfxError::Zgfx(_)), "{err:?}");
     assert_protocol_error(&err);
 }

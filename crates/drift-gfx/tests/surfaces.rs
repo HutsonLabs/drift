@@ -240,3 +240,101 @@ fn solid_fill_is_clipped_to_the_surface() {
         })
     );
 }
+
+#[test]
+fn remaining_pdus_are_dispatched_or_rejected() {
+    use ironrdp_egfx::pdu::{
+        CacheImportOfferPdu, DeleteEncodingContextPdu, MapSurfaceToScaledOutputPdu,
+        MapSurfaceToScaledWindowPdu, MapSurfaceToWindowPdu, QoeFrameAcknowledgePdu,
+    };
+    let mut h = harness(PresentMode::Immediate, Size::new(64, 64));
+    h.client.process_payload(&wire(&[reset(64, 64), create(1, 64, 64)])).unwrap();
+    assert_eq!(h.client.output_size(), Size::new(64, 64));
+    h.log.take();
+    let ok = vec![
+        GfxPdu::MapSurfaceToScaledOutput(MapSurfaceToScaledOutputPdu {
+            surface_id: 1,
+            output_origin_x: 3,
+            output_origin_y: 4,
+            target_width: 128,
+            target_height: 128,
+        }),
+        GfxPdu::MapSurfaceToWindow(MapSurfaceToWindowPdu {
+            surface_id: 1,
+            window_id: 9,
+            mapped_width: 1,
+            mapped_height: 1,
+        }),
+        GfxPdu::MapSurfaceToScaledWindow(MapSurfaceToScaledWindowPdu {
+            surface_id: 1,
+            window_id: 9,
+            mapped_width: 1,
+            mapped_height: 1,
+            target_width: 1,
+            target_height: 1,
+        }),
+        GfxPdu::DeleteEncodingContext(DeleteEncodingContextPdu { surface_id: 1, codec_context_id: 2 }),
+        GfxPdu::DeleteSurface(DeleteSurfacePdu { surface_id: 42 }),
+        GfxPdu::EvictCacheEntry(EvictCacheEntryPdu { cache_slot: 5 }),
+    ];
+    h.client.process_payload(&wire(&ok)).unwrap();
+    assert_eq!(h.log.take(), vec![FrameSinkCall::MapSurfaceToOutput { id: 1, origin: Point::new(3, 4) }]);
+
+    let rejected = vec![
+        map(9, 0, 0),
+        GfxPdu::CacheImportOffer(CacheImportOfferPdu { cache_entries: vec![] }),
+        GfxPdu::QoeFrameAcknowledge(QoeFrameAcknowledgePdu {
+            frame_id: 1,
+            timestamp: 0,
+            time_diff_se: 0,
+            time_diff_dr: 0,
+        }),
+        GfxPdu::CapabilitiesAdvertise(ironrdp_egfx::pdu::CapabilitiesAdvertisePdu(vec![])),
+        GfxPdu::EvictCacheEntry(EvictCacheEntryPdu { cache_slot: 0 }),
+        create(1, 8, 8),
+        create(3, 0, 8),
+        w2s1(1, Codec1Type::Planar, rect16(0, 0, 4, 4), vec![0xFF]),
+        w2s1(1, Codec1Type::ClearCodec, rect16(0, 0, 4, 4), vec![0xFF]),
+        w2s1(9, Codec1Type::Planar, rect16(0, 0, 4, 4), vec![]),
+        GfxPdu::WireToSurface2(ironrdp_egfx::pdu::WireToSurface2Pdu {
+            surface_id: 1,
+            codec_id: ironrdp_egfx::pdu::Codec2Type::RemoteFxProgressive,
+            codec_context_id: 1,
+            pixel_format: ironrdp_egfx::pdu::PixelFormat::XRgb,
+            bitmap_data: vec![0xFF; 3],
+        }),
+    ];
+    for pdu in rejected {
+        let dbg = format!("{pdu:?}");
+        let err = h.client.process_payload(&wire(&[pdu])).unwrap_err();
+        assert!(matches!(err.disconnect_reason(), drift_core::DisconnectReason::ProtocolError(_)), "{dbg}");
+    }
+    assert!(h.log.take().is_empty());
+    assert!(format!("{:?}", h.client).contains("GfxClient"));
+    ironrdp_dvc::DvcProcessor::close(&mut h.client, 1);
+}
+
+#[test]
+fn argb_surfaces_keep_the_fill_alpha() {
+    let mut h = harness(PresentMode::Immediate, Size::new(64, 64));
+    let argb = GfxPdu::CreateSurface(ironrdp_egfx::pdu::CreateSurfacePdu {
+        surface_id: 4,
+        width: 8,
+        height: 8,
+        pixel_format: ironrdp_egfx::pdu::PixelFormat::ARgb,
+    });
+    let fill = GfxPdu::SolidFill(SolidFillPdu {
+        surface_id: 4,
+        fill_pixel: Color { b: 1, g: 2, r: 3, xa: 0x80 },
+        rectangles: vec![rect16(0, 0, 1, 1)],
+    });
+    h.client.process_payload(&wire(&[reset(64, 64), argb, fill])).unwrap();
+    assert_eq!(
+        h.log.take().last(),
+        Some(&FrameSinkCall::SolidFill {
+            id: 4,
+            color: Bgra::new(1, 2, 3, 0x80),
+            rects: vec![Rect::new(0, 0, 1, 1)]
+        })
+    );
+}

@@ -145,13 +145,13 @@ pub fn summarize(calls: &[FrameSinkCall]) -> Vec<Summary> {
     for call in calls {
         if let FrameSinkCall::BlitBgra { id, rect, hash, .. } = call {
             let px = rect.width as usize * rect.height as usize;
-            if let Some(Summary::BlitBgraRun { id: run_id, blits, pixels, hash: h }) = out.last_mut() {
-                if run_id == id {
-                    *blits += 1;
-                    *pixels += px;
-                    *h = fnv1a64(&[h.to_le_bytes(), hash.to_le_bytes()].concat());
-                    continue;
-                }
+            if let Some(Summary::BlitBgraRun { id: run_id, blits, pixels, hash: h }) = out.last_mut()
+                && run_id == id
+            {
+                *blits += 1;
+                *pixels += px;
+                *h = fnv1a64(&[h.to_le_bytes(), hash.to_le_bytes()].concat());
+                continue;
             }
             out.push(Summary::BlitBgraRun { id: *id, blits: 1, pixels: px, hash: *hash });
         } else {

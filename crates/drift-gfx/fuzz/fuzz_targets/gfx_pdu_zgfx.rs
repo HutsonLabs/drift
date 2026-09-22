@@ -48,7 +48,9 @@ impl H264Decoder for TinyDecoder {
 
 fuzz_target!(|data: &[u8]| {
     let Some((&mode, rest)) = data.split_first() else { return };
-    let Ok(pool) = TilePool::new(1) else { return };
+    // One shared pool: spawning a rayon pool per input would dominate the run time.
+    static POOL: std::sync::OnceLock<Option<TilePool>> = std::sync::OnceLock::new();
+    let Some(pool) = POOL.get_or_init(|| TilePool::new(1).ok()).clone() else { return };
     let mut client = GfxClient::new(Box::new(NullSink), Box::new(TinyDecoder), pool);
     let _ = client.process_pdus(&setup_pdus());
     if mode % 2 == 0 {
