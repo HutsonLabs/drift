@@ -176,8 +176,15 @@ pub fn init_logging() {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
         let redactor = Redactor::from_env();
-        let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        let mut filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+        // M9-3: `sspi` prints the TS credentials at DEBUG/TRACE, and the redactor only knows
+        // the values the suite injected. Cap those targets last so `RUST_LOG` cannot undo it.
+        for directive in drift_rdp::logging::credential_safe_directives() {
+            if let Ok(directive) = directive.parse() {
+                filter = filter.add_directive(directive);
+            }
+        }
         let _ = tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_ansi(false)

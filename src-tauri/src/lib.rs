@@ -146,11 +146,20 @@ pub fn run_with(options: RunOptions) {
     });
 }
 
-/// Sets up `tracing` (`RUST_LOG`, default `info`). Secrets never reach a log: passwords live
-/// in `Zeroizing` values whose `Debug` is redacted (ADR M0-5) and are never formatted here.
+/// Sets up `tracing` (`RUST_LOG`, default `info`). Secrets never reach a log: Drift's own
+/// passwords live in `Zeroizing` values whose `Debug` is redacted (ADR M0-5) and are never
+/// formatted here, and the third-party targets that *do* log credentials below `INFO` are
+/// capped by `drift_rdp::logging` whatever `RUST_LOG` asks for (M9-3).
 fn init_logging() {
     use tracing_subscriber::EnvFilter;
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let mut filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    for directive in drift_rdp::logging::credential_safe_directives() {
+        match directive.parse() {
+            // Appended last so it replaces any directive `RUST_LOG` set for the same target.
+            Ok(directive) => filter = filter.add_directive(directive),
+            Err(e) => eprintln!("drift: ignoring malformed log directive {directive}: {e}"),
+        }
+    }
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 

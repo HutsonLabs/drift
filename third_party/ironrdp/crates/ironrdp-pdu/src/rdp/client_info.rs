@@ -212,9 +212,11 @@ pub struct Credentials {
 
 impl fmt::Debug for Credentials {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // NOTE: do not show secret (user password)
+        // NOTE: do not show secrets. The password is obvious, but the user name is a secret
+        // too: with Server Redirection (MS-RDPBCGR 2.2.13.1) it is a one-time logon name
+        // handed out by the server, and `ClientInfoPdu` is logged in full at DEBUG.
         f.debug_struct("Credentials")
-            .field("username", &self.username)
+            .field("username", &format_args!("<{} chars>", self.username.chars().count()))
             .field("domain", &self.domain)
             .finish_non_exhaustive()
     }

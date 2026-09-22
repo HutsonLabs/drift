@@ -1220,7 +1220,9 @@ impl Sequence for ClientConnector {
                     .ok_or_else(|| reason_err!("RDSTLS", "server selected RDSTLS but no RDSTLS credentials are set"))?;
                 let written = ironrdp_core::encode_buf(&rdstls::RdstlsAuthRequest::from(&credentials), output)
                     .map_err(ConnectorError::encode)?;
-                debug!(username = %credentials.username, "Sent RDSTLS authentication request");
+                // The user name is one-time and server-issued: log that we sent the request,
+                // never which credentials it carried.
+                debug!("Sent RDSTLS authentication request");
 
                 (
                     Written::from_size(written)?,

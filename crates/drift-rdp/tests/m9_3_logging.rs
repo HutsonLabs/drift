@@ -54,12 +54,20 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CaptureWriter {
     }
 }
 
-/// Installs a `TRACE` subscriber for the whole process (this binary has one test).
+/// Installs a `TRACE` subscriber for the whole process (this binary has one test), with the
+/// credential cap the app and the e2e harness install (`drift_rdp::logging`).
+///
+/// `RUST_LOG=trace` is the worst case an operator can ask for, so that is what the test runs:
+/// everything is on except the targets Drift refuses to let log credentials.
 fn capture_logs() -> Captured {
     let buffer: Captured = Arc::default();
     let writer = CaptureWriter(Arc::clone(&buffer));
+    let mut filter = tracing_subscriber::EnvFilter::new("trace");
+    for directive in drift_rdp::logging::credential_safe_directives() {
+        filter = filter.add_directive(directive.parse().expect("a valid directive"));
+    }
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
+        .with_env_filter(filter)
         .with_ansi(false)
         .with_target(true)
         .with_writer(writer)
