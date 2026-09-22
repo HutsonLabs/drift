@@ -431,7 +431,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - metablock parse tests on fixture bytes;
   - decoding `fixtures/h264/leg3.h264` gives 398 frames, and frame N matches an ffmpeg-decoded golden with PSNR ≥ 40 dB;
   - an SPS change triggers a session rebuild.
-- [ ] **M1-4 CPU codecs** (B). `drift-codec` wraps `ironrdp_graphics::{progressive, planar}` plus uncompressed into BGRA tiles, with a rayon tile pool.
+- [x] **M1-4 CPU codecs** (B). `drift-codec` wraps `ironrdp_graphics::{progressive, planar}` plus uncompressed into BGRA tiles, with a rayon tile pool.
   **Red:**
   - a greeter progressive replay (captured with caps `v81noavc`) whose final image matches `fixtures/goldens/greeter.png` at PSNR ≥ 45 dB;
   - a malformed-input proptest that never panics;
