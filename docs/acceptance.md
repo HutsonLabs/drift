@@ -258,7 +258,11 @@ Install the signed `Drift.app`, then confirm on that build:
       errno 65 screen whose button opens exactly that pane.
 - [ ] **Keychain:** save a profile password in the sandboxed app, quit, relaunch and connect —
       the password is found without any prompt (the item lives in the app's own access group,
-      keyed by the bundle identifier).
+      keyed by the bundle identifier). `drift-macos` uses the **legacy** `SecKeychain` API
+      (`security-framework`'s `os::macos` module), which a sandboxed app may use for its own
+      items; if this step ever fails with `errSecInteractionNotAllowed` or an unexpected access
+      panel, the fix is to move `drift_macos::keychain` to the data-protection keychain
+      (`SecItemAdd` with `kSecUseDataProtectionKeychain`), not to widen the entitlements.
 - [ ] **Metal:** the live picture renders at ~60 fps with `anim.py` on the host (the stats HUD);
       the sandbox must not affect `CAMetalLayer` or the `IOSurface`-backed frames.
 - [ ] **VideoToolbox:** the same session decodes AVC420 in hardware (no fallback message in the

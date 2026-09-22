@@ -87,7 +87,7 @@ Everything else Drift needs is inside the default sandbox, and the test asserts 
 
 | Capability | Why no entitlement is needed |
 |---|---|
-| Keychain | A sandboxed app reaches its own generic-password items through the access group `<team>.<bundle id>`. Drift stores under the service `com.hutsonlabs.drift`, which the test pins to `tauri.conf.json`'s `identifier`; `keychain-access-groups` would only widen the reach. |
+| Keychain | A sandboxed app reaches its own generic-password items through the access group `<team>.<bundle id>`. Drift stores under the service `com.hutsonlabs.drift`, which the test pins to `tauri.conf.json`'s `identifier`; `keychain-access-groups` would only widen the reach. M3-2 uses the legacy `SecKeychain` API, which sandboxed apps may use for their own items — if the signed build ever disagrees, the answer is the data-protection keychain (`kSecUseDataProtectionKeychain`), not a wider entitlement (acceptance § M9-3). |
 | Metal | `CAMetalLayer`, `MTLDevice` and `IOSurface`-backed textures are sandbox-safe. |
 | VideoToolbox | Decode and encode sessions run in-process; no helper, no XPC of ours. |
 | Pasteboard | `NSPasteboard.general` is the user's own pasteboard. |
