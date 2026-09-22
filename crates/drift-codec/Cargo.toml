@@ -10,6 +10,20 @@ publish.workspace = true
 [dependencies]
 drift-core.workspace = true
 ironrdp-graphics.workspace = true
+ironrdp-pdu.workspace = true
+rayon.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+ironrdp-core.workspace = true
+ironrdp-egfx.workspace = true
+png.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "progressive_tile"
+harness = false
 
 [lints]
 workspace = true
