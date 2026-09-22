@@ -289,6 +289,22 @@ impl SessionManager {
         self.shared.lock().windows.get(window).is_some_and(|s| s.live.is_some())
     }
 
+    /// Every window with a live session actor, as `(window, clipboard preference, is waiting
+    /// out a reconnect backoff, actor generation)`. The app's platform services fan out over
+    /// this (M5-3, M7-2); the generation changes when a window's actor is replaced.
+    pub fn live_session_states(&self) -> Vec<(String, drift_core::ClipboardPrefs, bool, u64)> {
+        self.shared
+            .lock()
+            .windows
+            .iter()
+            .filter_map(|(window, slot)| {
+                let live = slot.live.as_ref()?;
+                let reconnecting = matches!(slot.view.state, drift_core::SessionState::Reconnecting { .. });
+                Some((window.clone(), slot.profile.clipboard, reconnecting, live.generation))
+            })
+            .collect()
+    }
+
     /// Number of live session actors.
     pub fn live_sessions(&self) -> usize {
         self.shared.lock().windows.values().filter(|s| s.live.is_some()).count()
