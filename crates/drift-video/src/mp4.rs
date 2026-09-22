@@ -71,12 +71,18 @@ pub enum RecorderState {
 impl RecorderState {
     /// Transition for `start`.
     pub fn start(self) -> Result<Self, RecordingError> {
-        Err(RecordingError::NotStarted)
+        match self {
+            Self::Idle => Ok(Self::Recording),
+            Self::Recording => Err(RecordingError::AlreadyStarted),
+        }
     }
 
     /// Transition for `stop` / an automatic stop.
     pub fn stop(self) -> Result<Self, RecordingError> {
-        Err(RecordingError::AlreadyStarted)
+        match self {
+            Self::Idle => Err(RecordingError::NotStarted),
+            Self::Recording => Ok(Self::Idle),
+        }
     }
 }
 

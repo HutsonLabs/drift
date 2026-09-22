@@ -43,8 +43,21 @@ impl ParameterSetTracker {
     ///
     /// A decision of [`ParamDecision::Rebuild`] makes the new pair active.
     pub fn observe(&mut self, au: &AccessUnit) -> ParamDecision {
-        let _ = au;
-        ParamDecision::NotReady
+        if au.sps.is_empty() && au.pps.is_empty() {
+            return if self.active.is_some() { ParamDecision::Keep } else { ParamDecision::NotReady };
+        }
+        let active = self.active.as_ref();
+        let sps = au.sps.last().or(active.map(|a| &a.sps));
+        let pps = au.pps.last().or(active.map(|a| &a.pps));
+        let (Some(sps), Some(pps)) = (sps, pps) else {
+            return ParamDecision::NotReady;
+        };
+        if active.is_some_and(|a| &a.sps == sps && &a.pps == pps) {
+            return ParamDecision::Keep;
+        }
+        let next = ParameterSets { sps: sps.clone(), pps: pps.clone() };
+        self.active = Some(next.clone());
+        ParamDecision::Rebuild(next)
     }
 
     /// The active parameter sets, if any.

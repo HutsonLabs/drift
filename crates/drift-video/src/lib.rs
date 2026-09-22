@@ -15,10 +15,12 @@
 //! | `mp4` (feature `recording`) | M8-3 | FFI: `AVAssetWriter` passthrough |
 
 pub mod annexb;
+mod cv;
 pub mod decode;
 pub mod metablock;
 pub mod params;
 pub mod quality;
+pub mod sps;
 
 #[cfg(feature = "recording")]
 pub mod encode;

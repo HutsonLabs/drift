@@ -7,14 +7,25 @@ use drift_core::Nv12Planes;
 /// Returns `None` if the lengths differ or the buffers are empty, and `f64::INFINITY` if they
 /// are identical.
 pub fn psnr(a: &[u8], b: &[u8]) -> Option<f64> {
-    let _ = (a, b);
-    None
+    if a.len() != b.len() || a.is_empty() {
+        return None;
+    }
+    let sse: u64 = a.iter().zip(b).map(|(x, y)| u64::from(x.abs_diff(*y)).pow(2)).sum();
+    if sse == 0 {
+        return Some(f64::INFINITY);
+    }
+    #[expect(clippy::cast_precision_loss, reason = "sample counts and sums are far below 2^52")]
+    let mse = sse as f64 / a.len() as f64;
+    Some(10.0 * (255.0 * 255.0 / mse).log10())
 }
 
 /// PSNR over all samples (Y and interleaved CbCr) of two NV12 pictures of the same size.
 pub fn psnr_nv12(a: &Nv12Planes, b: &Nv12Planes) -> Option<f64> {
-    let _ = (a, b);
-    None
+    if a.y().len() != b.y().len() || a.uv().len() != b.uv().len() {
+        return None;
+    }
+    let joined = |p: &Nv12Planes| [p.y(), p.uv()].concat();
+    psnr(&joined(a), &joined(b))
 }
 
 #[cfg(test)]

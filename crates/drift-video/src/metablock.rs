@@ -55,8 +55,41 @@ pub enum MetablockError {
 
 /// Parses an `RFX_AVC420_BITMAP_STREAM` into its metablock and the H.264 bitstream that follows.
 pub fn parse_avc420_bitmap_stream(data: &[u8]) -> Result<(Avc420Metablock, &[u8]), MetablockError> {
-    let _ = data;
-    Err(MetablockError::Truncated { needed: 4, available: 0 })
+    const RECT16: usize = 8;
+    const QUANT_QUALITY: usize = 2;
+    let truncated = |needed: usize| MetablockError::Truncated { needed, available: data.len() };
+
+    let count_bytes: [u8; 4] = data.get(..4).and_then(|b| b.try_into().ok()).ok_or_else(|| truncated(4))?;
+    let count = usize::try_from(u32::from_le_bytes(count_bytes)).unwrap_or(usize::MAX);
+    let needed = count
+        .checked_mul(RECT16 + QUANT_QUALITY)
+        .and_then(|n| n.checked_add(4))
+        .ok_or_else(|| truncated(usize::MAX))?;
+    if data.len() < needed {
+        return Err(truncated(needed));
+    }
+
+    let u16_at = |off: usize| u16::from_le_bytes([data[off], data[off + 1]]);
+    let rects_start = 4;
+    let quant_start = rects_start + count * RECT16;
+    let mut meta =
+        Avc420Metablock { regions: Vec::with_capacity(count), quant_quality: Vec::with_capacity(count) };
+    for index in 0..count {
+        let off = rects_start + index * RECT16;
+        let [left, top, right, bottom] = [0, 2, 4, 6].map(|d| u32::from(u16_at(off + d)));
+        let rect = Rect::from_ltrb(left, top, right, bottom).ok_or(MetablockError::InvertedRect { index })?;
+        meta.regions.push(rect);
+    }
+    for index in 0..count {
+        let off = quant_start + index * QUANT_QUALITY;
+        let qp_val = data[off];
+        meta.quant_quality.push(QuantQuality {
+            qp: qp_val & 0x3F,
+            progressive: qp_val & 0x80 != 0,
+            quality: data[off + 1],
+        });
+    }
+    Ok((meta, &data[needed..]))
 }
 
 #[cfg(test)]

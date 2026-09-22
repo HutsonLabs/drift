@@ -53,7 +53,7 @@ pub struct EncoderConfig {
 impl EncoderConfig {
     /// The plan's configuration for a given frame size.
     pub fn new(size: Size<u32>) -> Self {
-        Self { size, average_bitrate: 0, max_keyframe_interval: Duration::ZERO, expected_fps: 0 }
+        Self { size, average_bitrate: 8_000_000, max_keyframe_interval: Duration::from_secs(2), expected_fps: 60 }
     }
 }
 
@@ -73,15 +73,21 @@ impl Timeline {
 
     /// The presentation time of a frame captured at `at`.
     pub fn pts(&mut self, at: Instant) -> Result<Duration, EncodeError> {
-        let _ = (at, self.origin, self.last);
-        Ok(Duration::ZERO)
+        let origin = *self.origin.get_or_insert(at);
+        let pts = at.saturating_duration_since(origin);
+        if let Some(previous) = self.last
+            && pts <= previous
+        {
+            return Err(EncodeError::NonMonotonic { pts, previous });
+        }
+        self.last = Some(pts);
+        Ok(pts)
     }
 }
 
 /// Gaps between consecutive keyframe presentation times.
 pub fn keyframe_gaps(keyframe_pts: &[Duration]) -> Vec<Duration> {
-    let _ = keyframe_pts;
-    Vec::new()
+    keyframe_pts.windows(2).map(|w| w[1].saturating_sub(w[0])).collect()
 }
 
 /// One encoded picture: an AVCC `CMSampleBuffer` as produced by VideoToolbox (passed through to

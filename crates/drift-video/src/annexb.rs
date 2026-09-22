@@ -48,8 +48,31 @@ pub enum AnnexBError {
 /// bytes before the first start code and strips `trailing_zero_8bits` from each NAL unit.
 /// Bytes before the first start code that are not zero are ignored. Empty NAL units are skipped.
 pub fn split_nals(data: &[u8]) -> Vec<&[u8]> {
-    let _ = data;
-    Vec::new()
+    // Positions just after each `00 00 01` start code.
+    let mut starts = Vec::new();
+    let mut i = 0;
+    while i + 3 <= data.len() {
+        if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
+            starts.push(i + 3);
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    let mut nals = Vec::with_capacity(starts.len());
+    for (k, &start) in starts.iter().enumerate() {
+        // The NAL runs to the next start code (whose `00 00` prefix, plus any zero bytes before
+        // it, i.e. the 4-byte form or trailing_zero_8bits, are not part of the NAL).
+        let end = starts.get(k + 1).map_or(data.len(), |next| next - 3);
+        let mut nal = &data[start..end.max(start)];
+        while let [rest @ .., 0] = nal {
+            nal = rest;
+        }
+        if !nal.is_empty() {
+            nals.push(nal);
+        }
+    }
+    nals
 }
 
 /// Returns the `nal_unit_type` of a NAL unit (low 5 bits of the header byte).
@@ -75,8 +98,25 @@ impl AccessUnit {
     /// Converts one Annex-B access unit: drops AUDs, extracts SPS/PPS and length-prefixes the
     /// remaining NAL units.
     pub fn from_annex_b(data: &[u8]) -> Result<Self, AnnexBError> {
-        let _ = data;
-        Err(AnnexBError::Empty)
+        let nals = split_nals(data);
+        if nals.is_empty() {
+            return Err(AnnexBError::Empty);
+        }
+        let mut au = AccessUnit::default();
+        for nal in nals {
+            match nal_unit_type(nal) {
+                Some(nal_type::AUD) => {}
+                Some(nal_type::SPS) => au.sps.push(nal.to_vec()),
+                Some(nal_type::PPS) => au.pps.push(nal.to_vec()),
+                t => {
+                    au.is_idr |= t == Some(nal_type::IDR);
+                    let len = u32::try_from(nal.len()).map_err(|_| AnnexBError::TooLarge)?;
+                    au.avcc.extend_from_slice(&len.to_be_bytes());
+                    au.avcc.extend_from_slice(nal);
+                }
+            }
+        }
+        Ok(au)
     }
 
     /// Whether the access unit carries picture data (at least one NAL besides parameter sets).
@@ -88,20 +128,43 @@ impl AccessUnit {
 /// Converts an AVCC sample (big-endian length prefixes of `length_size` bytes, 1..=4) into an
 /// Annex-B byte stream with 4-byte start codes.
 pub fn avcc_to_annex_b(avcc: &[u8], length_size: usize) -> Result<Vec<u8>, AnnexBError> {
-    let _ = (avcc, length_size);
-    Ok(Vec::new())
+    let nals = avcc_nals(avcc, length_size)?;
+    let mut out = Vec::with_capacity(avcc.len() + nals.len() * 4);
+    for nal in nals {
+        out.extend_from_slice(&[0, 0, 0, 1]);
+        out.extend_from_slice(nal);
+    }
+    Ok(out)
 }
 
 /// Iterates the NAL units of an AVCC sample.
+///
+/// `length_size` outside 1..=4 is treated as 4.
 pub fn avcc_nals(avcc: &[u8], length_size: usize) -> Result<Vec<&[u8]>, AnnexBError> {
-    let _ = (avcc, length_size);
-    Ok(Vec::new())
+    let length_size = if (1..=4).contains(&length_size) { length_size } else { 4 };
+    let mut nals = Vec::new();
+    let mut offset = 0;
+    while offset < avcc.len() {
+        let Some(prefix) = avcc.get(offset..offset + length_size) else {
+            return Err(AnnexBError::Truncated { offset, len: length_size });
+        };
+        let len = prefix.iter().fold(0usize, |acc, b| (acc << 8) | usize::from(*b));
+        let body = offset + length_size;
+        let Some(nal) = body.checked_add(len).and_then(|end| avcc.get(body..end)) else {
+            return Err(AnnexBError::Truncated { offset, len });
+        };
+        nals.push(nal);
+        offset = body + len;
+    }
+    Ok(nals)
 }
 
 /// `profile_idc` of an SPS NAL unit (byte after the NAL header). 100 = High.
 pub fn sps_profile_idc(sps: &[u8]) -> Option<u8> {
-    let _ = sps;
-    None
+    if nal_unit_type(sps)? != nal_type::SPS {
+        return None;
+    }
+    sps.get(1).copied()
 }
 
 #[cfg(test)]
