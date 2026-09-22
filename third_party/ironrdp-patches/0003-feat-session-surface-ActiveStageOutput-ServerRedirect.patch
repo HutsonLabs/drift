@@ -1,0 +1,260 @@
+From add3c013cc103b84ba0441c2bb0bdf2d346c6ddb Mon Sep 17 00:00:00 2001
+From: "Dr. Hutson" <hutsona@umsystem.edu>
+Date: Tue, 22 Sep 2026 10:21:30 -0500
+Subject: [PATCH] feat(session): surface ActiveStageOutput::ServerRedirect
+
+A Server Redirection PDU received on the I/O channel is now reported as
+IoChannelPdu::ServerRedirect, x224::ProcessorOutput::ServerRedirect and
+ActiveStageOutput::ServerRedirect instead of failing the session. The
+bundled client and web client end the session with a clear reason, since
+they do not implement the redirection loop.
+---
+ crates/ironrdp-client/src/rdp.rs              |  3 +
+ crates/ironrdp-pdu/src/rdp/headers.rs         |  5 +
+ crates/ironrdp-session/src/active_stage.rs    |  9 ++
+ crates/ironrdp-session/src/x224/mod.rs        | 15 +++
+ .../tests/session/mod.rs                      |  1 +
+ .../tests/session/server_redirection.rs       | 93 +++++++++++++++++++
+ crates/ironrdp-web/src/session.rs             |  3 +
+ 7 files changed, 129 insertions(+)
+ create mode 100644 third_party/ironrdp/crates/ironrdp-testsuite-core/tests/session/server_redirection.rs
+
+diff --git a/crates/ironrdp-client/src/rdp.rs b/crates/ironrdp-client/src/rdp.rs
+index a67d49c..fedc2ca 100644
+--- a/crates/ironrdp-client/src/rdp.rs
++++ b/crates/ironrdp-client/src/rdp.rs
+@@ -4179,6 +4179,9 @@ async fn active_session(
+                 ActiveStageOutput::AutoDetect(request) => {
+                     debug!(?request, "Auto-detect");
+                 }
++                ActiveStageOutput::ServerRedirect(_) => {
++                    break 'outer GracefulDisconnectReason::Other("server redirection is not supported".to_owned());
++                }
+                 ActiveStageOutput::Terminate(reason) => break 'outer reason,
+             }
+         }
+diff --git a/crates/ironrdp-pdu/src/rdp/headers.rs b/crates/ironrdp-pdu/src/rdp/headers.rs
+index 0a5b67b..79cea0a 100644
+--- a/crates/ironrdp-pdu/src/rdp/headers.rs
++++ b/crates/ironrdp-pdu/src/rdp/headers.rs
+@@ -212,6 +212,10 @@ pub enum IoChannelPdu {
+     ///
+     /// Received when the server wants the client to establish a sideband UDP transport.
+     MultitransportRequest(MultitransportRequestPdu),
++    /// Enhanced Security Server Redirection PDU ([MS-RDPBCGR] 2.2.13.3.1).
++    ///
++    /// The client should disconnect and reconnect using the redirection information.
++    ServerRedirect(Box<ServerRedirectionPdu>),
+ }
+ 
+ /// Decodes a PDU received on the RDP IO channel from the user data of a Send Data Indication.
+@@ -240,6 +244,7 @@ pub fn decode_io_channel(ctx: SendDataIndicationCtx<'_>) -> DecodeResult<IoChann
+ 
+     match ctx.pdu {
+         ShareControlPdu::ServerDeactivateAll(deactivate_all) => Ok(IoChannelPdu::DeactivateAll(deactivate_all)),
++        ShareControlPdu::ServerRedirect(redirection) => Ok(IoChannelPdu::ServerRedirect(Box::new(redirection))),
+         ShareControlPdu::Data(share_data_header) => {
+             let share_data_ctx = ShareDataCtx {
+                 initiator_id: ctx.initiator_id,
+diff --git a/crates/ironrdp-session/src/active_stage.rs b/crates/ironrdp-session/src/active_stage.rs
+index f53e0ae..abd9a33 100644
+--- a/crates/ironrdp-session/src/active_stage.rs
++++ b/crates/ironrdp-session/src/active_stage.rs
+@@ -16,6 +16,7 @@ use ironrdp_pdu::rdp::client_info::CompressionType;
+ use ironrdp_pdu::rdp::headers::ShareDataPdu;
+ use ironrdp_pdu::rdp::multitransport::{MultitransportRequestPdu, MultitransportResponsePdu};
+ use ironrdp_pdu::rdp::refresh_rectangle::RefreshRectanglePdu;
++use ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu;
+ use ironrdp_pdu::rdp::session_info::ServerAutoReconnect;
+ use ironrdp_pdu::rdp::suppress_output::SuppressOutputPdu;
+ use ironrdp_pdu::slow_path::{self, GraphicsUpdateType};
+@@ -833,6 +834,13 @@ pub enum ActiveStageOutput {
+     AutoReconnectCookie(ServerAutoReconnect),
+     /// Server rejected the automatic reconnection attempt.
+     AutoReconnectFailed,
++    /// Enhanced Security Server Redirection PDU ([MS-RDPBCGR] 2.2.13.3.1).
++    ///
++    /// The consumer should close the transport and start a new connection: to the same host
++    /// and port unless a target address is given, with the load-balance info as the X.224
++    /// routing token and, when one-time credentials are present, RDSTLS authentication.
++    /// The PDU holds secrets (the password blob); do not persist it.
++    ServerRedirect(Box<ServerRedirectionPdu>),
+ }
+ 
+ impl TryFrom<x224::ProcessorOutput> for ActiveStageOutput {
+@@ -860,6 +868,7 @@ impl TryFrom<x224::ProcessorOutput> for ActiveStageOutput {
+             x224::ProcessorOutput::AutoReconnectCookie(cookie) => Ok(Self::AutoReconnectCookie(cookie)),
+             x224::ProcessorOutput::AutoReconnectFailed => Ok(Self::AutoReconnectFailed),
+             x224::ProcessorOutput::MonitorLayout(monitors) => Ok(Self::MonitorLayout(monitors)),
++            x224::ProcessorOutput::ServerRedirect(redirection) => Ok(Self::ServerRedirect(redirection)),
+             // GraphicsUpdate and PointerUpdate are consumed in ActiveStage::process()
+             // before reaching this conversion.
+             x224::ProcessorOutput::GraphicsUpdate(_) | x224::ProcessorOutput::PointerUpdate(_) => Err(
+diff --git a/crates/ironrdp-session/src/x224/mod.rs b/crates/ironrdp-session/src/x224/mod.rs
+index d006393..6a3575b 100644
+--- a/crates/ironrdp-session/src/x224/mod.rs
++++ b/crates/ironrdp-session/src/x224/mod.rs
+@@ -11,6 +11,7 @@ use ironrdp_pdu::rdp::headers::{
+ use ironrdp_pdu::rdp::heartbeat::HeartbeatPdu;
+ use ironrdp_pdu::rdp::multitransport::{MultitransportRequestPdu, MultitransportResponsePdu};
+ use ironrdp_pdu::rdp::server_error_info::{ErrorInfo, ProtocolIndependentCode, ServerSetErrorInfoPdu};
++use ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu;
+ use ironrdp_pdu::rdp::session_info::{InfoData, SaveSessionInfoPdu, ServerAutoReconnect};
+ use ironrdp_pdu::x224::X224;
+ use ironrdp_svc::{
+@@ -87,6 +88,12 @@ pub enum ProcessorOutput {
+     /// The server may send this after activation when the client advertises
+     /// `RNS_UD_CS_SUPPORT_MONITOR_LAYOUT_PDU`.
+     MonitorLayout(Vec<Monitor>),
++    /// Enhanced Security Server Redirection PDU ([MS-RDPBCGR] 2.2.13.3.1).
++    ///
++    /// The client should close this connection and reconnect using the redirection
++    /// information: the load-balance info as routing token and, when present, the one-time
++    /// credentials over RDSTLS.
++    ServerRedirect(Box<ServerRedirectionPdu>),
+ }
+ 
+ #[derive(Debug, Clone)]
+@@ -314,6 +321,14 @@ impl Processor {
+                 Ok(Vec::new())
+             }
+             IoChannelPdu::DeactivateAll(_) => Ok(vec![ProcessorOutput::DeactivateAll]),
++            IoChannelPdu::ServerRedirect(redirection) => {
++                debug!(
++                    session_id = redirection.session_id,
++                    flags = ?redirection.redirection_flags,
++                    "Received Server Redirection PDU"
++                );
++                Ok(vec![ProcessorOutput::ServerRedirect(redirection)])
++            }
+         }
+     }
+ 
+diff --git a/crates/ironrdp-testsuite-core/tests/session/mod.rs b/crates/ironrdp-testsuite-core/tests/session/mod.rs
+index 263c584..1f3a556 100644
+--- a/crates/ironrdp-testsuite-core/tests/session/mod.rs
++++ b/crates/ironrdp-testsuite-core/tests/session/mod.rs
+@@ -5,6 +5,7 @@ mod fast_path;
+ mod heartbeat;
+ mod rfx;
+ mod save_session_info;
++mod server_redirection;
+ 
+ #[cfg(test)]
+ mod tests {
+diff --git a/crates/ironrdp-testsuite-core/tests/session/server_redirection.rs b/crates/ironrdp-testsuite-core/tests/session/server_redirection.rs
+new file mode 100644
+index 0000000..a93db16
+--- /dev/null
++++ b/crates/ironrdp-testsuite-core/tests/session/server_redirection.rs
+@@ -0,0 +1,93 @@
++//! A Server Redirection PDU received during the active session is surfaced to the caller
++//! instead of failing with "unexpected share control PDU type".
++
++use ironrdp_core::encode_vec;
++use ironrdp_graphics::image_processing::PixelFormat;
++use ironrdp_pdu::Action;
++use ironrdp_pdu::mcs::SendDataIndication;
++use ironrdp_pdu::rdp::headers::{ShareControlHeader, ShareControlPdu};
++use ironrdp_pdu::rdp::server_redirection::{ServerRedirectionFlags, ServerRedirectionPdu};
++use ironrdp_pdu::x224::X224;
++use ironrdp_session::image::DecodedImage;
++use ironrdp_session::x224::{Processor, ProcessorOutput};
++use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
++use ironrdp_svc::StaticChannelSet;
++
++const USER_CHANNEL_ID: u16 = 1002;
++const IO_CHANNEL_ID: u16 = 1003;
++
++fn redirection() -> ServerRedirectionPdu {
++    ServerRedirectionPdu {
++        session_id: 0,
++        redirection_flags: ServerRedirectionFlags::LOAD_BALANCE_INFO
++            | ServerRedirectionFlags::USERNAME
++            | ServerRedirectionFlags::PASSWORD
++            | ServerRedirectionFlags::PASSWORD_IS_PK_ENCRYPTED
++            | ServerRedirectionFlags::REDIRECTION_GUID,
++        load_balance_info: Some(b"Cookie: msts=3735928559\r\n".to_vec()),
++        username: Some("drift-otp-user01".to_owned()),
++        password: Some(vec![0xA5; 34]),
++        redirection_guid: Some(vec![0x41, 0x00, 0x00, 0x00]),
++        ..ServerRedirectionPdu::default()
++    }
++}
++
++fn encode_redirection_frame(pdu: ServerRedirectionPdu) -> Vec<u8> {
++    let control = ShareControlHeader {
++        share_id: 0,
++        pdu_source: USER_CHANNEL_ID,
++        share_control_pdu: ShareControlPdu::ServerRedirect(pdu),
++    };
++
++    let indication = SendDataIndication {
++        initiator_id: USER_CHANNEL_ID,
++        channel_id: IO_CHANNEL_ID,
++        user_data: encode_vec(&control).unwrap().into(),
++    };
++
++    encode_vec(&X224(indication)).unwrap()
++}
++
++#[test]
++fn x224_processor_surfaces_server_redirection() {
++    let mut processor = Processor::new(StaticChannelSet::new(), USER_CHANNEL_ID, IO_CHANNEL_ID, None, 0);
++
++    let outputs = processor
++        .process(&encode_redirection_frame(redirection()), &mut None)
++        .unwrap();
++
++    match outputs.as_slice() {
++        [ProcessorOutput::ServerRedirect(pdu)] => assert_eq!(**pdu, redirection()),
++        other => panic!("unexpected outputs: {other:?}"),
++    }
++}
++
++#[test]
++fn active_stage_surfaces_server_redirection() {
++    let mut stage = ActiveStageBuilder {
++        static_channels: StaticChannelSet::new(),
++        user_channel_id: USER_CHANNEL_ID,
++        io_channel_id: IO_CHANNEL_ID,
++        message_channel_id: None,
++        share_id: 0,
++        compression_type: None,
++        enable_server_pointer: false,
++        pointer_software_rendering: false,
++    }
++    .build();
++    let mut image = DecodedImage::new(PixelFormat::RgbA32, 64, 64);
++
++    let outputs = stage
++        .process(&mut image, Action::X224, &encode_redirection_frame(redirection()))
++        .unwrap();
++
++    let redirects: Vec<_> = outputs
++        .iter()
++        .filter_map(|output| match output {
++            ActiveStageOutput::ServerRedirect(pdu) => Some(pdu),
++            _ => None,
++        })
++        .collect();
++    assert_eq!(redirects.len(), 1, "outputs: {outputs:?}");
++    assert_eq!(*redirects[0].as_ref(), redirection());
++}
+diff --git a/crates/ironrdp-web/src/session.rs b/crates/ironrdp-web/src/session.rs
+index a47bd3d..d3d8bc6 100644
+--- a/crates/ironrdp-web/src/session.rs
++++ b/crates/ironrdp-web/src/session.rs
+@@ -1111,6 +1111,9 @@ impl iron_remote_desktop::Session for Session {
+                     ActiveStageOutput::SaveSessionInfo { logon_complete: false } => {
+                         debug!("RDP session info notification");
+                     }
++                    ActiveStageOutput::ServerRedirect(_) => {
++                        break 'outer GracefulDisconnectReason::Other("server redirection is not supported".to_owned());
++                    }
+                     ActiveStageOutput::Terminate(reason) => break 'outer reason,
+                 }
+             }
+-- 
+2.54.0 (Apple Git-157)
+

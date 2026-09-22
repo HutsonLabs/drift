@@ -11,6 +11,7 @@ use ironrdp_pdu::rdp::headers::{
 use ironrdp_pdu::rdp::heartbeat::HeartbeatPdu;
 use ironrdp_pdu::rdp::multitransport::{MultitransportRequestPdu, MultitransportResponsePdu};
 use ironrdp_pdu::rdp::server_error_info::{ErrorInfo, ProtocolIndependentCode, ServerSetErrorInfoPdu};
+use ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu;
 use ironrdp_pdu::rdp::session_info::{InfoData, SaveSessionInfoPdu, ServerAutoReconnect};
 use ironrdp_pdu::x224::X224;
 use ironrdp_svc::{
@@ -87,6 +88,12 @@ pub enum ProcessorOutput {
     /// The server may send this after activation when the client advertises
     /// `RNS_UD_CS_SUPPORT_MONITOR_LAYOUT_PDU`.
     MonitorLayout(Vec<Monitor>),
+    /// Enhanced Security Server Redirection PDU ([MS-RDPBCGR] 2.2.13.3.1).
+    ///
+    /// The client should close this connection and reconnect using the redirection
+    /// information: the load-balance info as routing token and, when present, the one-time
+    /// credentials over RDSTLS.
+    ServerRedirect(Box<ServerRedirectionPdu>),
 }
 
 #[derive(Debug, Clone)]
@@ -314,6 +321,14 @@ impl Processor {
                 Ok(Vec::new())
             }
             IoChannelPdu::DeactivateAll(_) => Ok(vec![ProcessorOutput::DeactivateAll]),
+            IoChannelPdu::ServerRedirect(redirection) => {
+                debug!(
+                    session_id = redirection.session_id,
+                    flags = ?redirection.redirection_flags,
+                    "Received Server Redirection PDU"
+                );
+                Ok(vec![ProcessorOutput::ServerRedirect(redirection)])
+            }
         }
     }
 

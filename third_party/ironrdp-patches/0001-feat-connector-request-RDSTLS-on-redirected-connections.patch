@@ -1,0 +1,97 @@
+From ee614f11607f7ac0b5e0bf81a9b0448d3fd32f3c Mon Sep 17 00:00:00 2001
+From: "Dr. Hutson" <hutsona@umsystem.edu>
+Date: Tue, 22 Sep 2026 10:21:30 -0500
+Subject: [PATCH] feat(connector): request RDSTLS on redirected connections
+ without NLA
+
+When load-balancing info from a Server Redirection PDU is set and CredSSP is
+disabled, advertise PROTOCOL_RDSTLS alongside PROTOCOL_SSL in the X.224
+Connection Request so the server can authenticate the reconnection with the
+one-time redirection credentials ([MS-RDPBCGR] 5.4.5.3).
+---
+ crates/ironrdp-connector/src/connection.rs    |  7 ++++
+ .../tests/connector/mod.rs                    |  1 +
+ .../tests/connector/rdstls.rs                 | 41 +++++++++++++++++++
+ 3 files changed, 49 insertions(+)
+ create mode 100644 third_party/ironrdp/crates/ironrdp-testsuite-core/tests/connector/rdstls.rs
+
+diff --git a/crates/ironrdp-connector/src/connection.rs b/crates/ironrdp-connector/src/connection.rs
+index 9f0ddf3..a977125 100644
+--- a/crates/ironrdp-connector/src/connection.rs
++++ b/crates/ironrdp-connector/src/connection.rs
+@@ -463,6 +463,13 @@ impl ClientConnector {
+             security_protocol.insert(nego::SecurityProtocol::HYBRID | nego::SecurityProtocol::HYBRID_EX);
+         }
+ 
++        // A redirected connection (load-balancing info from a Server Redirection PDU) without NLA
++        // authenticates with the one-time redirection credentials over RDSTLS
++        // ([MS-RDPBCGR] 5.4.5.3).
++        if self.load_balance_info.is_some() && !self.config.enable_credssp {
++            security_protocol.insert(nego::SecurityProtocol::RDSTLS);
++        }
++
+         // PROTOCOL_RDP (empty flags) is standard RDP security. IronRDP only supports the
+         // ENCRYPTION_LEVEL_NONE variant (no RC4 Security Exchange). Keep it opt-in so
+         // `enable_tls = false` + `enable_credssp = false` cannot silently open a plaintext
+diff --git a/crates/ironrdp-testsuite-core/tests/connector/mod.rs b/crates/ironrdp-testsuite-core/tests/connector/mod.rs
+index 79a675d..7843684 100644
+--- a/crates/ironrdp-testsuite-core/tests/connector/mod.rs
++++ b/crates/ironrdp-testsuite-core/tests/connector/mod.rs
+@@ -4,6 +4,7 @@ use ironrdp_pdu::rdp::capability_sets::{MajorPlatformType, RailSupportLevel};
+ 
+ mod autodetect;
+ mod early_capabilities;
++mod rdstls;
+ 
+ fn test_config() -> ironrdp_connector::Config {
+     ironrdp_connector::Config {
+diff --git a/crates/ironrdp-testsuite-core/tests/connector/rdstls.rs b/crates/ironrdp-testsuite-core/tests/connector/rdstls.rs
+new file mode 100644
+index 0000000..db2acb7
+--- /dev/null
++++ b/crates/ironrdp-testsuite-core/tests/connector/rdstls.rs
+@@ -0,0 +1,41 @@
++use ironrdp_connector::{ClientConnector, ClientConnectorState, Sequence as _, State as _};
++use ironrdp_core::WriteBuf;
++use ironrdp_pdu::nego::SecurityProtocol;
++
++fn requested_protocol(connector: &mut ClientConnector) -> SecurityProtocol {
++    let mut output = WriteBuf::new();
++    connector.step(&[], None, &mut output).unwrap();
++
++    match connector.state {
++        ClientConnectorState::ConnectionInitiationWaitConfirm { requested_protocol } => requested_protocol,
++        _ => panic!("unexpected connector state: {}", connector.state.name()),
++    }
++}
++
++#[test]
++fn redirected_leg_without_nla_requests_rdstls() {
++    let mut connector = ClientConnector::new(super::test_config(), "127.0.0.1:3389".parse().unwrap())
++        .with_load_balance_info("Cookie: msts=1234567890".to_owned());
++
++    assert_eq!(
++        requested_protocol(&mut connector),
++        SecurityProtocol::SSL | SecurityProtocol::RDSTLS
++    );
++}
++
++#[test]
++fn plain_tls_connection_does_not_request_rdstls() {
++    let mut connector = ClientConnector::new(super::test_config(), "127.0.0.1:3389".parse().unwrap());
++
++    assert_eq!(requested_protocol(&mut connector), SecurityProtocol::SSL);
++}
++
++#[test]
++fn load_balance_info_with_nla_does_not_request_rdstls() {
++    let mut config = super::test_config();
++    config.enable_credssp = true;
++    let mut connector = ClientConnector::new(config, "127.0.0.1:3389".parse().unwrap())
++        .with_load_balance_info("Cookie: msts=1234567890".to_owned());
++
++    assert!(!requested_protocol(&mut connector).contains(SecurityProtocol::RDSTLS));
++}
+-- 
+2.54.0 (Apple Git-157)
+

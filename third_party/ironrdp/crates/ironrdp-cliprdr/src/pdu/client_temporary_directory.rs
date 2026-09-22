@@ -78,10 +78,18 @@ impl Encode for ClientTemporaryDirectory<'_> {
 
 impl<'de> Decode<'de> for ClientTemporaryDirectory<'de> {
     fn decode(src: &mut ReadCursor<'de>) -> DecodeResult<Self> {
-        let _header = PartialHeader::decode(src)?;
+        let header = PartialHeader::decode(src)?;
+        if header.data_length() != Self::INNER_SIZE {
+            return Err(invalid_field_err!("dataLen", "CLIPRDR_TEMP_DIRECTORY dataLen must be 520", in: src));
+        }
 
         ensure_size!(in: src, size: Self::INNER_SIZE);
         let buffer = src.read_slice(Self::PATH_BUFFER_SIZE);
+
+        // wszTempDir is a null-terminated string that must fit in the fixed buffer.
+        if !buffer.chunks_exact(2).any(|unit| unit == [0, 0]) {
+            return Err(invalid_field_err!("wszTempDir", "path is not null-terminated", in: src));
+        }
 
         Ok(Self {
             path_buffer: Cow::Borrowed(buffer),

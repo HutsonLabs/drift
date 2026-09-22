@@ -841,10 +841,14 @@ impl<R: Role> Cliprdr<R> {
                     // During initialization state, first copy action is synthetic and should be sent along with
                     // capabilities and temporary directory PDUs.
                     pdus.push(ClipboardPdu::Capabilities(self.capabilities.clone()));
-                    pdus.push(ClipboardPdu::TemporaryDirectory(
-                        ClientTemporaryDirectory::new(self.backend.temporary_directory())
-                            .map_err(|e| encode_err!(e))?,
-                    ));
+                    // The Temporary Directory PDU is optional ([MS-RDPECLIP] 2.2.2.3); skip it
+                    // when the backend has no directory for file transfers.
+                    let temporary_directory = self.backend.temporary_directory();
+                    if !temporary_directory.is_empty() {
+                        pdus.push(ClipboardPdu::TemporaryDirectory(
+                            ClientTemporaryDirectory::new(temporary_directory).map_err(|e| encode_err!(e))?,
+                        ));
+                    }
                     pdus.push(ClipboardPdu::FormatList(
                         self.build_format_list(available_formats).map_err(|e| encode_err!(e))?,
                     ));

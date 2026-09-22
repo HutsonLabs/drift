@@ -4179,6 +4179,9 @@ async fn active_session(
                 ActiveStageOutput::AutoDetect(request) => {
                     debug!(?request, "Auto-detect");
                 }
+                ActiveStageOutput::ServerRedirect(_) => {
+                    break 'outer GracefulDisconnectReason::Other("server redirection is not supported".to_owned());
+                }
                 ActiveStageOutput::Terminate(reason) => break 'outer reason,
             }
         }

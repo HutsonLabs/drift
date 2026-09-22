@@ -361,7 +361,7 @@ pub(super) const HANDSHAKE_SERVER_FLAGS: ClipboardGeneralCapabilityFlags =
         .union(ClipboardGeneralCapabilityFlags::CAN_LOCK_CLIPDATA);
 
 /// Builds a server Capabilities PDU with file transfer + locking flags.
-fn server_capabilities_pdu() -> Vec<u8> {
+pub(super) fn server_capabilities_pdu() -> Vec<u8> {
     ironrdp_core::encode_vec(&ClipboardPdu::Capabilities(Capabilities::new(
         ClipboardProtocolVersion::V2,
         HANDSHAKE_SERVER_FLAGS,
@@ -370,7 +370,7 @@ fn server_capabilities_pdu() -> Vec<u8> {
 }
 
 /// Builds a MonitorReady PDU.
-fn monitor_ready_pdu() -> Vec<u8> {
+pub(super) fn monitor_ready_pdu() -> Vec<u8> {
     ironrdp_core::encode_vec(&ClipboardPdu::MonitorReady).unwrap()
 }
 

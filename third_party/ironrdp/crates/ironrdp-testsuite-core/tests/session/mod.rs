@@ -5,6 +5,7 @@ mod fast_path;
 mod heartbeat;
 mod rfx;
 mod save_session_info;
+mod server_redirection;
 
 #[cfg(test)]
 mod tests {
