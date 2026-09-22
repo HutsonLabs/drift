@@ -43,7 +43,9 @@ pub struct DisplayControlCaps {
 impl DisplayControlCaps {
     /// Maximum total monitor area in pixels: `A × B × MaxNumMonitors` (saturating).
     pub fn max_area(&self) -> u64 {
-        todo!("Red: not implemented yet")
+        u64::from(self.max_monitor_area_factor_a)
+            .saturating_mul(u64::from(self.max_monitor_area_factor_b))
+            .saturating_mul(u64::from(self.max_num_monitors))
     }
 }
 
@@ -76,12 +78,30 @@ pub struct MonitorLayout {
 /// `prefs.adaptive` is not consulted here: whether to send a layout at all is the resize
 /// driver's decision (M4-2). Degenerate geometry (zero, negative, NaN) yields the minimum size.
 pub fn desired_layout(view: ViewGeometry, prefs: DisplayPrefs, caps: &DisplayControlCaps) -> MonitorLayout {
-    todo!("Red: not implemented yet")
+    let retina = prefs.retina && view.backing_scale >= RETINA_BACKING_SCALE;
+    let (factor, desktop_scale_factor) = if retina { (2.0, 200) } else { (1.0, 100) };
+    let (width, height) = fit_to_caps(
+        to_pixels(view.points.width * factor),
+        to_pixels(view.points.height * factor),
+        caps.max_area(),
+    );
+    MonitorLayout {
+        width,
+        height,
+        desktop_scale_factor,
+        device_scale_factor: device_scale_for(desktop_scale_factor),
+    }
 }
 
 /// The member of [`DEVICE_SCALE_FACTORS`] nearest to `desktop_scale` (ties go to the lower).
 pub fn device_scale_for(desktop_scale: u32) -> u32 {
-    todo!("Red: not implemented yet")
+    let mut best = DEVICE_SCALE_FACTORS[0];
+    for candidate in DEVICE_SCALE_FACTORS {
+        if candidate.abs_diff(desktop_scale) < best.abs_diff(desktop_scale) {
+            best = candidate;
+        }
+    }
+    best
 }
 
 /// Rounds a non-negative length to whole pixels, mapping NaN/negative to 0 and saturating.

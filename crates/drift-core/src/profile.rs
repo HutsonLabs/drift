@@ -116,12 +116,13 @@ impl CertFingerprint {
 
     /// SHA-256 of a certificate's DER encoding (what `grdctl status` fingerprints).
     pub fn of_der(der: &[u8]) -> Self {
-        todo!("Red: not implemented yet")
+        use sha2::Digest as _;
+        Self(sha2::Sha256::digest(der).into())
     }
 
     /// Extracts the `TLS fingerprint:` line from `grdctl [--system|--headless] status` output.
     pub fn from_grdctl_status(output: &str) -> Option<Self> {
-        todo!("Red: not implemented yet")
+        output.lines().find_map(|l| l.trim().strip_prefix("TLS fingerprint:")).and_then(|v| v.parse().ok())
     }
 }
 
@@ -359,7 +360,16 @@ fn issue_message(field: ProfileField, problem: ProfileProblem) -> String {
 /// Returns every problem found (not just the first), in field order, so the form can mark all
 /// offending fields at once.
 pub fn validate(profile: &ConnectionProfile) -> Result<(), Vec<ProfileIssue>> {
-    todo!("Red: not implemented yet")
+    let checks = [
+        (ProfileField::Name, check_text(&profile.name, MAX_NAME_CHARS)),
+        (ProfileField::Host, check_host(&profile.host)),
+        (ProfileField::Port, (profile.port == 0).then_some(ProfileProblem::InvalidPort)),
+        (ProfileField::RdpUsername, check_text(&profile.rdp_username, MAX_USERNAME_CHARS)),
+        (ProfileField::LinuxUsername, check_linux_username(profile.mode, profile.linux_username.as_deref())),
+    ];
+    let issues: Vec<ProfileIssue> =
+        checks.into_iter().filter_map(|(field, p)| p.map(|p| ProfileIssue::new(field, p))).collect();
+    if issues.is_empty() { Ok(()) } else { Err(issues) }
 }
 
 /// Required free text: non-blank, bounded, no control characters, no surrounding whitespace.
@@ -483,6 +493,6 @@ impl SecretRole {
 
     /// Keychain account name for this role of `profile_id`: `<uuid>/<role>`.
     pub fn account(self, profile_id: Uuid) -> String {
-        todo!("Red: not implemented yet")
+        format!("{profile_id}/{}", self.as_str())
     }
 }

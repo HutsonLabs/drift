@@ -91,12 +91,17 @@ impl SplitMix64 {
 
     /// Next 64 random bits.
     pub fn next_u64(&mut self) -> u64 {
-        todo!("Red: not implemented yet")
+        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
     }
 
     /// Uniform integer in `0..=max` (Lemire's multiply-shift; bias below 2^-32 for delays under 49 days).
     pub fn below_or_eq(&mut self, max: u64) -> u64 {
-        todo!("Red: not implemented yet")
+        let span = u128::from(max) + 1;
+        ((u128::from(self.next_u64()) * span) >> 64) as u64
     }
 }
 
@@ -139,7 +144,9 @@ impl ReconnectPolicy {
 
     /// Backoff ceiling for 1-based `attempt`: `min(cap, base × 2^(attempt-1))`.
     pub fn ceiling(&self, attempt: u32) -> Duration {
-        todo!("Red: not implemented yet")
+        let exp = attempt.saturating_sub(1).min(63);
+        let factor = 1u32.checked_shl(exp).unwrap_or(u32::MAX);
+        self.config.base.checked_mul(factor).map_or(self.config.cap, |d| d.min(self.config.cap))
     }
 
     /// A connection (any leg reaching `Connected`/`AwaitingGreeterLogin`) was established at `now`.
@@ -149,7 +156,15 @@ impl ReconnectPolicy {
 
     /// The session dropped (or a reconnect attempt failed) at `now` with `reason`.
     pub fn on_disconnect(&mut self, reason: &DisconnectReason, now: Instant) -> ReconnectDecision {
-        todo!("Red: not implemented yet")
+        if let Some(since) = self.connected_since.take()
+            && now.saturating_duration_since(since) >= self.config.stable_after
+        {
+            self.attempts = 0;
+        }
+        if !reason.is_retryable() {
+            return ReconnectDecision::GiveUp(GiveUpReason::NotRetryable);
+        }
+        self.next_decision(true)
     }
 
     /// Network reachability changed (from the trigger merger, M7-2). While unreachable,
@@ -163,7 +178,7 @@ impl ReconnectPolicy {
     /// Consumes an attempt like a normal retry but with zero delay; still honours the network
     /// state and the attempt budget.
     pub fn retry_now(&mut self) -> ReconnectDecision {
-        todo!("Red: not implemented yet")
+        self.next_decision(false)
     }
 
     /// Forgets the attempt history (user pressed Cancel, or edited the profile).

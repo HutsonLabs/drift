@@ -18,7 +18,7 @@ fn delays(seed: u64, n: usize) -> Vec<u64> {
         .map(|i| match p.on_disconnect(&DisconnectReason::Network, t) {
             ReconnectDecision::Retry { attempt, delay } => {
                 assert_eq!(attempt as usize, i);
-                u64::try_from(delay.as_millis()).unwrap()
+                delay.as_millis() as u64
             }
             other => panic!("attempt {i}: {other:?}"),
         })

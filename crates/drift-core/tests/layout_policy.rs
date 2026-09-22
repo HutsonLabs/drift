@@ -99,7 +99,7 @@ fn device_scale_is_nearest_valid_value() {
 
 /// Independent MS-RDPEDISP 2.2.2.2.1 check for a single primary monitor.
 fn satisfies_ms_rdpedisp(l: &MonitorLayout, caps: &DisplayControlCaps) -> Result<(), String> {
-    if !(200..=8192).contains(&l.width) || l.width % 2 != 0 {
+    if !(200..=8192).contains(&l.width) || !l.width.is_multiple_of(2) {
         return Err(format!("width {} must be even and within 200..=8192", l.width));
     }
     if !(200..=8192).contains(&l.height) {

@@ -72,12 +72,25 @@ impl ProfileStore {
     /// Profiles that fail [`profile::validate`] are still loaded (the user can fix them in the
     /// form); structural problems (bad TOML, duplicate ids, newer version) are errors.
     pub fn from_toml(s: &str) -> Result<Self, StoreError> {
-        todo!("Red: not implemented yet")
+        if s.trim().is_empty() {
+            return Ok(Self::new());
+        }
+        let doc: Document = toml::from_str(s).map_err(|e| StoreError::Parse(e.to_string()))?;
+        if doc.version > STORE_VERSION {
+            return Err(StoreError::UnsupportedVersion { found: doc.version });
+        }
+        for (i, p) in doc.profiles.iter().enumerate() {
+            if doc.profiles[..i].iter().any(|q| q.id == p.id) {
+                return Err(StoreError::DuplicateId(p.id));
+            }
+        }
+        Ok(Self { profiles: doc.profiles })
     }
 
     /// Serializes to `profiles.toml` text.
     pub fn to_toml(&self) -> Result<String, StoreError> {
-        todo!("Red: not implemented yet")
+        let doc = Document { version: STORE_VERSION, profiles: self.profiles.clone() };
+        toml::to_string(&doc).map_err(|e| StoreError::Serialize(e.to_string()))
     }
 
     /// Profiles in insertion order.
@@ -101,7 +114,14 @@ impl ProfileStore {
     ///
     /// Returns `true` if an existing profile was replaced.
     pub fn upsert(&mut self, profile: ConnectionProfile) -> Result<bool, StoreError> {
-        todo!("Red: not implemented yet")
+        profile::validate(&profile).map_err(StoreError::Invalid)?;
+        if let Some(slot) = self.profiles.iter_mut().find(|p| p.id == profile.id) {
+            *slot = profile;
+            Ok(true)
+        } else {
+            self.profiles.push(profile);
+            Ok(false)
+        }
     }
 
     /// Removes and returns the profile with `id`.

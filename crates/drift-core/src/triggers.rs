@@ -67,7 +67,28 @@ impl TriggerMerger {
 
     /// Feeds one trigger observed at `now`; returns the action to take, if any.
     pub fn on_trigger(&mut self, trigger: Trigger, now: Instant) -> Option<TriggerAction> {
-        todo!("Red: not implemented yet")
+        match trigger {
+            Trigger::NetworkOffline => {
+                let was_online = std::mem::replace(&mut self.online, false);
+                if was_online {
+                    // A real outage: the next `NetworkOnline` must retry even if a retry fired
+                    // just before the network dropped.
+                    self.last_retry = None;
+                }
+                was_online.then_some(TriggerAction::PauseReconnect)
+            }
+            Trigger::NetworkOnline => {
+                let was_online = std::mem::replace(&mut self.online, true);
+                if was_online { None } else { self.retry(now) }
+            }
+            Trigger::Wake => {
+                if self.online {
+                    self.retry(now)
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     fn retry(&mut self, now: Instant) -> Option<TriggerAction> {

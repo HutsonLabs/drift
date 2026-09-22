@@ -18,6 +18,7 @@ fn problems(p: &ConnectionProfile) -> Vec<(F, P)> {
 }
 
 type Edit = fn(&mut ConnectionProfile);
+type Case<'a> = (&'a str, ConnectMode, Edit, &'a [(F, P)]);
 
 #[test]
 fn valid_profiles_for_every_mode() {
@@ -32,7 +33,7 @@ fn valid_profiles_for_every_mode() {
 #[test]
 fn field_table() {
     #[rustfmt::skip]
-    let table: &[(&str, ConnectMode, Edit, &[(F, P)])] = &[
+    let table: &[Case<'_>] = &[
         ("empty name",            ConnectMode::Headless, |p| p.name = String::new(),        &[(F::Name, P::Empty)]),
         ("blank name",            ConnectMode::Headless, |p| p.name = "   ".into(),          &[(F::Name, P::Empty)]),
         ("name too long",         ConnectMode::Headless, |p| p.name = "x".repeat(65),        &[(F::Name, P::TooLong)]),

@@ -97,5 +97,88 @@ fn fingerprint_hint(mode: ConnectMode) -> &'static str {
 
 /// Explains why a session with `mode` ended with `reason` (M9-4 texts).
 pub fn explain_disconnect(reason: &DisconnectReason, mode: ConnectMode) -> ErrorExplanation {
-    todo!("Red: not implemented yet")
+    use ErrorAction::{Close, EditProfile, OpenLocalNetworkSettings, Reconnect};
+
+    let check_address = "Check the host name and port in the profile.";
+    match reason {
+        DisconnectReason::Network => explanation(
+            "Can’t reach the host",
+            "Drift couldn’t connect to the remote computer.",
+            &[service_hint(mode), check_address],
+            &[Reconnect, EditProfile],
+        ),
+        DisconnectReason::Timeout => explanation(
+            "The host didn’t respond",
+            "The connection timed out.",
+            &[service_hint(mode), check_address],
+            &[Reconnect, EditProfile],
+        ),
+        DisconnectReason::TlsEof => explanation(
+            "Connection interrupted",
+            "The secure connection to the host closed unexpectedly.",
+            &["Reconnect. If this keeps happening, check the network between this Mac and the host."],
+            &[Reconnect, Close],
+        ),
+        DisconnectReason::ServerShutdown => explanation(
+            "The remote desktop service stopped",
+            "GNOME Remote Desktop on the host shut the connection down, for example because it restarted.",
+            &[service_hint(mode), "Then reconnect."],
+            &[Reconnect, Close],
+        ),
+        DisconnectReason::AuthFailed => explanation(
+            "Wrong user name or password",
+            "The host rejected the RDP credentials in this profile.",
+            &[credential_hint(mode), "Update the user name and password in the profile."],
+            &[EditProfile, Reconnect],
+        ),
+        DisconnectReason::RdstlsFailed(code) => explanation(
+            "Login hand-off failed",
+            format!(
+                "The host rejected the one-time login that follows the GNOME login screen (code 0x{code:X}). One-time logins can’t be reused."
+            ),
+            &["Reconnect to start again from the login screen."],
+            &[Reconnect, Close],
+        ),
+        DisconnectReason::CertMismatch => explanation(
+            "The host’s certificate changed",
+            "The certificate doesn’t match the one you trusted before. The host may have been reinstalled, or someone may be intercepting the connection.",
+            &[
+                fingerprint_hint(mode),
+                "If you trust the change, clear the saved certificate in the profile and connect again.",
+            ],
+            &[EditProfile, Close],
+        ),
+        DisconnectReason::ProtocolError(detail) => explanation(
+            "Unexpected data from the host",
+            format!("The connection failed because the host sent something Drift didn’t expect ({detail})."),
+            &[
+                "Reconnect. If this keeps happening, check that the host runs GNOME Remote Desktop 50 or later.",
+            ],
+            &[Reconnect, Close],
+        ),
+        DisconnectReason::RedirectLoop => explanation(
+            "Too many redirects",
+            "The host kept redirecting the connection instead of opening a session.",
+            &["End stale remote sessions on the host (see “loginctl list-sessions”), then reconnect."],
+            &[Reconnect, Close],
+        ),
+        DisconnectReason::UserClosed => {
+            explanation("Disconnected", "You closed the connection.", &[], &[Reconnect, Close])
+        }
+        DisconnectReason::LoggedOffRemotely => explanation(
+            "Logged out",
+            "The remote session was logged out on the host.",
+            &["Reconnect to log in again."],
+            &[Reconnect, Close],
+        ),
+        DisconnectReason::LocalNetworkDenied => ErrorExplanation {
+            title: "Drift can’t access your local network".into(),
+            message: "macOS blocked Drift from connecting to computers on your local network.".into(),
+            next_steps: vec![
+                format!("Open {LOCAL_NETWORK_SETTINGS_PATH} and turn on Drift."),
+                "Then reconnect.".into(),
+            ],
+            actions: vec![OpenLocalNetworkSettings, Reconnect],
+        },
+    }
 }
