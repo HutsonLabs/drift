@@ -130,6 +130,16 @@ These need a person, a real keyboard/IME, physical network changes or sleep
       attempts counted); Wi-Fi on reconnects within ~1 s without waiting for the backoff.
 - [ ] **Wake trigger:** sleep the Mac for > 1 min with a live session; after wake it reconnects
       immediately (single attempt, not one per trigger).
+- [ ] **Cancel survives a wake (M7-2):** in a live session, pull the network, press *Cancel* on
+      the reconnect overlay, then sleep and wake the Mac. The session stays `Disconnected` —
+      the wake trigger must not restart a session the user cancelled.
+- [ ] **Local → remote clipboard in the app (M5-3/M5-2):** with a live session, copy text in a
+      Mac app (Cmd+C) and paste it in GNOME Text Editor within ~250 ms of switching back;
+      repeat with a PNG copied from Preview into a GTK4 app. With two tabs open, copying on the
+      Mac and pasting in the *focused* tab's session works, and the unfocused tab's session
+      receives it only once its tab is selected.
+- [ ] **Clipboard before connecting (M5-3):** copy text on the Mac *before* opening a session,
+      then connect; the first paste in GNOME already gives that text.
 
 ## M6-1 / M6-2 / M8-3 — Sessions, tabs and menus (drift-app)
 

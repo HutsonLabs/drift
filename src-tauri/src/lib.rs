@@ -17,6 +17,7 @@ pub mod profiles;
 #[cfg(feature = "recording")]
 pub mod recording;
 pub mod secrets;
+pub mod services;
 pub mod view;
 pub mod windows;
 
@@ -96,6 +97,10 @@ pub fn run_with(options: RunOptions) {
             let session_host = Arc::new(host::TauriHost::new(handle.clone(), profiles.clone()));
             let sessions =
                 manager::SessionManager::new(session_host, tauri::async_runtime::handle().inner().clone());
+            // The app-lifetime platform services: the 250 ms pasteboard poll (M5-3/M5-2) and
+            // the network/wake reconnect triggers (M7-2). Both fan out to every live session,
+            // so they belong to the app, not to one tab. Managed state keeps them alive.
+            app.manage(services::PlatformServices::start(&handle, sessions.clone()));
             app.manage(commands::AppState::new(profiles.clone(), sessions));
             app.set_menu(windows::build_menu(&handle)?)?;
             let first_profile = autoconnect.as_deref().and_then(|name| {

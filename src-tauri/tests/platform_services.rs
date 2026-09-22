@@ -18,11 +18,11 @@ use drift_app::services::{
     ClipboardPump, LiveSession, PollTimer, SessionFanout, Tick, most_permissive, trigger_commands,
 };
 use drift_app::view::SessionView;
-use drift_clipboard::poll::{PasteboardPort, POLL_INTERVAL};
+use drift_clipboard::poll::{POLL_INTERVAL, PasteboardPort};
 use drift_clipboard::{ClipboardContents, ClipboardItem};
 use drift_core::{
-    CertFingerprint, Clock, ClipboardPrefs, ConnectMode, ConnectionProfile, DisconnectReason,
-    SessionState, Trigger, TriggerAction,
+    CertFingerprint, ClipboardPrefs, Clock, ConnectMode, ConnectionProfile, DisconnectReason, SessionState,
+    Trigger, TriggerAction,
 };
 use drift_macos::TriggerFeed;
 use drift_rdp::{SessionCommand, SessionEvent, SessionEvents, SessionHandle};
@@ -254,10 +254,7 @@ fn a_new_session_is_seeded_with_the_current_pasteboard() {
     // … but the session that opens afterwards still starts with it.
     sessions.set(&[("session-0", ClipboardPrefs::TextAndImages)]);
     assert_eq!(pump.tick(&*sessions), 1);
-    assert_eq!(
-        sessions.take(),
-        vec![("session-0".to_owned(), local(&text("copied-before-connecting")))]
-    );
+    assert_eq!(sessions.take(), vec![("session-0".to_owned(), local(&text("copied-before-connecting")))]);
     // Seeding happens once per session.
     assert_eq!(pump.tick(&*sessions), 0);
     assert_eq!(sessions.take(), vec![]);
@@ -271,10 +268,8 @@ fn a_session_that_opens_later_is_seeded_but_the_others_are_not_told_again() {
     assert_eq!(pump.tick(&*sessions), 1);
     assert_eq!(sessions.take(), vec![("session-0".to_owned(), local(&text("shared")))]);
 
-    sessions.set(&[
-        ("session-0", ClipboardPrefs::TextAndImages),
-        ("session-1", ClipboardPrefs::TextAndImages),
-    ]);
+    sessions
+        .set(&[("session-0", ClipboardPrefs::TextAndImages), ("session-1", ClipboardPrefs::TextAndImages)]);
     assert_eq!(pump.tick(&*sessions), 1);
     assert_eq!(sessions.take(), vec![("session-1".to_owned(), local(&text("shared")))]);
 }
@@ -395,7 +390,9 @@ struct FakeHost {
 
 struct FakeActor {
     commands: Arc<Mutex<Vec<SessionCommand>>>,
-    events: mpsc::UnboundedSender<SessionEvent>,
+    /// Weak, so the host never keeps an ended actor's event stream open (the manager waits
+    /// for it to close).
+    events: mpsc::WeakUnboundedSender<SessionEvent>,
 }
 
 impl FakeHost {
@@ -409,7 +406,8 @@ impl FakeHost {
 
     fn emit(&self, window: &str, event: SessionEvent) {
         let actors = self.actors.lock().unwrap_or_else(PoisonError::into_inner);
-        actors.get(window).expect("window has an actor").events.send(event).unwrap();
+        let events = actors.get(window).expect("window has an actor").events.upgrade();
+        events.expect("actor still running").send(event).unwrap();
     }
 }
 
@@ -425,7 +423,7 @@ impl SessionHost for FakeHost {
         self.actors
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(window.into(), FakeActor { commands: log.clone(), events: ev_tx.clone() });
+            .insert(window.into(), FakeActor { commands: log.clone(), events: ev_tx.downgrade() });
         tokio::spawn(async move {
             let _keep_alive = ev_tx;
             while let Some(cmd) = cmd_rx.recv().await {
@@ -489,16 +487,13 @@ async fn the_session_manager_reports_and_reaches_live_sessions() {
     );
 
     assert!(SessionFanout::send(&manager, "tab-0", local(&text("hi"))));
-    assert!(
-        !SessionFanout::send(&manager, "tab-9", local(&text("hi"))),
-        "an unknown window is not live"
-    );
+    assert!(!SessionFanout::send(&manager, "tab-9", local(&text("hi"))), "an unknown window is not live");
 
     // Closing a tab removes it from the fanout.
     assert!(manager.close("tab-1").await);
     assert_eq!(
         SessionFanout::live_sessions(&manager),
-        vec![LiveSession::new("tab-0", ClipboardPrefs::Text)]
+        vec![LiveSession::new("tab-0", ClipboardPrefs::Text).reconnecting(true)]
     );
     assert!(!SessionFanout::send(&manager, "tab-1", local(&text("gone"))));
 
