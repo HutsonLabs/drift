@@ -8,12 +8,21 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+drift-codec.workspace = true
 drift-core.workspace = true
 ironrdp-core.workspace = true
 ironrdp-dvc.workspace = true
 ironrdp-egfx.workspace = true
 ironrdp-graphics.workspace = true
 ironrdp-pdu.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+drift-testkit.workspace = true
+insta = { workspace = true, features = ["yaml"] }
+proptest.workspace = true
+serde.workspace = true
 
 [lints]
 workspace = true
