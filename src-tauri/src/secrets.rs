@@ -1,8 +1,8 @@
 //! Password storage seam (plan §2 decision 7).
 //!
 //! Profiles never contain secrets; passwords are stored per profile id + [`SecretRole`]. The
-//! production implementation is the Keychain adapter from `drift-macos` (M3-2, stream C); until
-//! it is wired in, the app uses [`MemorySecretStore`] (process lifetime only).
+//! production implementation is [`KeychainSecretStore`] over the Keychain adapter from
+//! `drift-macos` (M3-2); [`MemorySecretStore`] (process lifetime only) serves tests.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -63,6 +63,39 @@ impl SecretStore for MemorySecretStore {
     fn delete(&self, profile: Uuid, role: SecretRole) -> Result<(), SecretError> {
         self.lock()?.remove(&(profile, role));
         Ok(())
+    }
+}
+
+/// The production [`SecretStore`]: generic passwords in the Keychain (drift-macos, M3-2).
+#[derive(Debug, Clone, Default)]
+pub struct KeychainSecretStore {
+    keychain: drift_macos::Keychain,
+}
+
+impl KeychainSecretStore {
+    /// Wraps a Keychain adapter (`drift_macos::Keychain::new()` in the app).
+    pub fn new(keychain: drift_macos::Keychain) -> Self {
+        Self { keychain }
+    }
+}
+
+impl From<drift_macos::KeychainError> for SecretError {
+    fn from(e: drift_macos::KeychainError) -> Self {
+        SecretError(e.to_string())
+    }
+}
+
+impl SecretStore for KeychainSecretStore {
+    fn set(&self, profile: Uuid, role: SecretRole, secret: &str) -> Result<(), SecretError> {
+        Ok(self.keychain.set(profile, role, secret)?)
+    }
+
+    fn get(&self, profile: Uuid, role: SecretRole) -> Result<Option<Zeroizing<String>>, SecretError> {
+        Ok(self.keychain.get(profile, role)?)
+    }
+
+    fn delete(&self, profile: Uuid, role: SecretRole) -> Result<(), SecretError> {
+        Ok(self.keychain.delete(profile, role)?)
     }
 }
 

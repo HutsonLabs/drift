@@ -11,7 +11,8 @@ use uuid::Uuid;
 fn keychain_secret_store_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let service = format!("com.hutsonlabs.drift.tests.{}", Uuid::new_v4());
-    let kc = Keychain::create_file(&dir.path().join("t.keychain-db"), "drift-test-keychain", service).unwrap();
+    let kc =
+        Keychain::create_file(&dir.path().join("t.keychain-db"), "drift-test-keychain", service).unwrap();
     let store = KeychainSecretStore::new(kc);
     let p = Uuid::new_v4();
     assert!(!store.has(p, SecretRole::RdpUser));
