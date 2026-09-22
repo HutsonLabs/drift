@@ -463,6 +463,13 @@ impl ClientConnector {
             security_protocol.insert(nego::SecurityProtocol::HYBRID | nego::SecurityProtocol::HYBRID_EX);
         }
 
+        // A redirected connection (load-balancing info from a Server Redirection PDU) without NLA
+        // authenticates with the one-time redirection credentials over RDSTLS
+        // ([MS-RDPBCGR] 5.4.5.3).
+        if self.load_balance_info.is_some() && !self.config.enable_credssp {
+            security_protocol.insert(nego::SecurityProtocol::RDSTLS);
+        }
+
         // PROTOCOL_RDP (empty flags) is standard RDP security. IronRDP only supports the
         // ENCRYPTION_LEVEL_NONE variant (no RC4 Security Exchange). Keep it opt-in so
         // `enable_tls = false` + `enable_credssp = false` cannot silently open a plaintext
