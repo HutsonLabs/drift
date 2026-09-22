@@ -2,6 +2,7 @@
 //!
 //! - [`ci_plan`]: the `cargo xtask ci` gate as data, so tests can assert what it covers.
 //! - [`workflows`]: `.github/workflows/` matches the runs the plan requires (M0-6, §5.3).
+//! - [`fuzz_audit`]: the `cargo fuzz` targets plan M9-2 requires exist and run nightly.
 //! - [`npm_ban`]: enforces "Bun, never npm" (plan §0, M0-1 Red test).
 //! - [`secret_scan`]: fails if any value from `~/code/drift-spikes/secrets/*.txt` appears
 //!   in tracked files as bytes/UTF-8 or UTF-16LE.
@@ -15,6 +16,7 @@ pub mod ci_plan;
 pub mod coverage;
 pub mod e2e_env;
 pub mod fixtures;
+pub mod fuzz_audit;
 pub mod host_check;
 pub mod npm_ban;
 pub mod repo;

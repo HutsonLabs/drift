@@ -6,7 +6,8 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use xtask::{
-    ci_plan, coverage, e2e_env, fixtures, host_check, npm_ban, repo, sanitize, secret_scan, workflows,
+    ci_plan, coverage, e2e_env, fixtures, fuzz_audit, host_check, npm_ban, repo, sanitize, secret_scan,
+    workflows,
 };
 
 #[derive(Parser)]
@@ -36,6 +37,8 @@ enum Cmd {
     NpmBan,
     /// Fail if `.github/workflows/` is missing a run the plan requires (M0-6, §5.3, M9-2).
     Workflows,
+    /// Fail if a parser plan M9-2 wants fuzzed has no `cargo fuzz` target in the nightly run.
+    FuzzTargets,
     /// Fail if any dev-machine secret appears in a repository file.
     SecretScan {
         /// Secrets directory (default `$DRIFT_SECRETS_DIR` or `~/code/drift-spikes/secrets`).
@@ -106,6 +109,7 @@ fn run(cmd: Cmd) -> Result<()> {
         Cmd::Check => check(&root),
         Cmd::NpmBan => npm_ban_check(&root),
         Cmd::Workflows => workflows_check(&root),
+        Cmd::FuzzTargets => fuzz_targets_check(&root),
         Cmd::SecretScan { dir } => secret_scan_check(&root, dir),
         Cmd::CoverageGate { json } => coverage_gate(&root, &json),
         Cmd::Bindings { check } => bindings(&root, check),
@@ -269,6 +273,7 @@ fn run_in_process(root: &Path, check: ci_plan::Check) -> Result<()> {
         ci_plan::Check::NpmBan => npm_ban_check(root),
         ci_plan::Check::SecretScan => secret_scan_check(root, None),
         ci_plan::Check::Workflows => workflows_check(root),
+        ci_plan::Check::FuzzTargets => fuzz_targets_check(root),
         ci_plan::Check::BindingsFresh => bindings(root, true),
         ci_plan::Check::CoverageGate => coverage_gate(root, &root.join(ci_plan::COVERAGE_JSON)),
     }
@@ -309,6 +314,19 @@ fn workflows_check(root: &Path) -> Result<()> {
         eprintln!("workflows: {p}");
     }
     bail!("{} workflow gap(s); see plan M0-6 and §5.3", problems.len())
+}
+
+/// Audits the `cargo fuzz` targets plan M9-2 requires (existence + nightly run).
+fn fuzz_targets_check(root: &Path) -> Result<()> {
+    let problems = fuzz_audit::audit_repo(root)?;
+    if problems.is_empty() {
+        eprintln!("fuzz targets: {} parser(s) covered nightly", fuzz_audit::REQUIRED.len());
+        return Ok(());
+    }
+    for p in &problems {
+        eprintln!("fuzz targets: {p}");
+    }
+    bail!("{} fuzz gap(s); see plan M9-2", problems.len())
 }
 
 /// `tauri::generate_context!` needs `ui/dist`; build it if missing.
