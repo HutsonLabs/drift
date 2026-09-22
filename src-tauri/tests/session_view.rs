@@ -66,6 +66,7 @@ fn screen_table() {
     ];
     for (event, screen) in table {
         let mut v = view(ConnectMode::RemoteLogin);
+        v.apply(&state(SessionState::Connecting { leg: 2, stage: ConnectStage::Activation }));
         assert!(v.apply(event), "{event:?} changes the view");
         assert_eq!(v.screen, *screen, "{event:?}");
     }

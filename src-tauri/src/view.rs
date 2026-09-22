@@ -118,7 +118,31 @@ impl SessionView {
 
     /// Folds one actor event into the view. Returns `true` if the view changed (emit it).
     pub fn apply(&mut self, event: &SessionEvent) -> bool {
-        todo!("Red: not implemented yet")
+        let before = self.clone();
+        match event {
+            SessionEvent::State(state) => {
+                if matches!(state, SessionState::Connected { .. }) {
+                    self.resuming = true;
+                }
+                if matches!(state, SessionState::Idle) {
+                    self.resuming = false;
+                }
+                self.state = state.clone();
+                self.certificate = None;
+            }
+            SessionEvent::CertificatePrompt { host, port, fingerprint, role } => {
+                self.certificate = Some(CertificatePrompt {
+                    host: host.clone(),
+                    port: *port,
+                    fingerprint: *fingerprint,
+                    subject: (*role).into(),
+                    grdctl_command: grdctl_status_command(self.mode).into(),
+                });
+            }
+            _ => {}
+        }
+        self.refresh();
+        *self != before
     }
 
     /// The user answered the certificate prompt (the actor continues or fails).
@@ -128,7 +152,24 @@ impl SessionView {
     }
 
     fn refresh(&mut self) {
-        todo!("Red: not implemented yet")
+        self.explanation = match &self.state {
+            SessionState::Disconnected { reason } | SessionState::Failed { reason } => {
+                Some(explain_disconnect(reason, self.mode))
+            }
+            _ => None,
+        };
+        self.screen = if self.certificate.is_some() {
+            Screen::Certificate
+        } else {
+            match self.state {
+                SessionState::Idle => Screen::Profiles,
+                SessionState::Connecting { .. } => Screen::Connecting,
+                SessionState::AwaitingGreeterLogin => Screen::GreeterHint,
+                SessionState::Connected { .. } => Screen::Live,
+                SessionState::Reconnecting { .. } => Screen::Reconnecting,
+                SessionState::Disconnected { .. } | SessionState::Failed { .. } => Screen::Error,
+            }
+        };
     }
 }
 

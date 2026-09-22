@@ -140,7 +140,11 @@ impl ProfileFile {
 
     /// Loads the store; a missing file is an empty store.
     pub fn load(&self) -> Result<ProfileStore, CommandError> {
-        todo!("Red: not implemented yet")
+        match std::fs::read_to_string(&self.path) {
+            Ok(text) => Ok(ProfileStore::from_toml(&text)?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ProfileStore::new()),
+            Err(e) => Err(CommandError::storage(format!("reading {}: {e}", self.path.display()))),
+        }
     }
 
     /// Writes the store atomically (temp file in the same directory, then rename).
@@ -191,12 +195,14 @@ impl ProfileService {
 
     /// All profiles, sorted for display.
     pub fn list(&self) -> Result<Vec<ProfileEntry>, CommandError> {
-        todo!("Red: not implemented yet")
+        let sorted = self.lock()?.sorted();
+        Ok(sorted.into_iter().map(|p| self.entry(p)).collect())
     }
 
     /// One profile.
     pub fn get(&self, id: Uuid) -> Result<ProfileEntry, CommandError> {
-        todo!("Red: not implemented yet")
+        let p = self.lock()?.get(id).cloned().ok_or(CommandError::NotFound)?;
+        Ok(self.entry(p))
     }
 
     /// Validates and saves `profile` (insert or update) and applies the password changes.
@@ -205,7 +211,15 @@ impl ProfileService {
         profile: ConnectionProfile,
         secrets: SecretsUpdate,
     ) -> Result<ProfileEntry, CommandError> {
-        todo!("Red: not implemented yet")
+        let mut store = self.lock()?;
+        let previous = store.get(profile.id).cloned();
+        let mut next = store.clone();
+        next.upsert(profile.clone())?;
+        self.file.save(&next)?;
+        *store = next;
+        drop(store);
+        self.apply_secrets(&profile, previous.as_ref(), secrets)?;
+        Ok(self.entry(profile))
     }
 
     fn apply_secrets(
@@ -249,11 +263,25 @@ impl ProfileService {
 
     /// Deletes a profile and all its passwords.
     pub fn delete(&self, id: Uuid) -> Result<(), CommandError> {
-        todo!("Red: not implemented yet")
+        let mut store = self.lock()?;
+        let mut next = store.clone();
+        next.remove(id)?;
+        self.file.save(&next)?;
+        *store = next;
+        drop(store);
+        for role in [SecretRole::RdpSystem, SecretRole::RdpUser, SecretRole::LinuxLogin] {
+            self.secrets.delete(id, role).map_err(CommandError::storage)?;
+        }
+        Ok(())
     }
 
     /// Persists (or clears) a TOFU pin (the SessionManager calls this on `CertificatePinned`).
     pub fn set_pin(&self, id: Uuid, pin: Option<drift_core::CertFingerprint>) -> Result<(), CommandError> {
-        todo!("Red: not implemented yet")
+        let mut store = self.lock()?;
+        let mut next = store.clone();
+        next.set_pin(id, pin)?;
+        self.file.save(&next)?;
+        *store = next;
+        Ok(())
     }
 }

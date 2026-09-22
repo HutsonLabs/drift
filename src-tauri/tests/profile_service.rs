@@ -1,4 +1,5 @@
 //! M1-6 / M3-2 Red: profile store on disk and the credential rules per mode.
+#![allow(clippy::unwrap_used)] // fixture helpers outside #[test] fns
 
 use std::sync::Arc;
 

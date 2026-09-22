@@ -31,10 +31,12 @@ pub trait SecretStore: Send + Sync {
     }
 }
 
+type SecretMap = HashMap<(Uuid, SecretRole), Zeroizing<String>>;
+
 /// In-memory [`SecretStore`] (tests, and the app until the Keychain adapter lands).
 #[derive(Default)]
 pub struct MemorySecretStore {
-    items: Mutex<HashMap<(Uuid, SecretRole), Zeroizing<String>>>,
+    items: Mutex<SecretMap>,
 }
 
 impl MemorySecretStore {
@@ -43,9 +45,7 @@ impl MemorySecretStore {
         Self::default()
     }
 
-    fn lock(
-        &self,
-    ) -> Result<std::sync::MutexGuard<'_, HashMap<(Uuid, SecretRole), Zeroizing<String>>>, SecretError> {
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, SecretMap>, SecretError> {
         self.items.lock().map_err(|_| SecretError("secret store lock poisoned".into()))
     }
 }
