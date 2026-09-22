@@ -408,7 +408,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - an injected `EHOSTUNREACH` → `LocalNetworkDenied`.
 
   **Done:** e2e `e2e_headless_connects` (:3392) reaches `Connected{1280x800}`.
-- [ ] **M1-2 GFX state machine** (A). `drift-gfx` implements `DvcProcessor` for `Microsoft::Windows::RDS::Graphics`:
+- [x] **M1-2 GFX state machine** (A). `drift-gfx` implements `DvcProcessor` for `Microsoft::Windows::RDS::Graphics`:
   - caps `[V8_1{AVC420_ENABLED}, V8{}]` exactly;
   - RDP_SEGMENTED_DATA + ZGFX decompression;
   - dispatch of every `GfxPdu` to `FrameSink` and codecs;
