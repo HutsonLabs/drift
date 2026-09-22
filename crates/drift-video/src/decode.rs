@@ -20,8 +20,8 @@ use drift_core::video::{DecodeError, H264Decoder, Nv12Frame, Nv12Source};
 use drift_core::{Nv12Planes, Size};
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFRetained, CFString, CFType};
 use objc2_core_media::{
-    CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMTime, CMVideoFormatDescriptionCreateFromH264ParameterSets,
-    kCMBlockBufferAssureMemoryNowFlag,
+    CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMTime,
+    CMVideoFormatDescriptionCreateFromH264ParameterSets, kCMBlockBufferAssureMemoryNowFlag,
 };
 use objc2_core_video::{CVImageBuffer, CVPixelBuffer};
 use objc2_video_toolbox::{
@@ -132,7 +132,12 @@ impl Default for VtDecoder {
 impl VtDecoder {
     /// Creates a decoder; the session is built lazily from the first SPS/PPS.
     pub fn new() -> Self {
-        Self { tracker: ParameterSetTracker::new(), session: None, builds: 0, slot: Box::new(Mutex::new(None)) }
+        Self {
+            tracker: ParameterSetTracker::new(),
+            session: None,
+            builds: 0,
+            slot: Box::new(Mutex::new(None)),
+        }
     }
 
     /// How many decompression sessions have been built so far (one per SPS/PPS change).
@@ -166,7 +171,12 @@ impl VtDecoder {
         // SAFETY: session and sample are valid; flags request synchronous decode, so the output
         // callback (which writes `self.slot`) runs before this returns; `info` is a valid out-pointer.
         let status = unsafe {
-            session.session.decode_frame(&sample, VTDecodeFrameFlags::empty(), std::ptr::null_mut(), &mut info)
+            session.session.decode_frame(
+                &sample,
+                VTDecodeFrameFlags::empty(),
+                std::ptr::null_mut(),
+                &mut info,
+            )
         };
         if status != 0 {
             return Err(DecodeError(format!("VTDecompressionSessionDecodeFrame: OSStatus {status}")));
@@ -242,7 +252,8 @@ unsafe extern "C-unwind" fn output_callback(
 fn build_session(ps: &ParameterSets, slot: &OutputSlot) -> Result<Session, DecodeError> {
     let format = format_description(ps)?;
     // SAFETY: the decoder-specification key is an immutable framework CFString constant.
-    let spec_key: [&CFString; 1] = [unsafe { kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder }];
+    let spec_key: [&CFString; 1] =
+        [unsafe { kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder }];
     let spec_val: [&CFType; 1] = [CFBoolean::new(true).as_ref()];
     let spec = CFDictionary::from_slices(&spec_key, &spec_val);
     let attrs = cv::pixel_buffer_attributes(OUTPUT_PIXEL_FORMAT);
@@ -266,12 +277,17 @@ fn build_session(ps: &ParameterSets, slot: &OutputSlot) -> Result<Session, Decod
     if status != 0 {
         return Err(DecodeError(format!("VTDecompressionSessionCreate: OSStatus {status}")));
     }
-    let out = NonNull::new(out).ok_or_else(|| DecodeError("VTDecompressionSessionCreate returned null".into()))?;
+    let out =
+        NonNull::new(out).ok_or_else(|| DecodeError("VTDecompressionSessionCreate returned null".into()))?;
     // SAFETY: VTDecompressionSessionCreate returns a +1 retained session (Create rule).
     let session = unsafe { CFRetained::from_raw(out) };
     // SAFETY: valid session, framework key constant and CFBoolean value.
     let status = unsafe {
-        VTSessionSetProperty(&session, kVTDecompressionPropertyKey_RealTime, Some(CFBoolean::new(true).as_ref()))
+        VTSessionSetProperty(
+            &session,
+            kVTDecompressionPropertyKey_RealTime,
+            Some(CFBoolean::new(true).as_ref()),
+        )
     };
     if status != 0 {
         tracing::debug!(status, "kVTDecompressionPropertyKey_RealTime not supported");
@@ -305,7 +321,9 @@ pub(crate) fn format_description(ps: &ParameterSets) -> Result<CFRetained<CMForm
         )
     };
     if status != 0 {
-        return Err(DecodeError(format!("CMVideoFormatDescriptionCreateFromH264ParameterSets: OSStatus {status}")));
+        return Err(DecodeError(format!(
+            "CMVideoFormatDescriptionCreateFromH264ParameterSets: OSStatus {status}"
+        )));
     }
     let out = NonNull::new(out.cast_mut()).ok_or_else(|| DecodeError("null format description".into()))?;
     // SAFETY: the Create function returned a +1 retained format description.

@@ -196,11 +196,12 @@ fn parse_header(rbsp: &[u8]) -> Result<Header, SpsError> {
         _ => (1, field_factor),
     };
     let full_w = width_mbs.checked_mul(16).ok_or(SpsError::Malformed)?;
-    let full_h =
-        height_map_units.checked_mul(16 * field_factor).ok_or(SpsError::Malformed)?;
+    let full_h = height_map_units.checked_mul(16 * field_factor).ok_or(SpsError::Malformed)?;
     let cut = |a: u32, b: u32, unit: u32| a.checked_add(b).and_then(|s| s.checked_mul(unit));
-    let width = cut(crop[0], crop[1], crop_x).and_then(|c| full_w.checked_sub(c)).ok_or(SpsError::Malformed)?;
-    let height = cut(crop[2], crop[3], crop_y).and_then(|c| full_h.checked_sub(c)).ok_or(SpsError::Malformed)?;
+    let width =
+        cut(crop[0], crop[1], crop_x).and_then(|c| full_w.checked_sub(c)).ok_or(SpsError::Malformed)?;
+    let height =
+        cut(crop[2], crop[3], crop_y).and_then(|c| full_h.checked_sub(c)).ok_or(SpsError::Malformed)?;
     Ok(Header { profile_idc, level_idc, width, height, vui_flag_pos, vui_present })
 }
 
@@ -349,7 +350,7 @@ struct BitWriter {
 
 impl BitWriter {
     fn bit(&mut self, b: bool) {
-        if self.len % 8 == 0 {
+        if self.len.is_multiple_of(8) {
             self.bytes.push(0);
         }
         if b && let Some(last) = self.bytes.last_mut() {
@@ -376,7 +377,7 @@ impl BitWriter {
     /// `rbsp_trailing_bits()`: a one bit, then zero bits to the byte boundary.
     fn trailing_bits(&mut self) {
         self.bit(true);
-        while self.len % 8 != 0 {
+        while !self.len.is_multiple_of(8) {
             self.bit(false);
         }
     }
@@ -418,7 +419,8 @@ mod tests {
     fn real_fixture_sps_all_rewrite() {
         for name in ["leg3", "headless_anim", "sps_change_640x400"] {
             let data =
-                std::fs::read(drift_testkit::fixtures::fixtures_dir().join(format!("h264/{name}.h264"))).unwrap();
+                std::fs::read(drift_testkit::fixtures::fixtures_dir().join(format!("h264/{name}.h264")))
+                    .unwrap();
             let sps = crate::annexb::split_nals(&data)
                 .into_iter()
                 .find(|n| crate::annexb::nal_unit_type(n) == Some(7))
@@ -474,7 +476,7 @@ mod tests {
 
     impl BitWriterForTest {
         fn bit(&mut self, b: u32) {
-            if self.n % 8 == 0 {
+            if self.n.is_multiple_of(8) {
                 self.bytes.push(0);
             }
             if b != 0 {
@@ -495,7 +497,7 @@ mod tests {
         }
         fn trailing(&mut self) {
             self.bit(1);
-            while self.n % 8 != 0 {
+            while !self.n.is_multiple_of(8) {
                 self.bit(0);
             }
         }

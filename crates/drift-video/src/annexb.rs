@@ -239,10 +239,7 @@ mod tests {
         assert!(!au.is_idr);
         assert_eq!(avcc_nals(&au.avcc, 4).unwrap(), vec![P, P]);
         assert_eq!(avcc_to_annex_b(&au.avcc, 4).unwrap(), annex_b(&[P, P], true));
-        assert_eq!(
-            avcc_to_annex_b(&[0, 0, 0, 9, 1], 4),
-            Err(AnnexBError::Truncated { offset: 0, len: 9 })
-        );
+        assert_eq!(avcc_to_annex_b(&[0, 0, 0, 9, 1], 4), Err(AnnexBError::Truncated { offset: 0, len: 9 }));
         assert_eq!(avcc_nals(&[0, 2, 0x41, 0x9A], 2).unwrap(), vec![&[0x41, 0x9A][..]]);
         assert!(avcc_nals(&[0, 0, 0], 4).is_err());
     }
@@ -267,24 +264,26 @@ mod tests {
     /// Strategy: a non-empty NAL unit whose body contains no start-code emulation
     /// (as guaranteed by emulation prevention) and does not end in a zero byte.
     fn nal_strategy() -> impl Strategy<Value = Vec<u8>> {
-        (1u8..=23, proptest::collection::vec(any::<u8>(), 0..64), 1u8..=255).prop_map(|(t, mut body, last)| {
-            // emulation prevention: never two zeros followed by 0..=3
-            let mut out = vec![0x60 | t];
-            let mut zeros = 0;
-            for b in body.drain(..) {
-                if zeros >= 2 && b <= 3 {
-                    out.push(3);
-                    zeros = 0;
+        (1u8..=23, proptest::collection::vec(any::<u8>(), 0..64), 1u8..=255).prop_map(
+            |(t, mut body, last)| {
+                // emulation prevention: never two zeros followed by 0..=3
+                let mut out = vec![0x60 | t];
+                let mut zeros = 0;
+                for b in body.drain(..) {
+                    if zeros >= 2 && b <= 3 {
+                        out.push(3);
+                        zeros = 0;
+                    }
+                    zeros = if b == 0 { zeros + 1 } else { 0 };
+                    out.push(b);
                 }
-                zeros = if b == 0 { zeros + 1 } else { 0 };
-                out.push(b);
-            }
-            if zeros >= 2 {
-                out.push(3);
-            }
-            out.push(last);
-            out
-        })
+                if zeros >= 2 {
+                    out.push(3);
+                }
+                out.push(last);
+                out
+            },
+        )
     }
 
     proptest! {

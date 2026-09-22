@@ -99,7 +99,8 @@ fn sps_change_rebuilds_the_session() {
     assert_eq!(dec.session_builds(), 2, "new SPS must rebuild the session");
     let last = last.unwrap();
     assert_eq!(drift_core::Nv12Source::size(&last), Size::new(640, 400));
-    let p = psnr_nv12(&last.to_planes().unwrap(), &golden("sps_change_640x400_f011", Size::new(640, 400))).unwrap();
+    let p = psnr_nv12(&last.to_planes().unwrap(), &golden("sps_change_640x400_f011", Size::new(640, 400)))
+        .unwrap();
     assert!(p >= 40.0, "PSNR {p:.2}");
     // An identical SPS/PPS resend (the headless capture uses the same parameter sets as leg3)
     // switches back once and then keeps the session.

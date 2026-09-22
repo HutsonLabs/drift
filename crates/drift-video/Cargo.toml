@@ -24,8 +24,8 @@ objc2-io-surface.workspace = true
 # Not yet in [workspace.dependencies]; kept local to drift-video (the only user).
 objc2-core-media = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-video", "CMBase", "CMFormatDescription", "CMSampleBuffer", "CMBlockBuffer", "CMTime", "CMSync", "CMFormatDescriptionBridge", "CMAttachment"] }
 objc2-video-toolbox = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-media", "objc2-core-video", "VTBase", "VTDecompressionSession", "VTDecompressionProperties", "VTCompressionSession", "VTCompressionProperties", "VTErrors", "VTSession", "VTVideoEncoderList"] }
-objc2-av-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["std", "objc2-core-media", "AVAssetWriter", "AVAssetWriterInput", "AVAsset", "AVAssetTrack", "AVMediaFormat", "AVVideoSettings", "AVBase", "AVMediaSelectionGroup", "AVAsynchronousKeyValueLoading", "block2"] }
-objc2-foundation = { workspace = true, optional = true, features = ["NSURL", "NSString", "NSError", "NSArray", "NSValue", "NSGeometry", "NSDictionary"] }
+objc2-av-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["std", "objc2-core-media", "AVAssetWriter", "AVAssetWriterInput", "AVAsset", "AVAssetTrack", "AVMediaFormat", "AVBase", "block2", "objc2-core-foundation"] }
+objc2-foundation = { workspace = true, optional = true, features = ["NSURL", "NSString", "NSError", "NSArray", "NSValue", "NSDictionary", "NSFileManager"] }
 
 [dev-dependencies]
 drift-testkit.workspace = true

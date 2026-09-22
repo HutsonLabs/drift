@@ -58,7 +58,7 @@ fn asset_reads_back_duration_track_and_dimensions() {
     assert_eq!(info.video_tracks, 1);
     assert_eq!(info.dimensions, size);
     let expect = step * 120;
-    let diff = if info.duration > expect { info.duration - expect } else { expect - info.duration };
+    let diff = info.duration.abs_diff(expect);
     assert!(diff <= step * 2, "duration {:?} vs {:?}", info.duration, expect);
 }
 

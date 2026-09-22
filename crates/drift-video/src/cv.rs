@@ -41,7 +41,11 @@ pub fn pixel_buffer_attributes(format: u32) -> CFRetained<CFDictionary> {
     let format = CFNumber::new_i32(i32::from_ne_bytes(format.to_ne_bytes()));
     // SAFETY: the CoreVideo attribute keys are immutable CFString constants exported by the framework.
     let keys: [&CFString; 3] = unsafe {
-        [kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferMetalCompatibilityKey]
+        [
+            kCVPixelBufferPixelFormatTypeKey,
+            kCVPixelBufferIOSurfacePropertiesKey,
+            kCVPixelBufferMetalCompatibilityKey,
+        ]
     };
     let values: [&CFType; 3] = [format.as_ref(), (*empty).as_ref(), CFBoolean::new(true).as_ref()];
     let dict = CFDictionary::from_slices(&keys, &values);
@@ -109,7 +113,11 @@ impl<'a> Lock<'a> {
     /// Plane `index` as (base pointer, bytes per row, rows).
     fn plane(&self, index: usize) -> Option<(NonNull<u8>, usize, usize)> {
         let base = NonNull::new(CVPixelBufferGetBaseAddressOfPlane(self.pb, index).cast::<u8>())?;
-        Some((base, CVPixelBufferGetBytesPerRowOfPlane(self.pb, index), CVPixelBufferGetHeightOfPlane(self.pb, index)))
+        Some((
+            base,
+            CVPixelBufferGetBytesPerRowOfPlane(self.pb, index),
+            CVPixelBufferGetHeightOfPlane(self.pb, index),
+        ))
     }
 
     fn base(&self) -> Option<(NonNull<u8>, usize, usize)> {

@@ -190,7 +190,12 @@ mod tests {
         }
     }
 
-    fn ironrdp_pdu_rect(left: u16, top: u16, right: u16, bottom: u16) -> ironrdp_pdu::geometry::ExclusiveRectangle {
+    fn ironrdp_pdu_rect(
+        left: u16,
+        top: u16,
+        right: u16,
+        bottom: u16,
+    ) -> ironrdp_pdu::geometry::ExclusiveRectangle {
         ironrdp_pdu::geometry::ExclusiveRectangle { left, top, right, bottom }
     }
 }
