@@ -1,21 +1,36 @@
-// Pure view functions: state in, DOM out. No Tauri imports here so they are testable
-// under happy-dom.
+// Red stub.
+import type { commands, SessionView_Serialize } from "./bindings";
 
-/** Static app information shown on the home screen. */
-export interface HomeState {
-  name: string;
-  version: string | null;
-}
+export type Api = Pick<
+  typeof commands,
+  | "listProfiles"
+  | "newProfile"
+  | "validateProfile"
+  | "saveProfile"
+  | "deleteProfile"
+  | "forgetCertificate"
+  | "openLocalNetworkSettings"
+  | "connect"
+  | "acceptCertificate"
+  | "rejectCertificate"
+  | "reconnectNow"
+  | "cancelReconnect"
+  | "closeSession"
+>;
 
-/** Renders the home screen into `root`, replacing its contents. */
-export function renderHome(root: HTMLElement, state: HomeState): void {
-  const section = document.createElement("section");
-  section.className = "drift-home";
-  const title = document.createElement("h1");
-  title.textContent = state.name;
-  const version = document.createElement("p");
-  version.className = "version";
-  version.textContent = state.version === null ? "Loading…" : `Version ${state.version}`;
-  section.append(title, version);
-  root.replaceChildren(section);
+export class DriftApp {
+  constructor(
+    readonly root: HTMLElement,
+    readonly api: Api,
+  ) {}
+
+  async start(): Promise<void> {
+    throw new Error("Red: not implemented yet");
+  }
+
+  onSessionView(_view: SessionView_Serialize): void {
+    throw new Error("Red: not implemented yet");
+  }
+
+  dispose(): void {}
 }
