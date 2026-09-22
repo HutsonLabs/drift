@@ -99,7 +99,46 @@ pub mod names {
     pub const SCREENSHOT_LEG3_MOTION: &str = "screenshots/leg3_motion_frame200.png";
 
     /// Every fixture above.
-    pub const ALL: &[&str] = &[];
+    pub const ALL: &[&str] = &[
+        H264_LEG2,
+        H264_LEG3,
+        H264_HEADLESS_MOTION,
+        H264_HEADLESS_SCALE200,
+        GFX_LEG2_GREETER_AVC420,
+        GFX_LEG2_GREETER_AVC420_RAW,
+        GFX_LEG2_GREETER_AVC420_CLIENT,
+        GFX_LEG2_GREETER_PROGRESSIVE,
+        GFX_LEG2_GREETER_PROGRESSIVE_RAW,
+        GFX_LEG2_GREETER_PROGRESSIVE_CLIENT,
+        GFX_HEADLESS_MOTION_AVC420,
+        GFX_HEADLESS_MOTION_AVC420_RAW,
+        GFX_HEADLESS_MOTION_AVC420_CLIENT,
+        GFX_HEADLESS_SCALE200_AVC420,
+        GFX_HEADLESS_SCALE200_AVC420_RAW,
+        GFX_HEADLESS_SCALE200_AVC420_CLIENT,
+        SERVER_REDIRECTION_LEG1,
+        SERVER_REDIRECTION_LEG2,
+        TARGET_CERT_LEG1,
+        TARGET_CERT_LEG2,
+        TLS_CERT_LEG1,
+        TLS_CERT_LEG2,
+        TLS_CERT_LEG3,
+        TLS_CERT_HEADLESS,
+        RDSTLS_CAPS,
+        RDSTLS_AUTH_REQUEST_LEG2,
+        RDSTLS_AUTH_REQUEST_LEG3,
+        RDSTLS_AUTH_REQUEST_REUSED,
+        RDSTLS_AUTH_RESPONSE_SUCCESS,
+        RDSTLS_AUTH_RESPONSE_LOGON_FAILURE,
+        FASTPATH_POINTER_SCALE100,
+        FASTPATH_POINTER_SCALE200,
+        CLIP_REMOTE_PNG,
+        CLIP_REMOTE_UNICODETEXT,
+        GOLDEN_GREETER,
+        SCREENSHOT_DESKTOP_HEADLESS,
+        SCREENSHOT_RETINA200,
+        SCREENSHOT_LEG3_MOTION,
+    ];
 }
 
 /// Why a fixture could not be loaded.
@@ -155,14 +194,17 @@ pub fn path(rel: &str) -> PathBuf {
 
 /// `true` if `data` is a git-lfs pointer file instead of the real content.
 pub fn is_lfs_pointer(data: &[u8]) -> bool {
-    let _ = data;
-    unimplemented!("M0-3")
+    data.starts_with(b"version https://git-lfs.github.com/spec/")
 }
 
 /// Reads a fixture.
 pub fn try_read(rel: &str) -> Result<Vec<u8>, FixtureError> {
-    let _ = rel;
-    unimplemented!("M0-3")
+    let p = path(rel);
+    let data = std::fs::read(&p).map_err(|source| FixtureError::Io { path: p.clone(), source })?;
+    if is_lfs_pointer(&data) {
+        return Err(FixtureError::LfsPointer(p));
+    }
+    Ok(data)
 }
 
 /// Reads a fixture, panicking with an actionable message on failure.
@@ -172,28 +214,106 @@ pub fn read(rel: &str) -> Vec<u8> {
 
 /// Splits `.rec` data into records.
 pub fn parse_records(data: &[u8]) -> Result<Vec<&[u8]>, FixtureError> {
-    let _ = data;
-    unimplemented!("M0-3")
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while pos < data.len() {
+        let header = data.get(pos..pos + 4).ok_or(FixtureError::Truncated { offset: pos })?;
+        let len = u32::from_le_bytes([header[0], header[1], header[2], header[3]]);
+        let len = usize::try_from(len).map_err(|_| FixtureError::Truncated { offset: pos })?;
+        let start = pos + 4;
+        let rec = start
+            .checked_add(len)
+            .and_then(|end| data.get(start..end))
+            .ok_or(FixtureError::Truncated { offset: pos })?;
+        out.push(rec);
+        pos = start + len;
+    }
+    Ok(out)
 }
 
 /// Reads a `.rec` fixture into owned records, panicking on failure.
 pub fn records(rel: &str) -> Vec<Vec<u8>> {
     let data = read(rel);
-    parse_records(&data)
-        .unwrap_or_else(|e| panic!("{rel}: {e}"))
-        .into_iter()
-        .map(<[u8]>::to_vec)
-        .collect()
+    parse_records(&data).unwrap_or_else(|e| panic!("{rel}: {e}")).into_iter().map(<[u8]>::to_vec).collect()
 }
 
 /// Parses `MANIFEST.sha256` text into `(sha256 hex, path)` pairs.
 pub fn parse_manifest(text: &str) -> Result<Vec<(String, String)>, FixtureError> {
-    let _ = text;
-    unimplemented!("M0-3")
+    let mut out = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let bad = FixtureError::BadManifest { line: i + 1 };
+        let Some((sha, rel)) = line.split_once("  ") else { return Err(bad) };
+        let hex = sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        if !hex || rel.is_empty() {
+            return Err(bad);
+        }
+        out.push((sha.to_owned(), rel.to_owned()));
+    }
+    Ok(out)
+}
+
+/// Lower-case hex SHA-256 of `data`.
+pub fn sha256_hex(data: &[u8]) -> String {
+    use sha2::Digest as _;
+    use std::fmt::Write as _;
+    sha2::Sha256::digest(data).iter().fold(String::with_capacity(64), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
+}
+
+/// Every file under `fixtures/` except `README.md` and `MANIFEST.sha256`, relative, sorted.
+fn list_fixture_files() -> std::io::Result<Vec<String>> {
+    let root = fixtures_dir();
+    let mut out = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let p = entry?.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let Ok(rel) = p.strip_prefix(&root) else { continue };
+            let rel: Vec<String> =
+                rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+            let rel = rel.join("/");
+            if rel != "README.md" && rel != "MANIFEST.sha256" && !rel.ends_with(".DS_Store") {
+                out.push(rel);
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
 }
 
 /// Verifies every file listed in `fixtures/MANIFEST.sha256` against its checksum and that
 /// no unlisted file exists. Returns the number of verified files, or the problems found.
 pub fn verify_manifest() -> Result<usize, Vec<String>> {
-    unimplemented!("M0-3")
+    let manifest_path = path("MANIFEST.sha256");
+    let text = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| vec![format!("{}: {e}", manifest_path.display())])?;
+    let entries = parse_manifest(&text).map_err(|e| vec![e.to_string()])?;
+    let mut problems = Vec::new();
+    for (sha, rel) in &entries {
+        match try_read(rel) {
+            Ok(data) if sha256_hex(&data) == *sha => {}
+            Ok(_) => problems.push(format!("{rel}: checksum mismatch")),
+            Err(e) => problems.push(e.to_string()),
+        }
+    }
+    match list_fixture_files() {
+        Ok(files) => {
+            for f in files {
+                if !entries.iter().any(|(_, rel)| *rel == f) {
+                    problems.push(format!("{f}: not listed in MANIFEST.sha256"));
+                }
+            }
+        }
+        Err(e) => problems.push(format!("listing fixtures: {e}")),
+    }
+    if problems.is_empty() { Ok(entries.len()) } else { Err(problems) }
 }

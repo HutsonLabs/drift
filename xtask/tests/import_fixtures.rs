@@ -58,9 +58,15 @@ fn staging() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
     let d = dir.path();
     write(&d.join("provenance.toml"), PROVENANCE.as_bytes());
-    write(&d.join("pdus/server_redirection_leg1.bin"), &fake_redirection_frame("OneTimeUser16chr", &[0x5A; 34]));
+    write(
+        &d.join("pdus/server_redirection_leg1.bin"),
+        &fake_redirection_frame("OneTimeUser16chr", &[0x5A; 34]),
+    );
     // The same one-time credentials are used in the next leg's AuthRequest.
-    write(&d.join("pdus/rdstls_auth_request_leg2.bin"), &fake_rdstls_auth_request("OneTimeUser16chr", &[0x5A; 34]));
+    write(
+        &d.join("pdus/rdstls_auth_request_leg2.bin"),
+        &fake_rdstls_auth_request("OneTimeUser16chr", &[0x5A; 34]),
+    );
     let mut clip = utf16le("paste: ");
     clip.extend(utf16le(PW));
     write(&d.join("clipboard/remote_clip_d.bin"), &clip);

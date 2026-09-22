@@ -54,7 +54,9 @@ fn parses_grdctl_system_status() {
     assert!(st.tls_key.is_some());
     assert_eq!(
         st.tls_fingerprint.as_deref(),
-        Some("f3:e7:a2:68:ee:a5:64:38:f8:14:03:12:50:4d:44:97:6c:dc:c3:ae:f2:4a:98:92:da:97:72:fe:b6:e6:fe:81")
+        Some(
+            "f3:e7:a2:68:ee:a5:64:38:f8:14:03:12:50:4d:44:97:6c:dc:c3:ae:f2:4a:98:92:da:97:72:fe:b6:e6:fe:81"
+        )
     );
     assert!(st.username_set && st.password_set);
 }

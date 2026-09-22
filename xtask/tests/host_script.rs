@@ -56,7 +56,9 @@ fn setup_script_embeds_the_committed_dropin() {
 #[test]
 fn report_script_is_read_only() {
     let s = read("drift-host-report.sh");
-    for forbidden in ["set-credentials", "set-port", " enable", "disable-", "install ", "rm ", "gsettings set"] {
+    for forbidden in
+        ["set-credentials", "set-port", " enable", "disable-", "install ", "rm ", "gsettings set"]
+    {
         assert!(!s.contains(forbidden), "report script must not contain {forbidden:?}");
     }
     assert!(!s.contains("--show-credentials"));

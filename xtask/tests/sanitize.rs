@@ -5,9 +5,8 @@
 use std::path::PathBuf;
 
 use xtask::sanitize::{
-    Form, KnownSecret, PLACEHOLDER, SecretValue, find, load_known_secrets,
-    one_time_from_rdstls_auth_request, one_time_from_server_redirection, placeholder, sanitize,
-    secrets_from_text,
+    Form, KnownSecret, PLACEHOLDER, SecretValue, find, load_known_secrets, one_time_from_rdstls_auth_request,
+    one_time_from_server_redirection, placeholder, sanitize, secrets_from_text,
 };
 
 // Obviously fake values.

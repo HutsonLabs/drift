@@ -48,7 +48,10 @@ fn records_roundtrip_and_truncation_is_an_error() {
     assert_eq!(recs[0], b"abc");
     assert!(recs[1].is_empty());
     assert_eq!(recs[2].len(), 300);
-    assert!(matches!(fixtures::parse_records(&data[..data.len() - 1]), Err(FixtureError::Truncated { offset: 11 })));
+    assert!(matches!(
+        fixtures::parse_records(&data[..data.len() - 1]),
+        Err(FixtureError::Truncated { offset: 11 })
+    ));
     assert!(matches!(fixtures::parse_records(&[1, 0]), Err(FixtureError::Truncated { offset: 0 })));
 }
 
@@ -62,7 +65,8 @@ fn lfs_pointers_are_detected() {
 
 #[test]
 fn h264_fixtures_are_annex_b_with_leading_aud() {
-    for n in [names::H264_LEG2, names::H264_LEG3, names::H264_HEADLESS_MOTION, names::H264_HEADLESS_SCALE200] {
+    for n in [names::H264_LEG2, names::H264_LEG3, names::H264_HEADLESS_MOTION, names::H264_HEADLESS_SCALE200]
+    {
         let d = fixtures::read(n);
         assert!(d.starts_with(&[0, 0, 0, 1, 0x09, 0x30]), "{n} must start with an AUD (plan §1.4)");
     }
@@ -97,7 +101,10 @@ fn redirection_and_rdstls_fixtures_match_plan_1_3_and_are_sanitized() {
 
     assert_eq!(fixtures::read(names::RDSTLS_CAPS), [0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00]);
     assert_eq!(fixtures::read(names::RDSTLS_AUTH_RESPONSE_SUCCESS), [1, 0, 4, 0, 1, 0, 0, 0, 0, 0]);
-    assert_eq!(fixtures::read(names::RDSTLS_AUTH_RESPONSE_LOGON_FAILURE), [1, 0, 4, 0, 1, 0, 0x2E, 0x05, 0, 0]);
+    assert_eq!(
+        fixtures::read(names::RDSTLS_AUTH_RESPONSE_LOGON_FAILURE),
+        [1, 0, 4, 0, 1, 0, 0x2E, 0x05, 0, 0]
+    );
     let req = fixtures::read(names::RDSTLS_AUTH_REQUEST_LEG2);
     assert_eq!(req.get(..6), Some(&[1, 0, 2, 0, 1, 0][..]), "version 1, type 2, dataType 1");
 
