@@ -385,11 +385,11 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - a `CB_TEMP_DIRECTORY` round-trip test.
 
   **Done:** Drift's workspace depends on the fork by `rev`, and the fork's own tests pass.
-- [ ] **M0-3 Fixtures import** (E). `cargo xtask import-fixtures` copies the §1.7 artefacts from `~/code/drift-spikes` into `fixtures/` (LFS), runs the sanitizer, and writes `fixtures/README.md` with provenance.
+- [x] **M0-3 Fixtures import** (E). `cargo xtask import-fixtures` copies the §1.7 artefacts from `~/code/drift-spikes` into `fixtures/` (LFS), runs the sanitizer, and writes `fixtures/README.md` with provenance.
   **Red:**
   - a sanitizer test showing no known secret appears as bytes, UTF-8 or UTF-16LE;
   - a fixture-manifest checksum test.
-- [ ] **M0-4 Host setup script** (E). Write `host/drift-host-setup.sh` and the drop-in from §5.2, plus `cargo xtask host-setup-check`, which verifies ports, daemons, headless session and certs over SSH.
+- [x] **M0-4 Host setup script** (E). Write `host/drift-host-setup.sh` and the drop-in from §5.2, plus `cargo xtask host-setup-check`, which verifies ports, daemons, headless session and certs over SSH.
   **Red:** a shellcheck clean run; a `host-setup-check` unit test on parsed `grdctl status`/`ss -ltnp` samples captured from the host.
   **Done:** running the script on the homelab changes nothing (idempotent), and `host-setup-check` is green.
 - [ ] **M0-5 Core contracts** (D, reviewed by all). The §3 types, plus `RecordingFrameSink` and `ManualClock` in `drift-testkit`.
