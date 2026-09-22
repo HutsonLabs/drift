@@ -130,20 +130,6 @@ impl SessionManager {
         }
     }
 
-    /// Replaces the close/shutdown cap (tests). Only call it on a fresh manager.
-    #[must_use]
-    pub fn with_close_cap(self, cap: Duration) -> Self {
-        let state = std::mem::take(&mut *self.shared.lock());
-        Self {
-            shared: Arc::new(Shared {
-                host: self.shared.host.clone(),
-                runtime: self.shared.runtime.clone(),
-                cap,
-                state: Mutex::new(state),
-            }),
-        }
-    }
-
     /// Starts a session for `profile` in `window`.
     ///
     /// A live session in the same window is replaced: it is told to `Close`, its pump stops and
