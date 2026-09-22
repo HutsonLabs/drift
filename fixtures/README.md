@@ -63,6 +63,8 @@ A sequence of records, each a little-endian `u32` byte length followed by the by
 | `gfx/headless_scale200_avc420.server.raw.rec` | 111506 | `20698a7b5520…` | 0 | Run 5, headless :3392 at scale 200 | Server GFX DVC payloads as received (ZGFX) |
 | `gfx/headless_scale200_avc420.server.rec` | 111456 | `f2e141fc59fa…` | 0 | Run 5, headless :3392 at scale 200 | Same payloads after ZGFX: ResetGraphics 2560x1600, 7 AVC420 frames |
 | `gfx/headless_scale200_avc420.client.rec` | 206 | `6752eedd9f53…` | 0 | Run 5, headless :3392 at scale 200 | Client GFX PDUs |
+| `gfx/greeter_v81noavc.gfx` | 79782 | `937c0701f27d…` | 0 | M1-4 capture: Remote Login :3389, leg 2 (GDM greeter after RDSTLS), caps [V8_1{}] | DRFTGFX1 container: the 8 bytes `DRFTGFX1`, then per GFX DVC payload a u32 LE length and the payload as received (ZGFX). RFX Progressive greeter |
+| `gfx/headless_v81noavc.gfx` | 163949 | `f5a68da2d449…` | 0 | M1-4 capture: headless :3392, caps [V8_1{}] | DRFTGFX1 container (see above): RFX Progressive headless desktop |
 
 ## PDUs, certificates and fast-path updates
 
@@ -100,4 +102,6 @@ A sequence of records, each a little-endian `u32` byte length followed by the by
 | `screenshots/desktop_headless.png` | 209310 | `00b58f22004c…` | 0 | Frame 0 of h264/headless_motion.h264 | Headless GNOME desktop 1280x800 |
 | `screenshots/retina200.png` | 441493 | `d736043254ca…` | 0 | Frame 0 of h264/headless_scale200.h264 | Headless desktop 2560x1600 at 200% (GNOME 2x, pixel-doubled layout) |
 | `screenshots/leg3_motion_frame200.png` | 49670 | `bbd125afb256…` | 0 | Frame 200 of h264/leg3.h264 | Full-screen motion (anim.py) in the Remote Login user session |
+| `goldens/greeter_progressive.png` | 300128 | `df94eb42bb68…` | 0 | M1-4: IronRDP GraphicsPipelineClient compositor output for gfx/greeter_v81noavc.gfx at capture time | Reference image for the progressive greeter capture (alpha forced to 255) |
+| `goldens/headless_progressive.png` | 297491 | `fa1680cbd08b…` | 0 | M1-4: IronRDP GraphicsPipelineClient compositor output for gfx/headless_v81noavc.gfx at capture time | Reference image for the progressive headless capture (alpha forced to 255) |
 

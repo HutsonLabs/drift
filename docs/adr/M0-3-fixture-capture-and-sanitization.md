@@ -47,3 +47,7 @@ including one-time Remote Login credentials that are already invalid.
   sanitizer cannot and does not need to change.
 - Re-capturing means rebuilding the staging directory and re-running the import; the
   README and manifest are regenerated, never edited by hand.
+- Task M1-4 landed its own progressive captures (`gfx/*_v81noavc.gfx`, DRFTGFX1 container,
+  and `goldens/*_progressive.png`) before this import. They are adopted into the staging
+  provenance so the manifest covers them and re-imports keep them; any new fixture must be
+  added through the staging directory, otherwise the manifest test reports it as unlisted.

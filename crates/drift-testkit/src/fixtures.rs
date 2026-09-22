@@ -51,6 +51,16 @@ pub mod names {
     /// Same session: client→server GFX PDUs.
     pub const GFX_HEADLESS_SCALE200_AVC420_CLIENT: &str = "gfx/headless_scale200_avc420.client.rec";
 
+    /// M1-4 capture: progressive greeter, DRFTGFX1 container (`DRFTGFX1` + `.rec`-style
+    /// records of raw ZGFX payloads). Read by `drift-codec`'s replay tests.
+    pub const GFX_GREETER_V81NOAVC: &str = "gfx/greeter_v81noavc.gfx";
+    /// M1-4 capture: progressive headless desktop, DRFTGFX1 container.
+    pub const GFX_HEADLESS_V81NOAVC: &str = "gfx/headless_v81noavc.gfx";
+    /// M1-4 golden for [`GFX_GREETER_V81NOAVC`].
+    pub const GOLDEN_GREETER_PROGRESSIVE: &str = "goldens/greeter_progressive.png";
+    /// M1-4 golden for [`GFX_HEADLESS_V81NOAVC`].
+    pub const GOLDEN_HEADLESS_PROGRESSIVE: &str = "goldens/headless_progressive.png";
+
     /// Server Redirection PDU frame received on leg 1 (TPKT…Share Control type 0xA), sanitized.
     pub const SERVER_REDIRECTION_LEG1: &str = "pdus/server_redirection_leg1.bin";
     /// Second Server Redirection PDU (after the greeter login, leg 2), sanitized.
@@ -116,6 +126,10 @@ pub mod names {
         GFX_HEADLESS_SCALE200_AVC420,
         GFX_HEADLESS_SCALE200_AVC420_RAW,
         GFX_HEADLESS_SCALE200_AVC420_CLIENT,
+        GFX_GREETER_V81NOAVC,
+        GFX_HEADLESS_V81NOAVC,
+        GOLDEN_GREETER_PROGRESSIVE,
+        GOLDEN_HEADLESS_PROGRESSIVE,
         SERVER_REDIRECTION_LEG1,
         SERVER_REDIRECTION_LEG2,
         TARGET_CERT_LEG1,
