@@ -398,7 +398,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Red:** a canary branch with a failing test turns CI red.
 
 ### M1 — First light (Headless mode first: the simplest verified path)
-- [ ] **M1-1 Connect** (A). `drift-rdp::connect`: TCP, then TLS with a custom rustls verifier (TOFU/pin on the leaf SHA-256), then NLA, then capabilities with `support_dyn_vc_gfx_protocol=true`, `platform=MACINTOSH`, and `client_name` = the host name. Map errno 65 to `DisconnectReason::LocalNetworkDenied`.
+- [x] **M1-1 Connect** (A). `drift-rdp::connect`: TCP, then TLS with a custom rustls verifier (TOFU/pin on the leaf SHA-256), then NLA, then capabilities with `support_dyn_vc_gfx_protocol=true`, `platform=MACINTOSH`, and `client_name` = the host name. Map errno 65 to `DisconnectReason::LocalNetworkDenied`.
   **Red:** loopback tests with `FakeServer` for:
   - success;
   - wrong password → `AuthFailed`;
@@ -483,7 +483,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Done (manual M2):** typing, shortcuts, click, drag, right-click, smooth two-finger scrolling in Files and Firefox, and cursor shape changes all work.
 
 ### M3 — Remote Login (GDM)
-- [ ] **M3-1 Redirect loop** (A). The actor handles `ServerRedirect` from the fork. It closes the transport, then reconnects to the same host and port (or `TargetNetAddress` if present) with the routing token and protocols `SSL|RDSTLS`. After TLS it verifies **the leaf DER equals the target certificate from the container**, runs RDSTLS with the one-time credentials, and continues. Credentials are zeroized after use. A cap of 4 redirects per connection attempt yields `RedirectLoop`. The state goes `Connecting{leg}` → `AwaitingGreeterLogin` when leg 2 activates → `Connected` when leg 3 activates.
+- [x] **M3-1 Redirect loop** (A). The actor handles `ServerRedirect` from the fork. It closes the transport, then reconnects to the same host and port (or `TargetNetAddress` if present) with the routing token and protocols `SSL|RDSTLS`. After TLS it verifies **the leaf DER equals the target certificate from the container**, runs RDSTLS with the one-time credentials, and continues. Credentials are zeroized after use. A cap of 4 redirects per connection attempt yields `RedirectLoop`. The state goes `Connecting{leg}` → `AwaitingGreeterLogin` when leg 2 activates → `Connected` when leg 3 activates.
   **Red:**
   - FSM tests covering leg sequencing and loop protection;
   - a target-cert mismatch gives `CertMismatch`;
