@@ -11,21 +11,31 @@ publish.workspace = true
 drift-core.workspace = true
 drift-gfx.workspace = true
 drift-clipboard.workspace = true
+drift-codec.workspace = true
+drift-video.workspace = true
+ironrdp-async.workspace = true
 ironrdp-cliprdr.workspace = true
 ironrdp-connector.workspace = true
 ironrdp-core.workspace = true
 ironrdp-displaycontrol.workspace = true
 ironrdp-dvc.workspace = true
+ironrdp-egfx.workspace = true
+ironrdp-graphics.workspace = true
 ironrdp-pdu.workspace = true
 ironrdp-session.workspace = true
 ironrdp-svc.workspace = true
 ironrdp-tokio.workspace = true
-tokio = { workspace = true, features = ["sync"] }
+libc.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "net", "time", "io-util", "rt", "macros"] }
+tokio-rustls.workspace = true
+tracing.workspace = true
+x509-cert.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros"] }
+drift-testkit.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [lints]
 workspace = true

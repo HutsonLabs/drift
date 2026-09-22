@@ -80,7 +80,11 @@ pub struct SessionOptions {
 
 impl Default for SessionOptions {
     fn default() -> Self {
-        Self { tls_server_name: None, client_name: "drift".into(), connect_timeout: Duration::from_secs(15) }
+        Self {
+            tls_server_name: None,
+            client_name: crate::connect::local_client_name(),
+            connect_timeout: Duration::from_secs(15),
+        }
     }
 }
 
@@ -244,7 +248,7 @@ pub type SessionEvents = mpsc::UnboundedReceiver<SessionEvent>;
 /// # Panics
 /// Must be called from within a Tokio runtime.
 ///
-/// **Status:** interface only (M0-5); implemented from task M1-1.
+/// Implemented in `actor.rs` (M1-1 connect, M3-1 redirect loop).
 pub fn spawn_session(
     profile: ConnectionProfile,
     secrets: SessionSecrets,
@@ -252,8 +256,7 @@ pub fn spawn_session(
     clock: Arc<dyn Clock>,
     options: SessionOptions,
 ) -> (SessionHandle, SessionEvents) {
-    let _ = (profile, secrets, frame_sink, clock, options);
-    todo!("session actor: implemented from task M1-1")
+    crate::actor::spawn(profile, secrets, frame_sink, clock, options)
 }
 
 #[cfg(test)]

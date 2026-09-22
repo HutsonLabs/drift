@@ -12,6 +12,7 @@ applying all of them to the pristine vendored tree reproduces `third_party/ironr
 | `0003-feat-session-surface-ActiveStageOutput-ServerRedirect.patch` | pdu, session, client, web | `IoChannelPdu`/`ProcessorOutput`/`ActiveStageOutput::ServerRedirect` |
 | `0004-feat-connector-RDSTLS-client-authentication.patch` | connector | `rdstls` module and `RdstlsCapabilities`/`RdstlsAuthResponse` connector states; `ConnectorErrorKind::RdstlsAuthFailed` |
 | `0005-fix-cliprdr-validate-CB_TEMP_DIRECTORY-and-make-it-optional.patch` | cliprdr | `dataLen`/terminator validation; skip the optional PDU when the backend has no temp directory |
+| `0006-feat-connector-zeroize-RdstlsCredentials-on-drop.patch` | connector | Zeroize the one-time RDSTLS credentials (GUID, user, domain, password) on drop (M3-1) |
 
 Each patch squashes the Red test commit and the implementation commit of one change; the tests
 live in `ironrdp-testsuite-core`. Regenerate them after changing a commit pair:

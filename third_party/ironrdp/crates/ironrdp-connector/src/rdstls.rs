@@ -106,7 +106,8 @@ impl<'de> Decode<'de> for RdstlsCapabilities {
 /// One-time credentials for RDSTLS password authentication.
 ///
 /// They come from a Server Redirection PDU (see [`Self::from_server_redirection`]). They are
-/// single-use: never persist them. The password is redacted from the `Debug` output.
+/// single-use: never persist them. The password is redacted from the `Debug` output, and every
+/// field is zeroized on drop.
 #[derive(Clone, PartialEq, Eq)]
 pub struct RdstlsCredentials {
     /// `RedirectionGuid` of the Server Redirection PDU, verbatim.
@@ -130,6 +131,18 @@ impl RdstlsCredentials {
             domain: redirection.domain.clone().unwrap_or_default(),
             password: redirection.password.clone()?,
         })
+    }
+}
+
+impl Drop for RdstlsCredentials {
+    /// One-time credentials are secret: wipe them from memory when they are dropped.
+    fn drop(&mut self) {
+        use zeroize::Zeroize as _;
+
+        self.redirection_guid.zeroize();
+        self.username.zeroize();
+        self.domain.zeroize();
+        self.password.zeroize();
     }
 }
 

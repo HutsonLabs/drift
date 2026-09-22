@@ -43,6 +43,19 @@ Rendering and intents are covered by `bun test`; these need eyes, VoiceOver or a
       directly, errno 65): “Open Local Network Settings” opens System Settings › Privacy &
       Security › Local Network.
 
+## M1-1 / M3-1 — Connect and redirect (drift-rdp)
+
+Automated: loopback tests against `FakeServer` and `cargo xtask e2e` (`e2e_headless_connects`,
+`e2e_remote_login`). These need macOS Local Network Privacy, which only a GUI prompt can grant:
+
+- [ ] A Drift build **without** the Local Network permission (ad-hoc signed, or permission denied
+      in System Settings › Privacy & Security › Local Network) connecting straight to
+      `10.1.2.40:3392` ends in `Failed { LocalNetworkDenied }` (errno 65 is mapped by
+      `drift_rdp::connect::classify_io_error`; the loopback test injects the errno).
+- [ ] After granting the permission once, the same build connects without SSH forwards, and a
+      Remote Login profile goes leg 1 → greeter (`AwaitingGreeterLogin`) → desktop after logging
+      in at the greeter.
+
 ## M1-5 / M4-3 — Rendering (drift-render)
 
 - [ ] With a live Headless session (drifttest2), the desktop colours match the host monitor

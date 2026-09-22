@@ -11,9 +11,22 @@ publish.workspace = true
 drift-core.workspace = true
 drift-gfx.workspace = true
 ironrdp-server.workspace = true
+ironrdp-acceptor.workspace = true
+ironrdp-async.workspace = true
+ironrdp-connector.workspace = true
+ironrdp-core.workspace = true
+ironrdp-pdu.workspace = true
+ironrdp-tokio.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "time", "rt", "sync", "macros"] }
+tokio-rustls.workspace = true
+rcgen.workspace = true
+thiserror.workspace = true
 serde.workspace = true
 png.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 
 [lints]
 workspace = true
