@@ -1529,6 +1529,7 @@ dependencies = [
  "drift-core",
  "drift-gfx",
  "drift-testkit",
+ "drift-video",
  "objc2",
  "objc2-core-foundation",
  "objc2-core-graphics",
