@@ -13,12 +13,14 @@
 
 pub mod clock;
 pub mod e2e;
+pub mod fake_channels;
 pub mod fake_server;
 pub mod fixtures;
 pub mod frame_sink;
 pub mod golden;
 
 pub use clock::ManualClock;
+pub use fake_channels::{Channels, RecordedLayout, ServerClipFormat};
 pub use fake_server::{
     FakeServer, FakeServerLog, LegAuth, LegRecord, LegScript, RdstlsRequest, ServerAction, TestCert,
     redirection_pdu,

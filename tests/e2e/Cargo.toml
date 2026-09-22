@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+drift-clipboard.workspace = true
 drift-core.workspace = true
 drift-rdp.workspace = true
 drift-testkit.workspace = true

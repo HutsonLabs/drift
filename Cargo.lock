@@ -1513,6 +1513,7 @@ dependencies = [
 name = "drift-e2e"
 version = "0.1.0"
 dependencies = [
+ "drift-clipboard",
  "drift-core",
  "drift-rdp",
  "drift-testkit",
@@ -1582,6 +1583,7 @@ dependencies = [
  "drift-codec",
  "drift-core",
  "drift-gfx",
+ "drift-input",
  "drift-testkit",
  "drift-video",
  "ironrdp-async",
@@ -1635,10 +1637,16 @@ dependencies = [
  "drift-gfx",
  "ironrdp-acceptor",
  "ironrdp-async",
+ "ironrdp-cliprdr",
  "ironrdp-connector",
  "ironrdp-core",
+ "ironrdp-displaycontrol",
+ "ironrdp-dvc",
+ "ironrdp-egfx",
+ "ironrdp-graphics",
  "ironrdp-pdu",
  "ironrdp-server",
+ "ironrdp-svc",
  "ironrdp-tokio",
  "png 0.18.1",
  "rcgen",

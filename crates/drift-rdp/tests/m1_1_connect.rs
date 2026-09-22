@@ -190,11 +190,20 @@ async fn server_close_ends_the_session_as_retryable() {
     .await
     .unwrap();
     let mut h = Harness::start(profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())), PASS);
-    let end = h.wait_terminal(WAIT).await;
-    assert!(
-        matches!(&end, SessionState::Disconnected { reason } if reason.is_retryable()),
-        "a dropped transport is retryable: {end:?}"
-    );
+    // Since M7-3 an established session that drops is reconnected instead of ending.
+    let state = h
+        .wait_for("Reconnecting", WAIT, |e| {
+            matches!(e, SessionEvent::State(SessionState::Reconnecting { .. }))
+        })
+        .await;
+    let SessionEvent::State(SessionState::Reconnecting { reason, attempt, .. }) = &state else {
+        panic!("{state:?}")
+    };
+    assert_eq!(*attempt, 1);
+    assert!(reason.is_retryable(), "a dropped transport is retryable: {reason:?}");
+    let reason = reason.clone();
+    h.handle.send(SessionCommand::Cancel).unwrap();
+    assert_eq!(h.wait_terminal(WAIT).await, SessionState::Disconnected { reason });
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

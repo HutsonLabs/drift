@@ -6,33 +6,46 @@
 //! `FrameAcknowledge`s produced by `presented` callbacks wake the actor through a
 //! [`Notify`]; [`flush_acks`] sends them on the graphics channel.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 use drift_codec::TilePool;
 use drift_core::{Bgra, DisconnectReason, Nv12Frame, Point, Rect, Size};
 use drift_gfx::{FrameSink, GfxClient, PresentedCallback};
 use drift_video::decode::VtDecoder;
+use ironrdp_cliprdr::CliprdrClient;
 use ironrdp_connector::ClientConnector;
+use ironrdp_displaycontrol::client::DisplayControlClient;
 use ironrdp_dvc::DrdynvcClient;
 use ironrdp_session::ActiveStage;
 use ironrdp_svc::{ChannelFlags, SvcProcessorMessages};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 use crate::gfx_ack::GfxAckOnly;
 
+/// Observable state of the tab's sink, shared with the session actor.
+struct SinkState {
+    sink: Mutex<Box<dyn FrameSink>>,
+    /// Output size of the last `ResetGraphics` (the current remote desktop size).
+    output: watch::Sender<Option<Size<u32>>>,
+    /// Frames handed to the sink since the last [`Graphics::take_presented_frames`].
+    frames: AtomicU64,
+}
+
 /// The tab's frame sink, shared by the GFX clients of successive legs.
 #[derive(Clone)]
-pub(crate) struct SharedSink(Arc<Mutex<Box<dyn FrameSink>>>);
+pub(crate) struct SharedSink(Arc<SinkState>);
 
 impl SharedSink {
     fn lock(&self) -> MutexGuard<'_, Box<dyn FrameSink>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.0.sink.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 impl FrameSink for SharedSink {
     fn reset(&mut self, output: Size<u32>) {
         self.lock().reset(output);
+        self.0.output.send_replace(Some(output));
     }
     fn create_surface(&mut self, id: u16, size: Size<u32>) {
         self.lock().create_surface(id, size);
@@ -65,6 +78,7 @@ impl FrameSink for SharedSink {
         self.lock().evict_cache(slot);
     }
     fn end_frame(&mut self, frame_id: u32, presented: PresentedCallback) {
+        self.0.frames.fetch_add(1, Ordering::Relaxed);
         self.lock().end_frame(frame_id, presented);
     }
     fn set_visible(&mut self, visible: bool) {
@@ -92,7 +106,33 @@ pub(crate) struct Graphics {
 impl Graphics {
     /// Wraps the tab's sink.
     pub(crate) fn new(sink: Box<dyn FrameSink>) -> Self {
-        Self { sink: SharedSink(Arc::new(Mutex::new(sink))), acks_ready: Arc::new(Notify::new()) }
+        let (output, _) = watch::channel(None);
+        let state = SinkState { sink: Mutex::new(sink), output, frames: AtomicU64::new(0) };
+        Self { sink: SharedSink(Arc::new(state)), acks_ready: Arc::new(Notify::new()) }
+    }
+
+    /// Watches the output size of the last `ResetGraphics` (the remote desktop size).
+    pub(crate) fn output_size(&self) -> watch::Receiver<Option<Size<u32>>> {
+        self.sink.0.output.subscribe()
+    }
+
+    /// Frames handed to the sink since the last call (for the fps statistic).
+    pub(crate) fn take_presented_frames(&self) -> u64 {
+        self.sink.0.frames.swap(0, Ordering::Relaxed)
+    }
+
+    /// Shows or hides the session: the graphics client switches its acknowledgement policy
+    /// (`SUSPEND_FRAME_ACKNOWLEDGEMENT` while hidden) and pauses the render thread.
+    pub(crate) fn set_visible(&self, stage: &mut ActiveStage, visible: bool) {
+        match stage.get_dvc_mut::<GfxClient>() {
+            Some(mut gfx) => gfx.processor_mut().set_visible(visible),
+            None => self.sink.clone().set_visible(visible),
+        }
+    }
+
+    /// Frames handed to the graphics pipeline but not yet acknowledged.
+    pub(crate) fn unacked_frames(stage: &ActiveStage) -> u32 {
+        stage.get_dvc::<GfxClient>().map_or(0, |gfx| gfx.processor().acks().in_flight())
     }
 
     /// Notified whenever a presented frame queued a `FrameAcknowledge`.
@@ -103,8 +143,12 @@ impl Graphics {
     /// The static channels of one leg: DRDYNVC with a fresh GFX client. Without the graphics
     /// pipeline g-r-d terminates the session, so if the codec pool is unavailable the leg still
     /// gets the ack-only listener.
-    pub(crate) fn channels_for_leg(&self) -> impl FnOnce(ClientConnector) -> ClientConnector + Send + use<> {
-        let drdynvc = DrdynvcClient::new();
+    pub(crate) fn channels_for_leg(
+        &self,
+        display_control: DisplayControlClient,
+        clipboard: Option<CliprdrClient>,
+    ) -> impl FnOnce(ClientConnector) -> ClientConnector + Send + use<> {
+        let drdynvc = DrdynvcClient::new().with_dynamic_channel(display_control);
         let drdynvc = match tile_pool() {
             Some(pool) => {
                 let gfx = GfxClient::new(Box::new(self.sink.clone()), Box::new(VtDecoder::new()), pool);
@@ -114,7 +158,13 @@ impl Graphics {
             }
             None => drdynvc.with_dynamic_channel(GfxAckOnly::default()),
         };
-        move |connector| connector.with_static_channel(drdynvc)
+        move |connector| {
+            let connector = connector.with_static_channel(drdynvc);
+            match clipboard {
+                Some(cliprdr) => connector.with_static_channel(cliprdr),
+                None => connector,
+            }
+        }
     }
 }
 

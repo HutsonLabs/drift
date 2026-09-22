@@ -13,6 +13,8 @@ pub(crate) struct InputEncoder {
     keys: BTreeSet<(u8, bool)>,
     buttons: BTreeSet<ButtonId>,
     position: (u16, u16),
+    /// Last lock-key state the app reported, re-sent after a reconnect (M7-3).
+    toggles: (bool, bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -73,6 +75,7 @@ impl InputEncoder {
                 vec![mouse(flags, units.clamp(-255, 255), x, y)]
             }
             InputEvent::SyncToggles { caps, num } => {
+                self.toggles = (caps, num);
                 let mut flags = SynchronizeFlags::empty();
                 flags.set(SynchronizeFlags::CAPS_LOCK, caps);
                 flags.set(SynchronizeFlags::NUM_LOCK, num);
@@ -85,6 +88,13 @@ impl InputEncoder {
                 keys.chain(buttons).collect()
             }
         }
+    }
+}
+
+impl InputEncoder {
+    /// The last [`InputEvent::SyncToggles`] seen (both off until the app reports them).
+    pub(crate) fn toggles(&self) -> InputEvent {
+        InputEvent::SyncToggles { caps: self.toggles.0, num: self.toggles.1 }
     }
 }
 

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use drift_core::{CertFingerprint, Clock, ConnectMode, ConnectionProfile, SessionState, SystemClock};
 use drift_rdp::{SessionCommand, SessionEvent, SessionEvents, SessionHandle, SessionOptions, SessionSecrets};
-use drift_testkit::{PresentMode, RecordingFrameSink};
+use drift_testkit::{FakeServer, FakeServerLog, FrameLog, PresentMode, RecordingFrameSink};
 
 /// Fake credentials (never real ones).
 pub const USER: &str = "drift-fake-user";
@@ -27,6 +27,8 @@ pub struct Harness {
     pub handle: SessionHandle,
     events: SessionEvents,
     pub seen: Vec<SessionEvent>,
+    /// Everything the session drew into its (recording) frame sink.
+    pub frames: FrameLog,
 }
 
 impl Harness {
@@ -37,12 +39,19 @@ impl Harness {
 
     /// Spawns a session with `clock`.
     pub fn start_with_clock(profile: ConnectionProfile, password: &str, clock: Arc<dyn Clock>) -> Self {
-        let (sink, _log) = RecordingFrameSink::new(PresentMode::Immediate);
-        let options =
-            SessionOptions { connect_timeout: Duration::from_secs(15), ..SessionOptions::default() };
-        let (handle, events) =
-            drift_rdp::spawn_session(profile, SessionSecrets::new(password), Box::new(sink), clock, options);
-        Self { handle, events, seen: Vec::new() }
+        Self::start_full(profile, SessionSecrets::new(password), clock, options())
+    }
+
+    /// Spawns a session with everything explicit.
+    pub fn start_full(
+        profile: ConnectionProfile,
+        secrets: SessionSecrets,
+        clock: Arc<dyn Clock>,
+        options: SessionOptions,
+    ) -> Self {
+        let (sink, frames) = RecordingFrameSink::new(PresentMode::Immediate);
+        let (handle, events) = drift_rdp::spawn_session(profile, secrets, Box::new(sink), clock, options);
+        Self { handle, events, seen: Vec::new(), frames }
     }
 
     /// Waits (real time) for an event matching `pred`; returns it, or panics with the history.
@@ -112,6 +121,35 @@ impl Harness {
             while self.events.recv().await.is_some() {}
         })
         .await;
+    }
+}
+
+/// Default loopback options (15 s connect timeout, fixed reconnect seed).
+pub fn options() -> SessionOptions {
+    SessionOptions {
+        connect_timeout: Duration::from_secs(15),
+        reconnect_seed: Some(7),
+        ..SessionOptions::default()
+    }
+}
+
+/// Polls the server log (real time) until `pred` holds; panics with the log otherwise.
+pub async fn wait_log(
+    server: &FakeServer,
+    what: &str,
+    within: Duration,
+    pred: impl Fn(&FakeServerLog) -> bool,
+) -> FakeServerLog {
+    let deadline = tokio::time::Instant::now() + within;
+    loop {
+        let log = server.log();
+        if pred(&log) {
+            return log;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("timed out waiting for {what}; server log {log:#?}");
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
 

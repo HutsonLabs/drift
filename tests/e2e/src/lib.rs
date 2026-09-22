@@ -16,13 +16,16 @@
 //! Never print these values. [`init_logging`] installs a `tracing` subscriber whose output
 //! goes through the [`Redactor`], which replaces every credential value with `<redacted>`.
 
+pub mod host;
+
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
-use drift_core::{ConnectMode, ConnectionProfile, SessionState, SystemClock};
+use drift_clipboard::ClipboardContents;
+use drift_core::{ConnectMode, ConnectionProfile, InputEvent, MouseButton, SessionState, SystemClock};
 use drift_rdp::{SessionCommand, SessionEvent, SessionEvents, SessionHandle, SessionOptions, SessionSecrets};
-use drift_testkit::{FrameLog, PresentMode, RecordingFrameSink};
+use drift_testkit::{FrameLog, FrameSinkCall, PresentMode, RecordingFrameSink};
 
 /// Reads a `DRIFT_E2E_*` variable, returning `None` when unset or empty.
 pub fn var(name: &str) -> Option<String> {
@@ -35,6 +38,32 @@ pub fn var(name: &str) -> Option<String> {
 /// With a message naming the variable (never its value) when it is missing.
 pub fn require(name: &str) -> String {
     var(name).unwrap_or_else(|| panic!("{name} is not set; run the e2e suite through `cargo xtask e2e`"))
+}
+
+/// Linux account of the persistent **headless** test session (plan §5.2: `drifttest2`).
+///
+/// This is not the RDP user name of the headless daemon (`DRIFT_E2E_HL_USER`): the daemon has
+/// its own credentials. Override with `DRIFT_E2E_HL_SESSION_USER`.
+pub fn headless_session_user() -> String {
+    var("DRIFT_E2E_HL_SESSION_USER").unwrap_or_else(|| "drifttest2".into())
+}
+
+/// Linux account used for the Remote Login tests (plan §5.2: `drifttest`).
+pub fn login_session_user() -> String {
+    var("DRIFT_E2E_LOGIN_SESSION_USER")
+        .or_else(|| var("DRIFT_E2E_LOGIN_USER"))
+        .unwrap_or_else(|| "drifttest".into())
+}
+
+/// The local forward port for a daemon: `var_name` first, then `DRIFT_E2E_PORT_<remote>`.
+///
+/// # Panics
+/// When neither variable is set (run the suite through `cargo xtask e2e`).
+pub fn port(var_name: &str, remote: u16) -> u16 {
+    var(var_name)
+        .and_then(|p| p.parse().ok())
+        .or_else(|| forwarded_port(remote))
+        .unwrap_or_else(|| panic!("no local forward port for the daemon on :{remote}"))
 }
 
 /// Local port that forwards to `remote_port` on the host (e.g. 3392 → 13392).
@@ -177,10 +206,22 @@ impl std::fmt::Debug for E2eSession {
 impl E2eSession {
     /// Starts a session to the SSH-forwarded `local_port` with the given mode and credentials.
     pub fn start(mode: ConnectMode, local_port: u16, user: &str, password: &str) -> Self {
+        Self::start_with(mode, local_port, user, password, |_| {})
+    }
+
+    /// [`Self::start`] with a chance to adjust the profile (display and clipboard preferences).
+    pub fn start_with(
+        mode: ConnectMode,
+        local_port: u16,
+        user: &str,
+        password: &str,
+        adjust: impl FnOnce(&mut ConnectionProfile),
+    ) -> Self {
         let host = var("DRIFT_E2E_HOST").unwrap_or_else(|| "127.0.0.1".into());
         let mut profile = ConnectionProfile::new("e2e", host, mode);
         profile.port = local_port;
         profile.rdp_username = user.to_owned();
+        adjust(&mut profile);
         let options = SessionOptions {
             tls_server_name: var("DRIFT_E2E_TLS_NAME"),
             connect_timeout: Duration::from_secs(20),
@@ -234,6 +275,88 @@ impl E2eSession {
         }
     }
 
+    /// Sends a command to the session actor.
+    ///
+    /// # Panics
+    /// When the actor has already exited.
+    pub fn send(&self, command: SessionCommand) {
+        self.handle.send(command).expect("the session actor is still running");
+    }
+
+    /// Sends one input event.
+    pub fn input(&self, event: InputEvent) {
+        self.send(SessionCommand::Input(event));
+    }
+
+    /// Waits for a session state matching `pred` (accepting certificates on the way).
+    pub async fn wait_state(
+        &mut self,
+        what: &str,
+        within: Duration,
+        pred: impl Fn(&SessionState) -> bool + Copy,
+    ) -> SessionState {
+        match self.wait_for(what, within, move |e| matches!(e, SessionEvent::State(s) if pred(s))).await {
+            SessionEvent::State(state) => state,
+            other => unreachable!("{other:?}"),
+        }
+    }
+
+    /// Waits for the next remote clipboard contents.
+    pub async fn wait_clipboard(&mut self, within: Duration) -> ClipboardContents {
+        self.wait_clipboard_where(within, |_| true).await
+    }
+
+    /// Waits for remote clipboard contents matching `pred` (the remote clipboard often still
+    /// holds what an earlier test put there, and that snapshot arrives on connect).
+    pub async fn wait_clipboard_where(
+        &mut self,
+        within: Duration,
+        pred: impl Fn(&ClipboardContents) -> bool + Copy,
+    ) -> ClipboardContents {
+        // A matching clipboard may already have arrived while the test was driving the
+        // session (`settle` drains events), so the history is searched first.
+        if let Some(contents) =
+            self.seen.lock().unwrap_or_else(PoisonError::into_inner).iter().rev().find_map(|e| match e {
+                SessionEvent::ClipboardRemote(c) if pred(c) => Some(c.clone()),
+                _ => None,
+            })
+        {
+            return contents;
+        }
+        match self
+            .wait_for(
+                "a remote clipboard",
+                within,
+                move |e| matches!(e, SessionEvent::ClipboardRemote(c) if pred(c)),
+            )
+            .await
+        {
+            SessionEvent::ClipboardRemote(contents) => contents,
+            other => unreachable!("{other:?}"),
+        }
+    }
+
+    /// Collects events for `period` without expecting anything (state changes are recorded).
+    pub async fn settle(&mut self, period: Duration) -> Vec<SessionEvent> {
+        let deadline = tokio::time::Instant::now() + period;
+        let mut got = Vec::new();
+        while let Ok(Some(ev)) = tokio::time::timeout_at(deadline, self.events.recv()).await {
+            self.seen.lock().unwrap_or_else(PoisonError::into_inner).push(ev.clone());
+            if let SessionEvent::CertificatePrompt { fingerprint, .. } = &ev {
+                let _ = self
+                    .handle
+                    .send(SessionCommand::AcceptCertificate { fingerprint: *fingerprint, pin: false });
+            }
+            got.push(ev);
+        }
+        got
+    }
+
+    /// Frames presented into the tab's frame sink so far.
+    pub fn presented_frames(&self) -> usize {
+        self.frames.calls().iter().filter(|c| matches!(c, FrameSinkCall::EndFrame { .. })).count()
+    }
+
     /// Every `State` so far.
     pub fn states(&self) -> Vec<SessionState> {
         self.seen
@@ -260,6 +383,43 @@ impl E2eSession {
         })
         .await;
         last
+    }
+}
+
+/// Opens GNOME Text Editor, clicks into it (focus: plan §1.6, an unfocused Wayland client's
+/// clipboard change is not propagated), types `text` and copies it with Ctrl+A / Ctrl+C.
+pub async fn type_and_copy(s: &mut E2eSession, user: &str, text: &str) {
+    host::kill_in_session(user, "gnome-text-editor");
+    host::spawn_in_session(user, "gnome-text-editor --new-window");
+    let _ = s.settle(Duration::from_secs(8)).await;
+    for event in [
+        InputEvent::MouseMove { x: 640, y: 400 },
+        InputEvent::MouseButton { button: MouseButton::Left, down: true, x: 640, y: 400 },
+        InputEvent::MouseButton { button: MouseButton::Left, down: false, x: 640, y: 400 },
+    ] {
+        s.input(event);
+    }
+    let _ = s.settle(Duration::from_secs(2)).await;
+    // Ctrl+A + Backspace: the editor restores its previous buffer between runs.
+    s.input(InputEvent::Key { scancode: 0x1D, extended: false, down: true });
+    s.input(InputEvent::Key { scancode: 0x1E, extended: false, down: true });
+    s.input(InputEvent::Key { scancode: 0x1E, extended: false, down: false });
+    s.input(InputEvent::Key { scancode: 0x1D, extended: false, down: false });
+    s.input(InputEvent::Key { scancode: 0x0E, extended: false, down: true });
+    s.input(InputEvent::Key { scancode: 0x0E, extended: false, down: false });
+    let _ = s.settle(Duration::from_secs(1)).await;
+    for ch in text.encode_utf16() {
+        s.input(InputEvent::Unicode { ch, down: true });
+        s.input(InputEvent::Unicode { ch, down: false });
+    }
+    let _ = s.settle(Duration::from_secs(2)).await;
+    // Ctrl+A, then Ctrl+C.
+    for scancode in [0x1E_u8, 0x2E] {
+        s.input(InputEvent::Key { scancode: 0x1D, extended: false, down: true });
+        s.input(InputEvent::Key { scancode, extended: false, down: true });
+        s.input(InputEvent::Key { scancode, extended: false, down: false });
+        s.input(InputEvent::Key { scancode: 0x1D, extended: false, down: false });
+        let _ = s.settle(Duration::from_secs(1)).await;
     }
 }
 

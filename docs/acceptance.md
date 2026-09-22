@@ -22,6 +22,12 @@ These need a physical keyboard/trackpad and a person watching the remote desktop
       it in sync.
 - [ ] **Type using Mac layout:** Option+e, e → `é`; Option+s → `ß`; Japanese IME (Kotoeri)
       composes locally and commits into gedit; Ctrl+C / Cmd+V still act as chords.
+- [ ] **Unicode beyond the remote layout:** type `Grüße ✓` into GNOME Text Editor on a host
+      whose session layout provides those keysyms (e.g. add German in Settings › Keyboard and
+      switch to it) and copy it back. g-r-d turns each Unicode event into an XKB keysym and
+      mutter only injects keysyms the *session's* layout can produce, so on a US-only session
+      `ü`, `ß` and `✓` never arrive — `e2e_unicode_typing` therefore only automates the ASCII
+      (incl. shifted, typed without Shift) part. See `docs/adr/M4-2-session-actor-channels.md`.
 - [ ] **Scroll:** two-finger scrolling in Files and Firefox is smooth and follows the local
       natural-scrolling direction; a notched mouse wheel scrolls one step per notch.
 
@@ -55,6 +61,20 @@ Automated: loopback tests against `FakeServer` and `cargo xtask e2e` (`e2e_headl
 - [ ] After granting the permission once, the same build connects without SSH forwards, and a
       Remote Login profile goes leg 1 → greeter (`AwaitingGreeterLogin`) → desktop after logging
       in at the greeter.
+
+## M3-2 / M7-3 — Greeter password opt-in (stream A)
+
+Automated: the loopback tests in `crates/drift-rdp/tests/m7_3_reconnect.rs` (typed only after a
+click, never without the opt-in). What needs a person is the real GDM greeter:
+
+- [ ] With a `linux-login` secret stored for a Remote Login profile, reconnect to the greeter,
+      click your user tile and **do nothing else**: Drift types the password and logs in about
+      1.5 s later, landing in the same session.
+- [ ] With the same profile but no stored Linux password, the greeter stays untouched no matter
+      where you click.
+- [ ] Clicking "Not listed?" instead of a tile and waiting: Drift types the password into the
+      user-name field (known consequence of "type into the focused field"); it is visible, so
+      clear it and pick the tile. Nothing is typed before the first click.
 
 ## M1-5 / M4-3 — Rendering (drift-render)
 
