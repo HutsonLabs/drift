@@ -98,6 +98,36 @@ fn malformed_target_certificate_is_a_protocol_error() {
     assert!(matches!(err, Some(DisconnectReason::ProtocolError(_))), "{err:?}");
 }
 
+/// The sanitized g-r-d capture (plan §1.3): the target certificate inside the redirection PDU is
+/// byte-identical to the TLS certificate presented on leg 2.
+#[test]
+fn captured_grd_redirection_yields_the_leg2_certificate() {
+    use drift_testkit::fixtures::{self, names};
+    use ironrdp_pdu::mcs::SendDataIndication;
+    use ironrdp_pdu::rdp::headers::{ShareControlHeader, ShareControlPdu};
+    use ironrdp_pdu::x224::X224;
+
+    let frame = fixtures::read(names::SERVER_REDIRECTION_LEG1);
+    let X224(sdi) = ironrdp_core::decode::<X224<SendDataIndication<'_>>>(&frame).expect("X.224 frame");
+    let header = ironrdp_core::decode::<ShareControlHeader>(sdi.user_data.as_ref()).expect("share control");
+    let ShareControlPdu::ServerRedirect(mut pdu) = header.share_control_pdu else {
+        panic!("not a Server Redirection PDU")
+    };
+    let mut rl = RedirectLoop::new(ConnectMode::RemoteLogin, "10.1.2.40", 3389);
+    let next = rl.on_redirect(&mut pdu).expect("captured redirect is followed");
+    assert_eq!((next.leg, next.host.as_str(), next.port), (2, "10.1.2.40", 3389), "no TargetNetAddress");
+    let token = next.routing_token.expect("routing token");
+    assert!(token.starts_with("Cookie: msts=") && !token.ends_with('\n'), "{token:?}");
+    assert_eq!(next.target_certificate.as_deref(), Some(fixtures::read(names::TLS_CERT_LEG2).as_slice()));
+    assert_eq!(
+        redirect::verify_target_certificate(
+            &fixtures::read(names::TLS_CERT_LEG2),
+            &fixtures::read(names::TLS_CERT_LEG2)
+        ),
+        Ok(())
+    );
+}
+
 #[test]
 fn routing_token_strips_crlf() {
     assert_eq!(

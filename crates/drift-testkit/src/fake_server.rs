@@ -32,8 +32,10 @@ use ironrdp_connector::{ConnectorResult, Sequence as _, ServerName, general_err}
 use ironrdp_core::{WriteBuf, decode, encode_vec};
 use ironrdp_pdu::nego::{self, SecurityProtocol};
 use ironrdp_pdu::rdp::capability_sets::{self as caps, CapabilitySet};
-use ironrdp_pdu::rdp::client_info::Credentials;
-use ironrdp_pdu::rdp::headers::{ShareControlHeader, ShareControlPdu};
+use ironrdp_pdu::rdp::client_info::{CompressionType, Credentials};
+use ironrdp_pdu::rdp::headers::{
+    CompressionFlags, ShareControlHeader, ShareControlPdu, ShareDataHeader, ShareDataPdu, StreamPriority,
+};
 use ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu;
 use ironrdp_pdu::x224::{X224, X224Data};
 use ironrdp_pdu::{gcc, mcs};
@@ -230,6 +232,10 @@ pub struct LegRecord {
     pub activated: bool,
     /// Actions of the script that were executed.
     pub actions_done: usize,
+    /// The client sent a Shutdown Request (graceful close, M3-4).
+    pub shutdown_requested: bool,
+    /// Fast-path input PDUs received after activation.
+    pub fast_path_inputs: usize,
     /// First error on this leg (e.g. failed NLA), for diagnostics.
     pub error: Option<String>,
 }
@@ -457,9 +463,52 @@ async fn serve_leg(
         update(log, index, |r| r.actions_done += 1);
     }
 
-    // Drain until the client leaves.
-    while framed.read_pdu().await.is_ok() {}
+    // Drain until the client leaves; answer a Shutdown Request like g-r-d (Shutdown Denied).
+    while let Ok((action, frame)) = framed.read_pdu().await {
+        if action == ironrdp_pdu::Action::FastPath {
+            update(log, index, |r| r.fast_path_inputs += 1);
+        } else if is_shutdown_request(&frame) {
+            update(log, index, |r| r.shutdown_requested = true);
+            let denied =
+                share_data_frame(ShareDataPdu::ShutdownDenied, result.user_channel_id, result.io_channel_id)?;
+            framed.write_all(&denied).await.map_err(|e| err("write shutdown denied", e))?;
+        }
+    }
     Ok(())
+}
+
+fn is_shutdown_request(frame: &[u8]) -> bool {
+    let Ok(X224(request)) = decode::<X224<mcs::SendDataRequest<'_>>>(frame) else { return false };
+    matches!(
+        decode::<ShareControlHeader>(request.user_data.as_ref()),
+        Ok(ShareControlHeader {
+            share_control_pdu: ShareControlPdu::Data(ShareDataHeader {
+                share_data_pdu: ShareDataPdu::ShutdownRequest,
+                ..
+            }),
+            ..
+        })
+    )
+}
+
+fn share_data_frame(pdu: ShareDataPdu, user_channel_id: u16, io_channel_id: u16) -> Result<Vec<u8>> {
+    let header = ShareControlHeader {
+        share_control_pdu: ShareControlPdu::Data(ShareDataHeader {
+            share_data_pdu: pdu,
+            stream_priority: StreamPriority::Undefined,
+            compression_flags: CompressionFlags::empty(),
+            compression_type: CompressionType::K8,
+        }),
+        pdu_source: io_channel_id,
+        share_id: 0,
+    };
+    let user_data = encode_vec(&header).map_err(|e| err("encode share data", e))?;
+    let sdi = mcs::SendDataIndication {
+        initiator_id: user_channel_id,
+        channel_id: io_channel_id,
+        user_data: Cow::Owned(user_data),
+    };
+    encode_vec(&X224(sdi)).map_err(|e| err("encode send data indication", e))
 }
 
 /// Encodes a Server Redirection PDU as the X.224/MCS frame g-r-d sends (plan §1.3).

@@ -31,8 +31,12 @@ impl OneTimeCredentials {
     /// Extracts the credentials from a redirection PDU. `None` unless the PDU carries a GUID,
     /// a user name and a password.
     pub fn from_redirection(pdu: &ServerRedirectionPdu) -> Option<Self> {
-        let _ = pdu;
-        None
+        Some(Self {
+            redirection_guid: Zeroizing::new(pdu.redirection_guid.clone()?),
+            username: Zeroizing::new(pdu.username.clone()?),
+            domain: Zeroizing::new(pdu.domain.clone().unwrap_or_default()),
+            password: Zeroizing::new(pdu.password.clone()?),
+        })
     }
 
     /// The one-time user name (also used as the Client Info user name with `INFO_AUTOLOGON`).
@@ -53,6 +57,8 @@ impl OneTimeCredentials {
 
 /// The RDSTLS result code of a failed connection attempt, if that is what failed.
 pub fn rdstls_failure(error: &ironrdp_connector::ConnectorError) -> Option<u32> {
-    let _ = error;
-    None
+    match error.kind() {
+        ironrdp_connector::ConnectorErrorKind::RdstlsAuthFailed(code) => Some(code.0),
+        _ => None,
+    }
 }

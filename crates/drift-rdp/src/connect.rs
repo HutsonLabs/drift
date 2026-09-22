@@ -11,15 +11,22 @@
 
 use std::future::Future;
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use drift_core::{CertFingerprint, Clock, ConnectMode, ConnectStage, DesktopSize, DisconnectReason};
-use ironrdp_connector::{ClientConnector, ConnectionResult, ConnectorError};
+use ironrdp_connector::{ClientConnector, ConnectionResult, ConnectorError, ConnectorErrorKind, Credentials};
+use ironrdp_pdu::gcc::{ConnectionType, KeyboardType};
+use ironrdp_pdu::rdp::capability_sets::{MajorPlatformType, RailSupportLevel};
+use ironrdp_pdu::rdp::client_info::{PerformanceFlags, TimezoneInfo};
 use tokio::net::TcpStream;
 use zeroize::Zeroizing;
 
 use crate::rdstls::OneTimeCredentials;
 use crate::session::CertificateRole;
+use crate::tls;
+
+/// How often a pending network phase re-checks its deadline on the injected [`Clock`].
+const DEADLINE_TICK: Duration = Duration::from_millis(25);
 
 /// The TLS-upgraded transport of a connected leg.
 pub type UpgradedFramed = ironrdp_tokio::TokioFramed<tokio_rustls::client::TlsStream<TcpStream>>;
@@ -79,8 +86,13 @@ pub enum CertVerdict {
 
 /// Checks a leaf certificate against the expectation. Pure.
 pub fn check_certificate(expectation: &CertExpectation, leaf_der: &[u8]) -> CertVerdict {
-    let _ = (expectation, leaf_der);
-    CertVerdict::Mismatch
+    let fingerprint = CertFingerprint::of_der(leaf_der);
+    match expectation {
+        CertExpectation::Pinned(pin) if *pin == fingerprint => CertVerdict::Trusted,
+        CertExpectation::Exact(der) if der.as_slice() == leaf_der => CertVerdict::Trusted,
+        CertExpectation::Pinned(_) | CertExpectation::Exact(_) => CertVerdict::Mismatch,
+        CertExpectation::TrustOnFirstUse => CertVerdict::Unknown(fingerprint),
+    }
 }
 
 /// Everything needed to connect one leg.
@@ -184,20 +196,93 @@ impl std::fmt::Debug for ConnectedLeg {
 /// set `autologon` and send an empty password), `support_dyn_vc_gfx_protocol = true`,
 /// platform `MACINTOSH`, client name as given.
 pub fn build_config(req: &LegRequest) -> ironrdp_connector::Config {
-    let _ = req;
-    todo!("M1-1")
+    let (credentials, nla) = match &req.auth {
+        LegAuth::Nla { username, password } => (
+            Credentials::UsernamePassword {
+                username: username.clone(),
+                password: password.as_str().to_owned(),
+            },
+            true,
+        ),
+        // RDSTLS: the Client Info carries the one-time user name, INFO_AUTOLOGON and an empty
+        // password (plan §1.3); the one-time password only travels in the RDSTLS AuthRequest.
+        LegAuth::Rdstls(creds) => (
+            Credentials::UsernamePassword { username: creds.username().to_owned(), password: String::new() },
+            false,
+        ),
+    };
+    let dim = |v: u32| u16::try_from(v).unwrap_or(u16::MAX);
+    ironrdp_connector::Config {
+        credentials,
+        domain: None,
+        enable_tls: true,
+        enable_credssp: nla,
+        enable_standard_rdp_security: false,
+        keyboard_type: KeyboardType::IBM_ENHANCED,
+        keyboard_subtype: 0,
+        keyboard_layout: 0x409,
+        keyboard_functional_keys_count: 12,
+        connection_type: ConnectionType::Lan,
+        ime_file_name: String::new(),
+        dig_product_id: String::new(),
+        desktop_size: ironrdp_connector::DesktopSize {
+            width: dim(req.desktop.width),
+            height: dim(req.desktop.height),
+        },
+        monitor_layout: None,
+        desktop_scale_factor: req.scale,
+        bitmap: None,
+        client_build: 1,
+        client_name: req.client_name.clone(),
+        client_dir: "C:\\drift".into(),
+        platform: MajorPlatformType::MACINTOSH,
+        hardware_id: None,
+        request_data: None,
+        autologon: !nla,
+        enable_audio_playback: false,
+        enable_audio_capture: false,
+        performance_flags: PerformanceFlags::default(),
+        license_cache: None,
+        timezone_info: TimezoneInfo::default(),
+        compression_type: None,
+        enable_server_pointer: true,
+        pointer_software_rendering: false,
+        multitransport_flags: None,
+        support_dyn_vc_gfx_protocol: true,
+        alternate_shell: String::new(),
+        work_dir: String::new(),
+        remote_application_mode: false,
+        rail_support_level: RailSupportLevel::empty(),
+    }
 }
 
 /// Derives an RDP client name from a host name: the first DNS label, `[A-Za-z0-9-]` only,
 /// at most [`MAX_CLIENT_NAME_CHARS`] characters, `"drift"` when nothing is left. Pure.
 pub fn client_name_from_hostname(hostname: &str) -> String {
-    let _ = hostname;
-    String::new()
+    let label = hostname.split('.').next().unwrap_or_default();
+    let name: String = label
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(MAX_CLIENT_NAME_CHARS)
+        .collect();
+    if name.is_empty() { "drift".to_owned() } else { name }
 }
 
 /// The Mac's host name as an RDP client name.
 pub fn local_client_name() -> String {
-    client_name_from_hostname("")
+    client_name_from_hostname(&hostname())
+}
+
+fn hostname() -> String {
+    let mut buf = [0u8; 256];
+    // SAFETY: `buf` is a valid, writable buffer of `buf.len()` bytes; gethostname writes at
+    // most that many bytes, and only the bytes before the first NUL are read afterwards.
+    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
+    if rc != 0 {
+        return String::new();
+    }
+    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).into_owned()
 }
 
 /// Maps an I/O error at `stage` to a disconnect reason. Pure.
@@ -205,14 +290,50 @@ pub fn local_client_name() -> String {
 /// `EHOSTUNREACH` (errno 65) is how macOS Local Network Privacy denies a connection
 /// (plan §1.8) → [`DisconnectReason::LocalNetworkDenied`].
 pub fn classify_io_error(error: &io::Error, stage: ConnectStage) -> DisconnectReason {
-    let _ = (error, stage);
-    DisconnectReason::ProtocolError("unclassified".into())
+    use io::ErrorKind as K;
+    match error.raw_os_error() {
+        Some(libc::EHOSTUNREACH) => return DisconnectReason::LocalNetworkDenied,
+        Some(libc::ETIMEDOUT) => return DisconnectReason::Timeout,
+        _ => {}
+    }
+    let dropped =
+        matches!(error.kind(), K::UnexpectedEof | K::ConnectionReset | K::ConnectionAborted | K::BrokenPipe);
+    match (stage, error.kind()) {
+        // g-r-d (FreeRDP) drops the connection when NLA rejects the credentials.
+        (ConnectStage::Nla, _) if dropped => DisconnectReason::AuthFailed,
+        (_, K::TimedOut) => DisconnectReason::Timeout,
+        (ConnectStage::Tcp, _) => DisconnectReason::Network,
+        (_, K::UnexpectedEof) => DisconnectReason::TlsEof,
+        _ => DisconnectReason::Network,
+    }
 }
 
 /// Maps an IronRDP connector error at `stage` to a disconnect reason. Pure.
+///
+/// RDSTLS rejections keep their result code (`0x52E` → `RdstlsFailed(0x52E)`), CredSSP
+/// failures are `AuthFailed`, I/O errors in the source chain go through
+/// [`classify_io_error`], anything else is a `ProtocolError`.
 pub fn classify_connector_error(error: &ConnectorError, stage: ConnectStage) -> DisconnectReason {
-    let _ = (error, stage);
-    DisconnectReason::ProtocolError("unclassified".into())
+    match error.kind() {
+        ConnectorErrorKind::RdstlsAuthFailed(code) => DisconnectReason::RdstlsFailed(code.0),
+        ConnectorErrorKind::Credssp(_) | ConnectorErrorKind::AccessDenied => DisconnectReason::AuthFailed,
+        _ => match io_source(error) {
+            Some(io) => classify_io_error(io, stage),
+            None => DisconnectReason::ProtocolError(error.to_string()),
+        },
+    }
+}
+
+/// The first `io::Error` in an error's source chain.
+fn io_source<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a io::Error> {
+    let mut current = error.source();
+    while let Some(e) = current {
+        if let Some(io) = e.downcast_ref::<io::Error>() {
+            return Some(io);
+        }
+        current = e.source();
+    }
+    None
 }
 
 /// Connects one leg: TCP → X.224 → TLS (certificate check, prompt if unknown) →
@@ -229,6 +350,113 @@ pub async fn connect_leg(
     observer: &mut impl ConnectObserver,
     attach: impl FnOnce(ClientConnector) -> ClientConnector + Send,
 ) -> Result<ConnectedLeg, DisconnectReason> {
-    let _ = (req, dialer, clock, timeout, observer, attach);
-    Err(DisconnectReason::ProtocolError("connect_leg: not implemented".into()))
+    let config = build_config(&req);
+    let LegRequest { host, port, tls_server_name, auth, expectation, role, routing_token, .. } = req;
+
+    // TCP.
+    observer.stage(ConnectStage::Tcp);
+    let deadline = clock.now() + timeout;
+    let tcp = until(clock, deadline, dialer.dial(&host, port))
+        .await?
+        .map_err(|e| classify_io_error(&e, ConnectStage::Tcp))?;
+    let client_addr = tcp.local_addr().map_err(|e| classify_io_error(&e, ConnectStage::Tcp))?;
+
+    let mut connector = attach(ClientConnector::new(config, client_addr));
+    if let Some(token) = routing_token {
+        connector = connector.with_load_balance_info(token);
+    }
+    let auth_stage = match auth {
+        LegAuth::Nla { .. } => ConnectStage::Nla,
+        LegAuth::Rdstls(creds) => {
+            connector = connector.with_rdstls_credentials(creds.into_connector());
+            ConnectStage::Rdstls
+        }
+    };
+
+    // X.224 negotiation.
+    let mut framed = ironrdp_tokio::TokioFramed::new(tcp);
+    let should_upgrade = until(clock, deadline, ironrdp_async::connect_begin(&mut framed, &mut connector))
+        .await?
+        .map_err(|e| classify_connector_error(&e, ConnectStage::Tcp))?;
+
+    // TLS, then the certificate decision, before any credential leaves the machine.
+    observer.stage(ConnectStage::Tls);
+    let tcp = framed.into_inner_no_leftover();
+    let (tls_stream, leaf_der) = until(clock, deadline, tls::upgrade(tcp, &tls_server_name))
+        .await?
+        .map_err(|e| classify_io_error(&e, ConnectStage::Tls))?;
+    match check_certificate(&expectation, &leaf_der) {
+        CertVerdict::Trusted => {}
+        CertVerdict::Mismatch => return Err(DisconnectReason::CertMismatch),
+        CertVerdict::Unknown(fingerprint) => {
+            match observer.decide_certificate(&tls_server_name, port, fingerprint, role).await {
+                CertDecision::Accept { .. } => {}
+                CertDecision::Reject => return Err(DisconnectReason::CertMismatch),
+                CertDecision::Closed => return Err(DisconnectReason::UserClosed),
+            }
+        }
+    }
+    let server_public_key = tls::subject_public_key(&leaf_der).ok_or_else(|| {
+        DisconnectReason::ProtocolError("server certificate has no parsable public key".into())
+    })?;
+    let upgraded = ironrdp_async::mark_as_upgraded(should_upgrade, &mut connector);
+
+    // NLA or RDSTLS, capability exchange and finalization (fresh deadline after the prompt).
+    observer.stage(auth_stage);
+    let deadline = clock.now() + timeout;
+    let mut framed = ironrdp_tokio::TokioFramed::new(tls_stream);
+    let result = until(
+        clock,
+        deadline,
+        ironrdp_async::connect_finalize(
+            upgraded,
+            connector,
+            &mut framed,
+            &mut NoKerberos,
+            ironrdp_connector::ServerName::new(tls_server_name),
+            server_public_key,
+            None,
+        ),
+    )
+    .await?
+    .map_err(|e| classify_connector_error(&e, auth_stage))?;
+
+    Ok(ConnectedLeg { framed, result, leaf_der })
+}
+
+/// Runs `fut` until it completes or `clock` passes `deadline` ([`DisconnectReason::Timeout`]).
+///
+/// The deadline is re-checked every [`DEADLINE_TICK`] of real time against the injected
+/// clock, so a `ManualClock` fully controls when timeouts fire.
+pub(crate) async fn until<F: Future>(
+    clock: &dyn Clock,
+    deadline: Instant,
+    fut: F,
+) -> Result<F::Output, DisconnectReason> {
+    tokio::pin!(fut);
+    let mut tick = tokio::time::interval(DEADLINE_TICK);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            biased;
+            out = &mut fut => return Ok(out),
+            _ = tick.tick() => {
+                if clock.now() >= deadline {
+                    return Err(DisconnectReason::Timeout);
+                }
+            }
+        }
+    }
+}
+
+/// CredSSP network client: Drift authenticates with NTLM (g-r-d) and never talks to a KDC.
+struct NoKerberos;
+
+impl ironrdp_async::NetworkClient for NoKerberos {
+    async fn send(
+        &mut self,
+        _request: &ironrdp_connector::sspi::generator::NetworkRequest,
+    ) -> ironrdp_connector::ConnectorResult<Vec<u8>> {
+        Err(ironrdp_connector::general_err!("Kerberos network requests are not supported"))
+    }
 }

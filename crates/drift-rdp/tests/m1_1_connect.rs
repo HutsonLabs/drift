@@ -178,6 +178,46 @@ async fn close_when_connected_ends_user_closed() {
         h.wait_terminal(WAIT).await,
         SessionState::Disconnected { reason: DisconnectReason::UserClosed }
     );
+    assert!(server.log().legs[0].shutdown_requested, "Close sends a graceful Shutdown Request");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn server_close_ends_the_session_as_retryable() {
+    let cert = TestCert::generate("127.0.0.1");
+    let server = FakeServer::start(vec![
+        LegScript::nla(cert.clone(), USER, PASS).then(drift_testkit::ServerAction::Close),
+    ])
+    .await
+    .unwrap();
+    let mut h = Harness::start(profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())), PASS);
+    let end = h.wait_terminal(WAIT).await;
+    assert!(
+        matches!(&end, SessionState::Disconnected { reason } if reason.is_retryable()),
+        "a dropped transport is retryable: {end:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn input_is_forwarded_as_fast_path() {
+    let cert = TestCert::generate("127.0.0.1");
+    let server = FakeServer::start(vec![LegScript::nla(cert.clone(), USER, PASS)]).await.unwrap();
+    let mut h = Harness::start(profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())), PASS);
+    h.wait_for("Connected", WAIT, is_connected).await;
+    for ev in [
+        drift_core::InputEvent::Key { scancode: 0x1C, extended: false, down: true },
+        drift_core::InputEvent::Key { scancode: 0x1C, extended: false, down: false },
+        drift_core::InputEvent::MouseMove { x: 10, y: 10 },
+    ] {
+        h.handle.send(SessionCommand::Input(ev)).unwrap();
+    }
+    for _ in 0..100 {
+        if server.log().legs[0].fast_path_inputs >= 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(server.log().legs[0].fast_path_inputs >= 1, "{:?}", server.log());
+    h.close().await;
 }
 
 // ---------------------------------------------------------------- injected EHOSTUNREACH

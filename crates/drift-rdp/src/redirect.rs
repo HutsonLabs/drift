@@ -17,6 +17,7 @@
 use drift_core::state::MAX_REDIRECTS;
 use drift_core::{ConnectMode, DesktopSize, DisconnectReason, SessionState};
 use ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu;
+use zeroize::Zeroize as _;
 
 use crate::rdstls::OneTimeCredentials;
 
@@ -59,8 +60,11 @@ impl RedirectLoop {
 
     /// The state to enter when the current leg is activated, if any (see module docs).
     pub fn on_activated(&self, desktop: DesktopSize, scale: u32) -> Option<SessionState> {
-        let _ = (desktop, scale);
-        None
+        match (self.mode, self.leg) {
+            (ConnectMode::RemoteLogin, 1) => None,
+            (ConnectMode::RemoteLogin, 2) => Some(SessionState::AwaitingGreeterLogin),
+            _ => Some(SessionState::Connected { desktop, scale }),
+        }
     }
 
     /// Handles a Server Redirection PDU: validates it, advances the leg and returns the next
@@ -70,19 +74,56 @@ impl RedirectLoop {
     /// [`DisconnectReason::ProtocolError`] when credentials are missing or the target
     /// certificate container is malformed.
     pub fn on_redirect(&mut self, pdu: &mut ServerRedirectionPdu) -> Result<NextLeg, DisconnectReason> {
-        let _ = (pdu, MAX_REDIRECTS);
-        Err(DisconnectReason::ProtocolError("on_redirect: not implemented".into()))
+        let result = self.next_leg(pdu);
+        // The one-time secrets now live only in `NextLeg::credentials` (zeroized on drop).
+        pdu.password.zeroize();
+        pdu.username.zeroize();
+        pdu.redirection_guid.zeroize();
+        pdu.domain.zeroize();
+        result
+    }
+
+    fn next_leg(&mut self, pdu: &ServerRedirectionPdu) -> Result<NextLeg, DisconnectReason> {
+        let redirects_so_far = self.leg - 1;
+        if redirects_so_far >= MAX_REDIRECTS {
+            return Err(DisconnectReason::RedirectLoop);
+        }
+        let credentials = OneTimeCredentials::from_redirection(pdu).ok_or_else(|| {
+            DisconnectReason::ProtocolError("Server Redirection PDU without one-time credentials".into())
+        })?;
+        let target_certificate = pdu
+            .decode_target_certificate()
+            .map_err(|e| {
+                DisconnectReason::ProtocolError(format!("malformed redirect target certificate: {e}"))
+            })?
+            .and_then(|c| c.der_certificate().map(<[u8]>::to_vec));
+        if let Some(address) = pdu.target_net_address.as_deref().map(|a| a.trim_end_matches('\0'))
+            && !address.is_empty()
+        {
+            self.host = address.to_owned();
+        }
+        self.leg += 1;
+        Ok(NextLeg {
+            leg: self.leg,
+            host: self.host.clone(),
+            port: self.port,
+            routing_token: pdu.load_balance_info.as_deref().and_then(routing_token),
+            credentials,
+            target_certificate,
+        })
     }
 }
 
 /// The routing token of a `LoadBalanceInfo` blob: ASCII `Cookie: msts=<n>\r\n` → `Cookie: msts=<n>`.
+///
+/// `None` for an empty or non-printable-ASCII blob (IronRDP sends the token verbatim plus CRLF).
 pub fn routing_token(load_balance_info: &[u8]) -> Option<String> {
-    let _ = load_balance_info;
-    None
+    let text = std::str::from_utf8(load_balance_info).ok()?;
+    let token = text.trim_end_matches(['\r', '\n', '\0']);
+    (!token.is_empty() && token.bytes().all(|b| b.is_ascii_graphic() || b == b' ')).then(|| token.to_owned())
 }
 
 /// Verifies the leaf certificate of a redirected leg against the target certificate.
 pub fn verify_target_certificate(expected_der: &[u8], leaf_der: &[u8]) -> Result<(), DisconnectReason> {
-    let _ = (expected_der, leaf_der);
-    Err(DisconnectReason::CertMismatch)
+    if expected_der == leaf_der { Ok(()) } else { Err(DisconnectReason::CertMismatch) }
 }
