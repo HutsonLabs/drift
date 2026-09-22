@@ -42,8 +42,7 @@ fn load_balance_info_with_nla_does_not_request_rdstls() {
 
 mod exchange {
     use ironrdp_connector::rdstls::{
-        RdstlsAuthRequest, RdstlsAuthResponse, RdstlsCapabilities, RdstlsCredentials, RdstlsResultCode,
-        RdstlsVersions,
+        RdstlsAuthRequest, RdstlsAuthResponse, RdstlsCapabilities, RdstlsCredentials, RdstlsResultCode, RdstlsVersions,
     };
     use ironrdp_connector::{ClientConnector, ClientConnectorState, ConnectorErrorKind, Sequence as _, State as _};
     use ironrdp_core::{WriteBuf, decode, encode_vec};
@@ -95,14 +94,16 @@ mod exchange {
 
     #[test]
     fn encodes_auth_request_with_password_credentials() {
-        let request = RdstlsAuthRequest::from(&credentials());
+        let credentials = credentials();
+        let request = RdstlsAuthRequest::from(&credentials);
 
         assert_eq!(encode_vec(&request).unwrap(), EXPECTED_AUTH_REQUEST);
     }
 
     #[test]
     fn empty_domain_is_a_single_null_character() {
-        let request = RdstlsAuthRequest::from(&credentials());
+        let credentials = credentials();
+        let request = RdstlsAuthRequest::from(&credentials);
         let bytes = encode_vec(&request).unwrap();
 
         assert_eq!(&bytes[20..24], [0x02, 0x00, 0x00, 0x00]);
@@ -192,7 +193,10 @@ mod exchange {
     #[test]
     fn connector_runs_rdstls_after_tls_upgrade() {
         let mut connector = connector_until_security_upgrade(Some(credentials()));
-        assert!(matches!(connector.state, ClientConnectorState::RdstlsCapabilities { .. }));
+        assert!(matches!(
+            connector.state,
+            ClientConnectorState::RdstlsCapabilities { .. }
+        ));
 
         // The server capabilities are a fixed 8-byte PDU.
         let hint = connector.next_pdu_hint().expect("waits for server capabilities");
@@ -202,7 +206,10 @@ mod exchange {
         let written = connector.step(&SERVER_CAPABILITIES, None, &mut output).unwrap();
         assert_eq!(written.size(), Some(EXPECTED_AUTH_REQUEST.len()));
         assert_eq!(output.filled(), EXPECTED_AUTH_REQUEST);
-        assert!(matches!(connector.state, ClientConnectorState::RdstlsAuthResponse { .. }));
+        assert!(matches!(
+            connector.state,
+            ClientConnectorState::RdstlsAuthResponse { .. }
+        ));
 
         let hint = connector.next_pdu_hint().expect("waits for auth response");
         assert_eq!(hint.find_size(&[]).unwrap(), Some((true, 10)));

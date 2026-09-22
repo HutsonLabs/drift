@@ -9,6 +9,7 @@ pub mod connection_activation;
 mod connection_finalization;
 pub mod credssp;
 mod license_exchange;
+pub mod rdstls;
 mod server_name;
 
 use core::any::Any;
@@ -441,6 +442,8 @@ pub enum ConnectorErrorKind {
     General,
     Custom,
     Negotiation(NegotiationFailure),
+    /// The server rejected the RDSTLS authentication request ([MS-RDPBCGR] 2.2.17.4).
+    RdstlsAuthFailed(rdstls::RdstlsResultCode),
 }
 
 impl fmt::Display for ConnectorErrorKind {
@@ -454,6 +457,7 @@ impl fmt::Display for ConnectorErrorKind {
             ConnectorErrorKind::General => write!(f, "general error"),
             ConnectorErrorKind::Custom => write!(f, "custom error"),
             ConnectorErrorKind::Negotiation(failure) => write!(f, "negotiation failure: {failure}"),
+            ConnectorErrorKind::RdstlsAuthFailed(code) => write!(f, "RDSTLS authentication failed: {code}"),
         }
     }
 }
@@ -469,6 +473,7 @@ impl core::error::Error for ConnectorErrorKind {
             ConnectorErrorKind::Custom => None,
             ConnectorErrorKind::General => None,
             ConnectorErrorKind::Negotiation(failure) => Some(failure),
+            ConnectorErrorKind::RdstlsAuthFailed(_) => None,
         }
     }
 }

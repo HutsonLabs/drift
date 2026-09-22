@@ -17,6 +17,7 @@ use crate::connection_activation::{
     ConnectionActivationFactory, ConnectionActivationSequence, ConnectionActivationState,
 };
 use crate::license_exchange::{LicenseExchangeSequence, NoopLicenseCache};
+use crate::rdstls::{self, RdstlsCredentials};
 use crate::{
     Config, ConnectorError, ConnectorErrorExt as _, ConnectorErrorKind, ConnectorResult, DesktopSize, MonotonicInstant,
     NegotiationFailure, Sequence, State, Written, encode_x224_packet, general_err, reason_err,
@@ -211,6 +212,15 @@ pub enum ClientConnectorState {
     Credssp {
         selected_protocol: nego::SecurityProtocol,
     },
+    /// RDSTLS selected: waiting for the server's RDSTLS capabilities, then sends the
+    /// authentication request ([MS-RDPBCGR] 5.4.5.3).
+    RdstlsCapabilities {
+        selected_protocol: nego::SecurityProtocol,
+    },
+    /// RDSTLS authentication request sent: waiting for the server's authentication response.
+    RdstlsAuthResponse {
+        selected_protocol: nego::SecurityProtocol,
+    },
     BasicSettingsExchangeSendInitial {
         selected_protocol: nego::SecurityProtocol,
     },
@@ -308,6 +318,8 @@ impl State for ClientConnectorState {
             Self::ConnectionInitiationWaitConfirm { .. } => "ConnectionInitiationWaitResponse",
             Self::EnhancedSecurityUpgrade { .. } => "EnhancedSecurityUpgrade",
             Self::Credssp { .. } => "Credssp",
+            Self::RdstlsCapabilities { .. } => "RdstlsCapabilities",
+            Self::RdstlsAuthResponse { .. } => "RdstlsAuthResponse",
             Self::BasicSettingsExchangeSendInitial { .. } => "BasicSettingsExchangeSendInitial",
             Self::BasicSettingsExchangeWaitResponse { .. } => "BasicSettingsExchangeWaitResponse",
             Self::ChannelConnection { .. } => "ChannelConnection",
@@ -350,6 +362,7 @@ pub struct ClientConnector {
     pub message_channel_id: Option<u16>,
     cluster_data: Option<gcc::ClientClusterData>,
     load_balance_info: Option<String>,
+    rdstls_credentials: Option<RdstlsCredentials>,
     /// X.224 negotiation flags supplied by the server.
     response_flags: nego::ResponseFlags,
     /// Multitransport flags the server advertised in its GCC
@@ -386,6 +399,7 @@ impl ClientConnector {
             message_channel_id: None,
             cluster_data: None,
             load_balance_info: None,
+            rdstls_credentials: None,
             response_flags: nego::ResponseFlags::empty(),
             server_multitransport_flags: None,
             auto_reconnect_cookie: None,
@@ -424,6 +438,17 @@ impl ClientConnector {
     #[must_use]
     pub fn with_load_balance_info(mut self, load_balance_info: String) -> Self {
         self.load_balance_info = Some(load_balance_info);
+        self
+    }
+
+    /// Set the one-time credentials of a Server Redirection PDU for RDSTLS authentication.
+    ///
+    /// With NLA disabled, the connector then requests `PROTOCOL_RDSTLS` and, when the server
+    /// selects it, runs the RDSTLS exchange right after the TLS upgrade. The credentials are
+    /// dropped once the authentication request is written.
+    #[must_use]
+    pub fn with_rdstls_credentials(mut self, credentials: RdstlsCredentials) -> Self {
+        self.rdstls_credentials = Some(credentials);
         self
     }
 
@@ -466,7 +491,7 @@ impl ClientConnector {
         // A redirected connection (load-balancing info from a Server Redirection PDU) without NLA
         // authenticates with the one-time redirection credentials over RDSTLS
         // ([MS-RDPBCGR] 5.4.5.3).
-        if self.load_balance_info.is_some() && !self.config.enable_credssp {
+        if (self.load_balance_info.is_some() || self.rdstls_credentials.is_some()) && !self.config.enable_credssp {
             security_protocol.insert(nego::SecurityProtocol::RDSTLS);
         }
 
@@ -1050,6 +1075,8 @@ impl Sequence for ClientConnector {
             ClientConnectorState::ConnectionInitiationWaitConfirm { .. } => Some(&ironrdp_pdu::X224_HINT),
             ClientConnectorState::EnhancedSecurityUpgrade { .. } => None,
             ClientConnectorState::Credssp { .. } => None,
+            ClientConnectorState::RdstlsCapabilities { .. } => Some(&rdstls::RDSTLS_CAPABILITIES_HINT),
+            ClientConnectorState::RdstlsAuthResponse { .. } => Some(&rdstls::RDSTLS_AUTH_RESPONSE_HINT),
             ClientConnectorState::BasicSettingsExchangeSendInitial { .. } => None,
             ClientConnectorState::BasicSettingsExchangeWaitResponse { .. } => Some(&ironrdp_pdu::X224_HINT),
             ClientConnectorState::ChannelConnection { channel_connection, .. } => channel_connection.next_pdu_hint(),
@@ -1160,6 +1187,9 @@ impl Sequence for ClientConnector {
                 {
                     debug!("Begin NLA using CredSSP");
                     ClientConnectorState::Credssp { selected_protocol }
+                } else if selected_protocol.contains(nego::SecurityProtocol::RDSTLS) {
+                    debug!("Begin RDSTLS authentication");
+                    ClientConnectorState::RdstlsCapabilities { selected_protocol }
                 } else {
                     debug!("CredSSP is disabled, skipping NLA");
                     ClientConnectorState::BasicSettingsExchangeSendInitial { selected_protocol }
@@ -1173,6 +1203,47 @@ impl Sequence for ClientConnector {
                 Written::Nothing,
                 ClientConnectorState::BasicSettingsExchangeSendInitial { selected_protocol },
             ),
+
+            //== RDSTLS ==//
+            // Authenticate with the one-time credentials of a Server Redirection PDU.
+            ClientConnectorState::RdstlsCapabilities { selected_protocol } => {
+                let capabilities = decode::<rdstls::RdstlsCapabilities>(input).map_err(ConnectorError::decode)?;
+                debug!(message = ?capabilities, "Received");
+
+                if !capabilities.supported_versions.contains(rdstls::RdstlsVersions::V1) {
+                    return Err(reason_err!("RDSTLS", "server does not support RDSTLS version 1"));
+                }
+
+                let credentials = self
+                    .rdstls_credentials
+                    .take()
+                    .ok_or_else(|| reason_err!("RDSTLS", "server selected RDSTLS but no RDSTLS credentials are set"))?;
+                let written = ironrdp_core::encode_buf(&rdstls::RdstlsAuthRequest::from(&credentials), output)
+                    .map_err(ConnectorError::encode)?;
+                debug!(username = %credentials.username, "Sent RDSTLS authentication request");
+
+                (
+                    Written::from_size(written)?,
+                    ClientConnectorState::RdstlsAuthResponse { selected_protocol },
+                )
+            }
+
+            ClientConnectorState::RdstlsAuthResponse { selected_protocol } => {
+                let response = decode::<rdstls::RdstlsAuthResponse>(input).map_err(ConnectorError::decode)?;
+                debug!(message = ?response, "Received");
+
+                if !response.result_code.is_success() {
+                    return Err(ConnectorError::new(
+                        "RDSTLS",
+                        ConnectorErrorKind::RdstlsAuthFailed(response.result_code),
+                    ));
+                }
+
+                (
+                    Written::Nothing,
+                    ClientConnectorState::BasicSettingsExchangeSendInitial { selected_protocol },
+                )
+            }
 
             //== Basic Settings Exchange ==//
             // Exchange basic settings including Core Data, Security Data and Network Data.

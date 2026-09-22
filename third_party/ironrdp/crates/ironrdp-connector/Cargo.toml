@@ -23,6 +23,7 @@ qoiz = ["ironrdp-pdu/qoiz"]
 
 [dependencies]
 ironrdp-svc = { path = "../ironrdp-svc", version = "0.8" } # public
+bitflags = "2.11"
 ironrdp-core = { path = "../ironrdp-core", version = "0.2" } # public
 ironrdp-error = { path = "../ironrdp-error", version = "0.2" } # public
 ironrdp-pdu = { path = "../ironrdp-pdu", version = "0.9", features = ["std"] } # public
