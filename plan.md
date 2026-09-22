@@ -501,7 +501,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Done (manual M3):** a Remote Login profile goes greeter → desktop; disconnect → reconnect → greeter → same desktop.
 
 ### M4 — Adaptive size & Retina
-- [ ] **M4-1 Layout policy** (D). `desired_layout(ViewGeometry, DisplayPrefs, caps) -> MonitorLayout`. Retina on means physical pixels (points × 2) with `DesktopScaleFactor=200`; off means points with 100. Width is even, dimensions are clamped to [200, 8192] and to the server's max area. `DeviceScaleFactor` is picked from {100, 140, 180}.
+- [x] **M4-1 Layout policy** (D). `desired_layout(ViewGeometry, DisplayPrefs, caps) -> MonitorLayout`. Retina on means physical pixels (points × 2) with `DesktopScaleFactor=200`; off means points with 100. Width is even, dimensions are clamped to [200, 8192] and to the server's max area. `DeviceScaleFactor` is picked from {100, 140, 180}.
   **Red:** table tests (MBA 13" at 2×, external 1×, odd sizes such as 1281×801 → 1280×801, tiny and 6K); a proptest that the result satisfies MS-RDPEDISP.
 - [ ] **M4-2 Resize driver** (A). A 250 ms trailing debounce on `setFrameSize`/`viewDidChangeBackingProperties` sends DISP only when the layout changes. It handles ResetGraphics plus the new surface. In **DesktopSharing** mode (no DISP channel) it goes straight to `ScaleMode::Fit`, with no timeout guessing.
   **Red:**
@@ -552,7 +552,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Done (manual M6):** 3 sessions (Remote Login + Headless + Sharing) in one tab group, instant switching, and each background tab at < 2 % CPU.
 
 ### M7 — Auto-reconnect with backoff
-- [ ] **M7-1 Policy** (D). A pure `ReconnectPolicy` with exponential full-jitter backoff: base 500 ms, ×2, capped at 30 s. It's unlimited while the network is reachable, with a user-visible cap (default 20). The attempt count resets after 60 s stable. Retryability comes from `DisconnectReason` (§3).
+- [x] **M7-1 Policy** (D). A pure `ReconnectPolicy` with exponential full-jitter backoff: base 500 ms, ×2, capped at 30 s. It's unlimited while the network is reachable, with a user-visible cap (default 20). The attempt count resets after 60 s stable. Retryability comes from `DisconnectReason` (§3).
   **Red:** seeded-RNG delay tables; a bounds proptest; an exhaustive classification test; reset-after-stable.
 - [ ] **M7-2 Triggers** (C). An `NWPathMonitor` wrapper and `NSWorkspace.didWakeNotification` feed a pure `TriggerMerger`: offline pauses, online retries immediately, wake retries immediately, and duplicates are debounced.
   **Red:** `TriggerMerger` tables.
