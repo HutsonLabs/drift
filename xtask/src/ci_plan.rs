@@ -6,7 +6,8 @@
 //! feature set leaves out (plan §10):
 //!
 //! - `drift-app/recording` — the M8-3 "Debug ▸ Record Session" hook;
-//! - `drift-app/macos-ui-tests` — the M6-2 real-window tab-group test;
+//! - `drift-app/macos-ui-tests` — the real-window AppKit tests (M6-2's tab groups, M7-3's
+//!   overlays and HUDs);
 //! - the vendored IronRDP workspace's own tests — M0-2's Done ("the fork's own tests pass"),
 //!   which live in a workspace the root `Cargo.toml` excludes.
 
@@ -16,7 +17,7 @@ use std::path::{Path, PathBuf};
 /// The `--features` list used for `nextest` (plan M8-2: the encoder's tests are feature-gated).
 ///
 /// Lints use `--all-features` instead; tests cannot, because `drift-app/macos-ui-tests`
-/// enables a test binary that opens real windows and needs a logged-in window server.
+/// enables test binaries that open real windows and need a logged-in window server.
 pub const NEXTEST_FEATURES: &str = "drift-video/recording";
 
 /// Where `cargo llvm-cov` writes the summary the coverage gate reads (repository-relative).
@@ -272,7 +273,7 @@ pub fn declared_features(manifest: &str) -> Vec<String> {
 /// A step covers every feature when it lints the whole workspace with `--all-features` and
 /// `--all-targets`; otherwise only the features named in its own `--features` list count.
 /// This is what stops a narrow feature list from silently dropping `drift-app/recording`
-/// (M8-3) or `drift-app/macos-ui-tests` (M6-2) out of the gate.
+/// (M8-3) or `drift-app/macos-ui-tests` (M6-2, M7-3) out of the gate.
 pub fn feature_lint_gaps(features: &[(String, String)], steps: &[Step]) -> Vec<String> {
     let covers_all =
         steps.iter().any(|s| s.is_cargo_with(&["clippy", "--workspace", "--all-targets", "--all-features"]));
@@ -283,8 +284,8 @@ pub fn feature_lint_gaps(features: &[(String, String)], steps: &[Step]) -> Vec<S
     for step in steps {
         let Action::Run { program: Program::Cargo, args, .. } = &step.action else { continue };
         let lints = args.iter().any(|a| a == "clippy" || a == "check");
-        // A step that does not build every target cannot vouch for a feature: the test binary
-        // that feature gates (M6-2's `tabs_ui`) would never be compiled.
+        // A step that does not build every target cannot vouch for a feature: the test binaries
+        // that feature gates (M6-2's `tabs_ui`, M7-3's `overlays_ui`) would never be compiled.
         if !lints || !args.iter().any(|a| a == "--all-targets") {
             continue;
         }
