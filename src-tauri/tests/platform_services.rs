@@ -86,8 +86,12 @@ impl FakeSessions {
 
     fn with_live(sessions: &[LiveSession]) -> Arc<Self> {
         let me = Arc::new(Self::default());
-        *me.live.lock().unwrap_or_else(PoisonError::into_inner) = sessions.to_vec();
+        me.replace(sessions);
         me
+    }
+
+    fn replace(&self, sessions: &[LiveSession]) {
+        *self.live.lock().unwrap_or_else(PoisonError::into_inner) = sessions.to_vec();
     }
 
     fn set(&self, sessions: &[(&str, ClipboardPrefs)]) {
@@ -272,6 +276,22 @@ fn a_session_that_opens_later_is_seeded_but_the_others_are_not_told_again() {
         .set(&[("session-0", ClipboardPrefs::TextAndImages), ("session-1", ClipboardPrefs::TextAndImages)]);
     assert_eq!(pump.tick(&*sessions), 1);
     assert_eq!(sessions.take(), vec![("session-1".to_owned(), local(&text("shared")))]);
+}
+
+#[test]
+fn a_session_replaced_in_the_same_window_is_seeded_again() {
+    // "Disconnect" then "Connect" in the same tab within one 250 ms tick: the window never
+    // leaves the fanout, but the actor behind it is new and knows nothing about the clipboard.
+    let sessions = FakeSessions::with_live(&[LiveSession::new("tab-0", ClipboardPrefs::Text).generation(1)]);
+    let mut pump = ClipboardPump::new(FakePasteboard::default());
+    pump.port().user_copies(text("one"));
+    assert_eq!(pump.tick(&*sessions), 1);
+    assert_eq!(sessions.take(), vec![("tab-0".to_owned(), local(&text("one")))]);
+
+    sessions.replace(&[LiveSession::new("tab-0", ClipboardPrefs::Text).generation(2)]);
+    assert_eq!(pump.tick(&*sessions), 1, "the replacement actor must be seeded too");
+    assert_eq!(sessions.take(), vec![("tab-0".to_owned(), local(&text("one")))]);
+    assert_eq!(pump.tick(&*sessions), 0, "…but only once");
 }
 
 #[test]
@@ -499,6 +519,19 @@ async fn the_session_manager_reports_and_reaches_live_sessions() {
 
     eventually(|| host.commands("tab-0").contains(&local(&text("hi")))).await;
     assert_eq!(host.commands("tab-0"), vec![local(&text("hi"))]);
+
+    // Reconnecting the same window gives a new actor, and a new generation with it.
+    let before = generation_of(&manager, "tab-0");
+    manager.open("tab-0", profile("headless", ClipboardPrefs::Text)).unwrap();
+    assert_ne!(generation_of(&manager, "tab-0"), before, "a replaced actor is a new session");
+}
+
+fn generation_of(manager: &SessionManager, window: &str) -> u64 {
+    SessionFanout::live_sessions(manager)
+        .into_iter()
+        .find(|s| s.window == window)
+        .expect("window is live")
+        .generation
 }
 
 /// Polls `cond` (yielding to the manager's pumps) until it holds; panics after ~2 s.
