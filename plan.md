@@ -478,7 +478,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Red:**
   - allow-list tests;
   - a loopback test in which `FakeServer` receives the exact fast-path sequence for a scripted session, and never sees an allow-listed combo.
-- [ ] **M2-5 Remote cursor** (C). Decode fast-path pointer updates (color/large/new/cached/null/position) into an `NSCursor` with the hotspot. At scale 200 the server already sends 2× bitmaps (86×86), so the image size is `bitmap/scale` in points.
+- [x] **M2-5 Remote cursor** (C). Decode fast-path pointer updates (color/large/new/cached/null/position) into an `NSCursor` with the hotspot. At scale 200 the server already sends 2× bitmaps (86×86), so the image size is `bitmap/scale` in points.
   **Red:** decode tests on fixture pointer PDUs (43×43 and 86×86); cache eviction; a points-size computation test.
   **Done (manual M2):** typing, shortcuts, click, drag, right-click, smooth two-finger scrolling in Files and Firefox, and cursor shape changes all work.
 
@@ -554,7 +554,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
 ### M7 — Auto-reconnect with backoff
 - [x] **M7-1 Policy** (D). A pure `ReconnectPolicy` with exponential full-jitter backoff: base 500 ms, ×2, capped at 30 s. It's unlimited while the network is reachable, with a user-visible cap (default 20). The attempt count resets after 60 s stable. Retryability comes from `DisconnectReason` (§3).
   **Red:** seeded-RNG delay tables; a bounds proptest; an exhaustive classification test; reset-after-stable.
-- [ ] **M7-2 Triggers** (C). An `NWPathMonitor` wrapper and `NSWorkspace.didWakeNotification` feed a pure `TriggerMerger`: offline pauses, online retries immediately, wake retries immediately, and duplicates are debounced.
+- [x] **M7-2 Triggers** (C). An `NWPathMonitor` wrapper and `NSWorkspace.didWakeNotification` feed a pure `TriggerMerger`: offline pauses, online retries immediately, wake retries immediately, and duplicates are debounced.
   **Red:** `TriggerMerger` tables.
 - [ ] **M7-3 Mode-specific resume** (A + D).
   - **Headless and DesktopSharing** reconnect straight into the session (verified), keeping the last frame dimmed under an overlay: "Reconnecting in N s… [Now] [Cancel]".
