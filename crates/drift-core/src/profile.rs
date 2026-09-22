@@ -113,6 +113,16 @@ impl CertFingerprint {
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
+
+    /// SHA-256 of a certificate's DER encoding (what `grdctl status` fingerprints).
+    pub fn of_der(der: &[u8]) -> Self {
+        todo!("Red: not implemented yet")
+    }
+
+    /// Extracts the `TLS fingerprint:` line from `grdctl [--system|--headless] status` output.
+    pub fn from_grdctl_status(output: &str) -> Option<Self> {
+        todo!("Red: not implemented yet")
+    }
 }
 
 impl fmt::Display for CertFingerprint {
@@ -237,4 +247,242 @@ pub enum ProfileError {
     /// TOML (de)serialization failed.
     #[error("profile TOML error: {0}")]
     Toml(String),
+}
+
+// ---------------------------------------------------------------------------------------------
+// Validation (task M1-6)
+// ---------------------------------------------------------------------------------------------
+
+/// Maximum length of a profile name, in characters.
+pub const MAX_NAME_CHARS: usize = 64;
+/// Maximum length of a DNS host name (RFC 1035).
+pub const MAX_HOST_LEN: usize = 253;
+/// Maximum length of a user name, in characters.
+pub const MAX_USERNAME_CHARS: usize = 256;
+
+/// A profile field that can fail validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "kebab-case")]
+pub enum ProfileField {
+    /// [`ConnectionProfile::name`].
+    Name,
+    /// [`ConnectionProfile::host`].
+    Host,
+    /// [`ConnectionProfile::port`].
+    Port,
+    /// [`ConnectionProfile::rdp_username`].
+    RdpUsername,
+    /// [`ConnectionProfile::linux_username`].
+    LinuxUsername,
+}
+
+/// What is wrong with a field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "kebab-case")]
+pub enum ProfileProblem {
+    /// Required but empty (or only whitespace).
+    Empty,
+    /// Longer than allowed.
+    TooLong,
+    /// Leading or trailing whitespace.
+    SurroundingWhitespace,
+    /// Contains control characters or characters not allowed for this field.
+    InvalidCharacters,
+    /// The host is not a valid IPv4/IPv6 address or DNS name.
+    InvalidHost,
+    /// The host contains a port (`host:3389`); use the port field.
+    PortInHost,
+    /// The host contains a URL scheme (`rdp://`).
+    SchemeInHost,
+    /// Port 0 is not a valid TCP port.
+    InvalidPort,
+    /// The field does not apply to the profile's mode.
+    NotApplicable,
+}
+
+/// One validation failure, with a user-facing message.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub struct ProfileIssue {
+    /// The offending field.
+    pub field: ProfileField,
+    /// What is wrong.
+    pub problem: ProfileProblem,
+    /// A sentence for the UI, shown next to the field.
+    pub message: String,
+}
+
+impl ProfileIssue {
+    fn new(field: ProfileField, problem: ProfileProblem) -> Self {
+        Self { field, problem, message: issue_message(field, problem) }
+    }
+}
+
+fn field_label(field: ProfileField) -> &'static str {
+    match field {
+        ProfileField::Name => "Name",
+        ProfileField::Host => "Host",
+        ProfileField::Port => "Port",
+        ProfileField::RdpUsername => "RDP user name",
+        ProfileField::LinuxUsername => "Linux user name",
+    }
+}
+
+fn issue_message(field: ProfileField, problem: ProfileProblem) -> String {
+    let label = field_label(field);
+    match problem {
+        ProfileProblem::Empty => format!("{label} is required."),
+        ProfileProblem::TooLong => {
+            let max = match field {
+                ProfileField::Name => MAX_NAME_CHARS,
+                ProfileField::Host => MAX_HOST_LEN,
+                _ => MAX_USERNAME_CHARS,
+            };
+            format!("{label} must be at most {max} characters.")
+        }
+        ProfileProblem::SurroundingWhitespace => format!("{label} must not start or end with a space."),
+        ProfileProblem::InvalidCharacters => format!("{label} contains characters that are not allowed."),
+        ProfileProblem::InvalidHost => {
+            "Enter a host name (gnome.local) or an IP address (192.168.1.20 or fe80::1).".into()
+        }
+        ProfileProblem::PortInHost => "Put the port number in the Port field, not in the host.".into(),
+        ProfileProblem::SchemeInHost => "Enter just the host name, without rdp:// or another prefix.".into(),
+        ProfileProblem::InvalidPort => "Port must be between 1 and 65535.".into(),
+        ProfileProblem::NotApplicable => format!("{label} only applies to Remote Login profiles."),
+    }
+}
+
+/// Validates a profile before it is saved or used (plan M1-6).
+///
+/// Returns every problem found (not just the first), in field order, so the form can mark all
+/// offending fields at once.
+pub fn validate(profile: &ConnectionProfile) -> Result<(), Vec<ProfileIssue>> {
+    todo!("Red: not implemented yet")
+}
+
+/// Required free text: non-blank, bounded, no control characters, no surrounding whitespace.
+fn check_text(value: &str, max_chars: usize) -> Option<ProfileProblem> {
+    if value.trim().is_empty() {
+        Some(ProfileProblem::Empty)
+    } else if value.chars().count() > max_chars {
+        Some(ProfileProblem::TooLong)
+    } else if value.chars().any(char::is_control) {
+        Some(ProfileProblem::InvalidCharacters)
+    } else if value.trim() != value {
+        Some(ProfileProblem::SurroundingWhitespace)
+    } else {
+        None
+    }
+}
+
+fn check_host(host: &str) -> Option<ProfileProblem> {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    if host.trim().is_empty() {
+        return Some(ProfileProblem::Empty);
+    }
+    if host.trim() != host {
+        return Some(ProfileProblem::SurroundingWhitespace);
+    }
+    if host.len() > MAX_HOST_LEN {
+        return Some(ProfileProblem::TooLong);
+    }
+    if host.contains("://") {
+        return Some(ProfileProblem::SchemeInHost);
+    }
+    if host.parse::<Ipv4Addr>().is_ok() || host.parse::<Ipv6Addr>().is_ok() {
+        return None;
+    }
+    // `name:port`, `1.2.3.4:port` or `[v6]:port`.
+    if let Some((name, port)) = host.rsplit_once(':')
+        && !port.is_empty()
+        && port.bytes().all(|b| b.is_ascii_digit())
+        && (is_dns_name(name) || name.parse::<Ipv4Addr>().is_ok() || is_bracketed_v6(name))
+    {
+        return Some(ProfileProblem::PortInHost);
+    }
+    if is_dns_name(host) { None } else { Some(ProfileProblem::InvalidHost) }
+}
+
+fn is_bracketed_v6(s: &str) -> bool {
+    s.strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .is_some_and(|s| s.parse::<std::net::Ipv6Addr>().is_ok())
+}
+
+/// RFC 1123 host name: dot-separated labels of 1–63 ASCII letters, digits or hyphens, not
+/// starting or ending with a hyphen; one trailing dot allowed; not purely numeric (that would
+/// be a malformed IPv4 address).
+fn is_dns_name(s: &str) -> bool {
+    let s = s.strip_suffix('.').unwrap_or(s);
+    if s.is_empty() || s.len() > MAX_HOST_LEN {
+        return false;
+    }
+    let labels_ok = s.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    });
+    labels_ok && !s.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+}
+
+fn check_linux_username(mode: ConnectMode, user: Option<&str>) -> Option<ProfileProblem> {
+    let user = user?;
+    if mode != ConnectMode::RemoteLogin {
+        return Some(ProfileProblem::NotApplicable);
+    }
+    if let Some(problem) = check_text(user, MAX_USERNAME_CHARS) {
+        return Some(problem);
+    }
+    // Characters that can never be part of a Linux account name.
+    let bad = |c: char| c.is_whitespace() || matches!(c, ':' | '/' | ',');
+    if user.chars().any(bad) || user.starts_with('-') {
+        return Some(ProfileProblem::InvalidCharacters);
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------------------------
+// Secrets addressing (plan §2 decision 7)
+// ---------------------------------------------------------------------------------------------
+
+/// Which password of a profile a Keychain item holds (plan §2 decision 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "kebab-case")]
+pub enum SecretRole {
+    /// Remote Login: the system daemon's RDP credentials.
+    RdpSystem,
+    /// Headless / Desktop Sharing: the daemon's RDP credentials.
+    RdpUser,
+    /// Remote Login: the Linux password typed into the greeter (explicit opt-in only).
+    LinuxLogin,
+}
+
+impl SecretRole {
+    /// Role name as used in Keychain account strings.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::RdpSystem => "rdp-system",
+            Self::RdpUser => "rdp-user",
+            Self::LinuxLogin => "linux-login",
+        }
+    }
+
+    /// The role holding the RDP password for `mode`.
+    pub const fn rdp_for(mode: ConnectMode) -> Self {
+        match mode {
+            ConnectMode::RemoteLogin => Self::RdpSystem,
+            ConnectMode::Headless | ConnectMode::DesktopSharing => Self::RdpUser,
+        }
+    }
+
+    /// Keychain account name for this role of `profile_id`: `<uuid>/<role>`.
+    pub fn account(self, profile_id: Uuid) -> String {
+        todo!("Red: not implemented yet")
+    }
 }

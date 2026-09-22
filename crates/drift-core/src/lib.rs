@@ -13,24 +13,35 @@
 //!   `drift-gfx` to `drift-render` (see `docs/adr/M0-5-nv12-frame-location.md`).
 //! - [`clock`]: the [`Clock`] abstraction (tests use `drift_testkit::ManualClock`).
 //!
-//! Modules owned by later tasks (`reconnect` for M7-1, `layout` for M4-1) are
-//! present as documented stubs so that parallel work does not collide.
+//! - [`layout`]: `desired_layout`, the Display Control monitor layout policy (M4-1).
+//! - [`reconnect`]: [`ReconnectPolicy`], exponential full-jitter backoff (M7-1).
+//! - [`triggers`]: [`TriggerMerger`], network/wake reconnect triggers (M7-2).
+//! - [`store`]: [`ProfileStore`], the `profiles.toml` document (M1-6).
+//! - [`messages`]: user-facing disconnect explanations with next steps (M1-6, M9-4).
 
 pub mod clock;
 pub mod geometry;
 pub mod input;
 pub mod layout;
+pub mod messages;
 pub mod profile;
 pub mod reconnect;
 pub mod state;
+pub mod store;
+pub mod triggers;
 pub mod video;
 
 pub use clock::{Clock, SystemClock};
 pub use geometry::{Bgra, DesktopSize, Point, Rect, Size, ViewGeometry};
 pub use input::{InputEvent, MouseButton};
+pub use layout::{DisplayControlCaps, MonitorLayout, desired_layout};
+pub use messages::{ErrorAction, ErrorExplanation, explain_disconnect};
 pub use profile::{
     CertFingerprint, ClipboardPrefs, CmdAs, ConnectMode, ConnectionProfile, DisplayPrefs, KeyboardPrefs,
-    ProfileError,
+    ProfileError, ProfileField, ProfileIssue, ProfileProblem, SecretRole,
 };
+pub use reconnect::{ReconnectConfig, ReconnectDecision, ReconnectPolicy};
 pub use state::{ConnectStage, DisconnectReason, InvalidTransition, SessionState};
+pub use store::{ProfileStore, StoreError};
+pub use triggers::{Trigger, TriggerAction, TriggerMerger};
 pub use video::{Nv12Frame, Nv12Planes, Nv12Source};
