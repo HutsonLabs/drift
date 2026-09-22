@@ -115,6 +115,10 @@ opt-level = 3
 [profile.dev.package.drift-codec]
 opt-level = 3
 
+# Same reason for the AVC420 path (Annex-B conversion, SPS rewrite) and its PSNR-heavy tests.
+[profile.dev.package.drift-video]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

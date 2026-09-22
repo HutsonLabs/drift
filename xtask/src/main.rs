@@ -109,6 +109,10 @@ fn sh(root: &Path, program: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Optional features that CI builds, lints and tests too (feature-gated code must not rot).
+/// `drift-video/recording`: the M8 encoder + MP4 writer.
+const TEST_FEATURES: &str = "drift-video/recording";
+
 fn cargo() -> String {
     std::env::var("CARGO").unwrap_or_else(|_| "cargo".into())
 }
@@ -137,6 +141,8 @@ fn ci(root: &Path, with_coverage: bool, with_deny: bool) -> Result<()> {
                 "llvm-cov",
                 "nextest",
                 "--workspace",
+                "--features",
+                TEST_FEATURES,
                 "--json",
                 "--summary-only",
                 "--output-path",
@@ -147,7 +153,7 @@ fn ci(root: &Path, with_coverage: bool, with_deny: bool) -> Result<()> {
         coverage_gate(root, &json)?;
     } else {
         step("nextest");
-        sh(root, &cargo(), &["nextest", "run", "--workspace"])?;
+        sh(root, &cargo(), &["nextest", "run", "--workspace", "--features", TEST_FEATURES])?;
     }
     if with_deny {
         step("cargo deny");
@@ -161,7 +167,7 @@ fn check(root: &Path) -> Result<()> {
     ensure_ui_dist(root)?;
     fmt_clippy(root)?;
     step("nextest");
-    sh(root, &cargo(), &["nextest", "run", "--workspace"])?;
+    sh(root, &cargo(), &["nextest", "run", "--workspace", "--features", TEST_FEATURES])?;
     eprintln!("\nxtask: check passed");
     Ok(())
 }
@@ -171,7 +177,21 @@ fn fmt_clippy(root: &Path) -> Result<()> {
     step("cargo fmt --check");
     sh(root, &c, &["fmt", "--all", "--", "--check"])?;
     step("cargo clippy -D warnings");
-    sh(root, &c, &["clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"])
+    sh(
+        root,
+        &c,
+        &[
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--locked",
+            "--features",
+            TEST_FEATURES,
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )
 }
 
 fn ui(root: &Path) -> Result<()> {

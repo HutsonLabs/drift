@@ -4,9 +4,28 @@
 //! (implementing [`drift_core::video::H264Decoder`] and [`drift_core::Nv12Source`]), and
 //! the encoder/MP4 writer behind the `recording` feature.
 //!
-//! | Module | Task |
-//! |---|---|
-//! | [`decode`] | M1-3 |
-//! | `encode` (feature `recording`) | M8-2, M8-3 |
+//! | Module | Task | Kind |
+//! |---|---|---|
+//! | [`metablock`] | M1-3 | pure: `RFX_AVC420_METABLOCK` parser |
+//! | [`annexb`] | M1-3 | pure: Annex-B ↔ AVCC, parameter-set extraction |
+//! | [`params`] | M1-3 | pure: SPS/PPS change → session rebuild decision |
+//! | [`quality`] | M1-3 | pure: PSNR |
+//! | [`decode`] | M1-3 | FFI: `VTDecompressionSession` |
+//! | `encode` (feature `recording`) | M8-2 | FFI: `VTCompressionSession` |
+//! | `mp4` (feature `recording`) | M8-3 | FFI: `AVAssetWriter` passthrough |
 
+pub mod annexb;
+mod cv;
 pub mod decode;
+pub mod metablock;
+pub mod params;
+pub mod quality;
+pub mod sps;
+
+#[cfg(feature = "recording")]
+pub mod encode;
+#[cfg(feature = "recording")]
+pub mod mp4;
+
+pub use decode::{DecodedPicture, VtDecoder};
+pub use metablock::{Avc420Metablock, QuantQuality, parse_avc420_bitmap_stream};
