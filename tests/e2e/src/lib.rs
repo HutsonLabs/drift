@@ -16,6 +16,7 @@
 //! Never print these values. [`init_logging`] installs a `tracing` subscriber whose output
 //! goes through the [`Redactor`], which replaces every credential value with `<redacted>`.
 
+pub mod bench;
 pub mod host;
 
 use std::io::{self, Write};

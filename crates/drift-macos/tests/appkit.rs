@@ -20,7 +20,8 @@ use drift_testkit::fixtures;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSButton, NSEvent,
+    NSAccessibility, NSAccessibilityImageRole, NSApplication, NSApplicationActivationPolicy,
+    NSBackingStoreType, NSButton, NSEvent,
     NSEventModifierFlags, NSEventType, NSResponder, NSTextInputClient, NSView, NSWindow,
     NSWindowDidChangeOcclusionStateNotification, NSWindowDidResignKeyNotification, NSWindowStyleMask,
 };
@@ -65,6 +66,8 @@ fn main() -> ExitCode {
             "window_observer_reports_occlusion_and_key_changes",
             window_observer_reports_occlusion_and_key_changes,
         ),
+        ("remote_view_is_an_accessibility_element_with_a_role", remote_view_is_an_accessibility_element_with_a_role),
+        ("remote_view_accessibility_label_follows_the_session", remote_view_accessibility_label_follows_the_session),
     ])
 }
 
@@ -443,4 +446,39 @@ fn window_observer_reports_occlusion_and_key_changes() {
     // SAFETY: as above.
     unsafe { center.postNotificationName_object(NSWindowDidResignKeyNotification, Some(&win)) };
     assert_eq!(seen.borrow().len(), 2, "removed on drop");
+}
+
+// ---------------------------------------------------------------------------------------
+// Accessibility (M9-4)
+
+/// VoiceOver must find the live picture: an element with an image role, a role description
+/// and help text, not an anonymous `NSView` that reads as "group".
+fn remote_view_is_an_accessibility_element_with_a_role() {
+    let r = rig();
+    let view: &NSView = &r.view;
+    assert!(view.isAccessibilityElement(), "the picture is one accessibility element");
+    let role = view.accessibilityRole().expect("an accessibility role");
+    assert_eq!(&*role, unsafe { NSAccessibilityImageRole });
+    let described = view.accessibilityRoleDescription().expect("a role description");
+    assert_eq!(described.to_string(), "remote desktop");
+    let help = view.accessibilityHelp().expect("help text").to_string();
+    assert!(help.contains("remote"), "{help}");
+    // The Metal layer is the picture; VoiceOver must not walk into it.
+    assert_eq!(view.accessibilityChildren().map_or(0, |c| c.len()), 0);
+}
+
+/// The label names the connection and the desktop, so VoiceOver announces which tab this is.
+fn remote_view_accessibility_label_follows_the_session() {
+    let r = rig();
+    let view: &NSView = &r.view;
+    assert_eq!(
+        view.accessibilityLabel().expect("a default label").to_string(),
+        "Remote desktop",
+        "there is always a label, even before a session connects"
+    );
+    r.view.set_accessibility_label("Homelab — remote desktop, 1280 by 800 pixels");
+    assert_eq!(
+        view.accessibilityLabel().expect("a label").to_string(),
+        "Homelab — remote desktop, 1280 by 800 pixels"
+    );
 }

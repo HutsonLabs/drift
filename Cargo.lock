@@ -1519,6 +1519,7 @@ dependencies = [
  "drift-rdp",
  "drift-render",
  "drift-testkit",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
