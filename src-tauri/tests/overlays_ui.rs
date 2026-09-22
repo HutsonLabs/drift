@@ -16,12 +16,12 @@
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use drift_app::RunOptions;
 use drift_app::present::{self, Hud};
 use drift_app::view::{Screen, SessionView, StatsView};
-use drift_app::windows::{apply_view_for_tests, window_label};
+use drift_app::windows::{apply_view_for_tests, tab_count, window_label};
 use drift_core::{ConnectMode, ConnectionProfile, DesktopSize, SessionState, Size};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
@@ -41,17 +41,36 @@ fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(&AppHandle) -> T +
     rx.recv_timeout(Duration::from_secs(10)).expect("main thread responds")
 }
 
-/// `(content view, WKWebView, NSWindow)` of the first session window (main thread).
-fn views(app: &AppHandle) -> (Retained<NSView>, Retained<NSView>, Retained<NSWindow>) {
-    let w = app.get_webview_window(&window_label(0)).unwrap();
-    let ptr = w.ns_view().unwrap().cast::<NSView>();
+/// `(content view, WKWebView, NSWindow)` of the first session window, or `None` while the
+/// window is still being built (`open_tab` runs off the main thread). Main thread only.
+fn try_views(app: &AppHandle) -> Option<(Retained<NSView>, Retained<NSView>, Retained<NSWindow>)> {
+    let w = app.get_webview_window(&window_label(0))?;
+    let ptr = w.ns_view().ok()?.cast::<NSView>();
     // SAFETY: tao's live content `NSView*`; we are on the main thread and retain it.
-    let content = unsafe { ptr.as_ref() }.unwrap().retain();
-    let web = drift_macos::webview::find_webview(&content).expect("a WKWebView");
-    let ptr = w.ns_window().unwrap().cast::<NSWindow>();
+    let content = unsafe { ptr.as_ref() }?.retain();
+    let web = drift_macos::webview::find_webview(&content)?;
+    let ptr = w.ns_window().ok()?.cast::<NSWindow>();
     // SAFETY: tao's live `NSWindow*`; we are on the main thread and retain it.
-    let window = unsafe { ptr.as_ref() }.unwrap().retain();
-    (content, web, window)
+    let window = unsafe { ptr.as_ref() }?.retain();
+    Some((content, web, window))
+}
+
+/// Same, once the window exists (main thread).
+fn views(app: &AppHandle) -> (Retained<NSView>, Retained<NSView>, Retained<NSWindow>) {
+    try_views(app).expect("the first session window")
+}
+
+/// Blocks until the first session window, its `WKWebView` and its `RemoteView` all exist.
+///
+/// `open_tab` builds the window off the main thread and only then registers the per-window
+/// AppKit state; `tab_count` is `Some` exactly once that registration has happened, which is
+/// what [`apply_view_for_tests`] needs.
+fn wait_for_window(app: &AppHandle) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !on_main(app, |a| try_views(a).is_some() && tab_count(a, &window_label(0)).is_some()) {
+        assert!(Instant::now() < deadline, "the first session window never appeared");
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// The class name of the window's first responder ("" when there is none).
@@ -76,6 +95,7 @@ fn view_for(screen: Screen) -> SessionView {
 fn scenario(app: AppHandle) {
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            wait_for_window(&app);
             // 1. The window is non-opaque, so a transparent page shows the picture behind it.
             let opaque = on_main(&app, |a| views(a).2.isOpaque());
             assert!(!opaque, "the session window must not be opaque (M7-3 overlays)");
