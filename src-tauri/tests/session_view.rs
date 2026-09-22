@@ -155,6 +155,7 @@ fn stats(fps: f32) -> SessionEvent {
         fps,
         bitrate_bps: 1_234_567,
         frame_latency_p95_ms: 4.26,
+        input_to_wire_p99_ms: 0.8,
         unacked_frames: 2,
     })
 }

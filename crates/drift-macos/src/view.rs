@@ -28,9 +28,9 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol, Sel};
 use objc2::{AnyThread as _, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSAutoresizingMaskOptions, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags,
-    NSEventPhase, NSEventType, NSTextInputClient, NSTrackingArea, NSTrackingAreaOptions, NSView,
-    NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
+    NSAccessibilityImageRole, NSApplication, NSAutoresizingMaskOptions, NSCursor, NSEvent, NSEventMask,
+    NSEventModifierFlags, NSEventPhase, NSEventType, NSTextInputClient, NSTrackingArea,
+    NSTrackingAreaOptions, NSView, NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
 };
 use objc2_core_foundation::CGSize;
 use objc2_foundation::{
@@ -72,7 +72,20 @@ pub struct Ivars {
     interpreting: Cell<Option<(u16, u64)>>,
     geometry: Cell<ViewGeometry>,
     focused: Cell<bool>,
+    /// What VoiceOver announces for the picture (M9-4); the app keeps it in step with the
+    /// session through [`RemoteView::set_accessibility_label`].
+    accessibility_label: RefCell<Retained<NSString>>,
 }
+
+/// VoiceOver's role description for the live picture.
+pub const ROLE_DESCRIPTION: &str = "remote desktop";
+
+/// VoiceOver's help text for the live picture.
+pub const ACCESSIBILITY_HELP: &str =
+    "Keyboard, pointer and scroll input go to the remote computer while this picture has focus.";
+
+/// The label shown before a session names itself.
+pub const DEFAULT_ACCESSIBILITY_LABEL: &str = "Remote desktop";
 
 define_class!(
     /// Layer-hosting `NSView` with a `CAMetalLayer`, capturing keyboard, pointer and scroll
@@ -264,6 +277,44 @@ define_class!(
         fn cursor_update(&self, _event: &NSEvent) {
             self.ivars().cursor.borrow().set();
         }
+
+        // --- accessibility (M9-4) ----------------------------------------------------------
+        //
+        // Without these a layer-hosting NSView reads as an unnamed "group" and VoiceOver users
+        // cannot tell what the window is showing. The picture is one element with an image
+        // role; its contents live on the remote computer, so there is nothing to walk into.
+
+        #[unsafe(method(isAccessibilityElement))]
+        fn is_accessibility_element(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method_id(accessibilityRole))]
+        fn accessibility_role(&self) -> Option<Retained<NSString>> {
+            // SAFETY: reading an AppKit string constant.
+            Some(unsafe { NSAccessibilityImageRole }.to_owned())
+        }
+
+        #[unsafe(method_id(accessibilityRoleDescription))]
+        fn accessibility_role_description(&self) -> Option<Retained<NSString>> {
+            Some(NSString::from_str(ROLE_DESCRIPTION))
+        }
+
+        #[unsafe(method_id(accessibilityLabel))]
+        fn accessibility_label(&self) -> Option<Retained<NSString>> {
+            Some(self.ivars().accessibility_label.borrow().clone())
+        }
+
+        #[unsafe(method_id(accessibilityHelp))]
+        fn accessibility_help(&self) -> Option<Retained<NSString>> {
+            Some(NSString::from_str(ACCESSIBILITY_HELP))
+        }
+
+        #[unsafe(method_id(accessibilityChildren))]
+        fn accessibility_children(&self) -> Option<Retained<NSArray>> {
+            // The picture's contents live on the remote computer: nothing to walk into.
+            None
+        }
     }
 
     unsafe impl NSObjectProtocol for RemoteView {}
@@ -371,6 +422,7 @@ impl RemoteView {
             interpreting: Cell::new(None),
             geometry: Cell::new(ViewGeometry { points: Size::new(0.0, 0.0), backing_scale: 1.0 }),
             focused: Cell::new(false),
+            accessibility_label: RefCell::new(NSString::from_str(DEFAULT_ACCESSIBILITY_LABEL)),
         });
         // SAFETY: `initWithFrame:` is NSView's designated initializer.
         let this: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
@@ -424,6 +476,12 @@ impl RemoteView {
     /// Attaches the remote desktop size and placement (pointer mapping).
     pub fn set_desktop(&self, desktop: DesktopSize, mode: ScaleMode) {
         self.ivars().input.borrow_mut().set_desktop(desktop, mode);
+    }
+
+    /// Sets what VoiceOver announces for the picture (M9-4), e.g.
+    /// `"Homelab — remote desktop, 1280 by 800 pixels"`.
+    pub fn set_accessibility_label(&self, label: &str) {
+        *self.ivars().accessibility_label.borrow_mut() = NSString::from_str(label);
     }
 
     /// Detaches the desktop (pointer events are dropped).

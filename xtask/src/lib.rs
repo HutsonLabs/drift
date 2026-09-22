@@ -1,5 +1,7 @@
 //! Library half of `cargo xtask`: pure, unit-tested checks used by the CLI in `main.rs`.
 //!
+//! - [`bench`]: the performance gate of `cargo xtask e2e --bench` (M9-1).
+//! - [`icons`]: the macOS-only app icon set (M9-4).
 //! - [`ci_plan`]: the `cargo xtask ci` gate as data, so tests can assert what it covers.
 //! - [`workflows`]: `.github/workflows/` matches the runs the plan requires (M0-6, §5.3).
 //! - [`fuzz_audit`]: the `cargo fuzz` targets plan M9-2 requires exist and run nightly.
@@ -12,12 +14,14 @@
 //! - [`sanitize`] and [`fixtures`]: `cargo xtask import-fixtures` (M0-3).
 //! - [`host_check`]: `cargo xtask host-setup-check` (M0-4).
 
+pub mod bench;
 pub mod ci_plan;
 pub mod coverage;
 pub mod e2e_env;
 pub mod fixtures;
 pub mod fuzz_audit;
 pub mod host_check;
+pub mod icons;
 pub mod npm_ban;
 pub mod repo;
 pub mod sanitize;

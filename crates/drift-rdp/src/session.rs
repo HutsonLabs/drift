@@ -181,8 +181,11 @@ pub struct SessionStats {
     pub fps: f32,
     /// Received payload bit rate.
     pub bitrate_bps: u64,
-    /// Decode + present latency, 95th percentile, milliseconds.
+    /// Decode + present latency, 95th percentile, milliseconds (plan M9-1: < 8 ms).
     pub frame_latency_p95_ms: f32,
+    /// Input-to-wire latency, 99th percentile, milliseconds (plan M9-1: < 2 ms). `0.0` when
+    /// no input was sent during the window.
+    pub input_to_wire_p99_ms: f32,
     /// Frames awaiting acknowledgement.
     pub unacked_frames: u32,
 }

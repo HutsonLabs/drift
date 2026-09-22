@@ -153,7 +153,9 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
 
   const modeGroup = h(
     "fieldset",
-    { class: "mode" },
+    // The mode explanation is part of the group's description, so VoiceOver reads it with the
+    // radio buttons instead of leaving it as unattached text (M9-4).
+    { class: "mode", "aria-describedby": "mode-hint" },
     h("legend", {}, "Connection type"),
     h(
       "div",

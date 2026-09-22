@@ -8,9 +8,10 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 use drift_codec::TilePool;
-use drift_core::{Bgra, DisconnectReason, Nv12Frame, Point, Rect, Size};
+use drift_core::{Bgra, Clock, DisconnectReason, Nv12Frame, Point, Rect, Size};
 use drift_gfx::{FrameSink, GfxClient, PresentedCallback};
 use drift_video::decode::VtDecoder;
 use ironrdp_cliprdr::CliprdrClient;
@@ -30,7 +31,17 @@ struct SinkState {
     output: watch::Sender<Option<Size<u32>>>,
     /// Frames handed to the sink since the last [`Graphics::take_presented_frames`].
     frames: AtomicU64,
+    /// The session clock, shared with the render thread (M9-1 latency measurement).
+    clock: Arc<dyn Clock>,
+    /// When the graphics payload currently being processed came off the wire.
+    wire_at: Mutex<Option<Instant>>,
+    /// Decode-and-present latencies since the last [`Graphics::take_frame_latencies`].
+    latencies: Mutex<Vec<Duration>>,
 }
+
+/// How many latency samples are buffered between two statistics ticks (about 60 arrive per
+/// second); beyond that the oldest are dropped rather than growing the buffer.
+const MAX_PENDING_LATENCIES: usize = 512;
 
 /// The tab's frame sink, shared by the GFX clients of successive legs.
 #[derive(Clone)]
@@ -79,7 +90,23 @@ impl FrameSink for SharedSink {
     }
     fn end_frame(&mut self, frame_id: u32, presented: PresentedCallback) {
         self.0.frames.fetch_add(1, Ordering::Relaxed);
-        self.lock().end_frame(frame_id, presented);
+        // The frame's decode started when its payload came off the wire (M9-1: the budget is
+        // decode *and* present). `presented` runs on the render thread, so the measurement
+        // ends there.
+        let state = Arc::clone(&self.0);
+        let started = *state.wire_at.lock().unwrap_or_else(PoisonError::into_inner);
+        let timed: PresentedCallback = Box::new(move || {
+            if let Some(started) = started {
+                let elapsed = state.clock.now().saturating_duration_since(started);
+                let mut pending = state.latencies.lock().unwrap_or_else(PoisonError::into_inner);
+                if pending.len() >= MAX_PENDING_LATENCIES {
+                    pending.remove(0);
+                }
+                pending.push(elapsed);
+            }
+            presented();
+        });
+        self.lock().end_frame(frame_id, timed);
     }
     fn set_visible(&mut self, visible: bool) {
         self.lock().set_visible(visible);
@@ -104,11 +131,29 @@ pub(crate) struct Graphics {
 }
 
 impl Graphics {
-    /// Wraps the tab's sink.
-    pub(crate) fn new(sink: Box<dyn FrameSink>) -> Self {
+    /// Wraps the tab's sink; `clock` timestamps the latency measurements.
+    pub(crate) fn new(sink: Box<dyn FrameSink>, clock: Arc<dyn Clock>) -> Self {
         let (output, _) = watch::channel(None);
-        let state = SinkState { sink: Mutex::new(sink), output, frames: AtomicU64::new(0) };
+        let state = SinkState {
+            sink: Mutex::new(sink),
+            output,
+            frames: AtomicU64::new(0),
+            clock,
+            wire_at: Mutex::new(None),
+            latencies: Mutex::new(Vec::new()),
+        };
         Self { sink: SharedSink(Arc::new(state)), acks_ready: Arc::new(Notify::new()) }
+    }
+
+    /// A graphics payload came off the wire at `now`; frames finished while processing it are
+    /// measured from here (M9-1 decode + present).
+    pub(crate) fn mark_wire(&self, now: Instant) {
+        *self.sink.0.wire_at.lock().unwrap_or_else(PoisonError::into_inner) = Some(now);
+    }
+
+    /// Decode-and-present latencies measured since the last call.
+    pub(crate) fn take_frame_latencies(&self) -> Vec<Duration> {
+        std::mem::take(&mut *self.sink.0.latencies.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     /// Watches the output size of the last `ResetGraphics` (the remote desktop size).

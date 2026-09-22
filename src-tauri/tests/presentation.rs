@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use drift_app::present::{
-    Hud, NEW_SESSION_TITLE, Surface, cursor_shape, find_autoconnect, hud_frame, surface_for, window_subtitle,
-    window_title,
+    Hud, NEW_SESSION_TITLE, Surface, accessibility_label, cursor_shape, find_autoconnect, hud_frame,
+    surface_for, window_subtitle, window_title,
 };
 use drift_app::view::{Screen, SessionView};
 use drift_core::{
@@ -162,6 +162,19 @@ fn subtitle_carries_the_greeter_hint() {
     v.apply(&SessionEvent::State(SessionState::Connecting { leg: 1, stage: ConnectStage::Tcp }));
     v.apply(&SessionEvent::State(SessionState::AwaitingGreeterLogin));
     assert_eq!(window_subtitle(Some(&v)), "Log in to start your session");
+}
+
+/// M9-4: VoiceOver names the picture after the connection and the desktop it shows.
+#[test]
+fn the_picture_is_labelled_for_voiceover() {
+    assert_eq!(accessibility_label(None), "Remote desktop");
+    let live = view_in(
+        ConnectMode::Headless,
+        SessionState::Connected { desktop: DesktopSize::new(2560, 1600), scale: 200 },
+    );
+    assert_eq!(accessibility_label(Some(&live)), "Homelab — remote desktop, 2560 by 1600 pixels");
+    let greeter = view_in(ConnectMode::RemoteLogin, SessionState::AwaitingGreeterLogin);
+    assert_eq!(accessibility_label(Some(&greeter)), "Homelab — remote desktop");
 }
 
 #[test]
