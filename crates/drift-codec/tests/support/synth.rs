@@ -7,38 +7,18 @@
 use ironrdp_graphics::progressive::{COEFFICIENTS_PER_COMPONENT, encode_first_pass, rgba_to_ycbcr};
 use ironrdp_pdu::codecs::rfx::RfxRectangle;
 use ironrdp_pdu::codecs::rfx::progressive::{
-    ComponentCodecQuant, ProgressiveBlock, ProgressiveCodecQuant, ProgressiveContextPdu, ProgressiveFrameBeginPdu,
-    ProgressiveFrameEndPdu, ProgressiveRegion, ProgressiveSyncPdu, ProgressiveTile, TileFirst, TileSimple,
-    TileUpgrade, encode_progressive_stream,
+    ComponentCodecQuant, ProgressiveBlock, ProgressiveCodecQuant, ProgressiveContextPdu,
+    ProgressiveFrameBeginPdu, ProgressiveFrameEndPdu, ProgressiveRegion, ProgressiveSyncPdu, ProgressiveTile,
+    TileFirst, TileSimple, TileUpgrade, encode_progressive_stream,
 };
 
 /// The RemoteFX default quantisation g-r-d (FreeRDP) uses: LL3 6 … HH1 9.
-pub const GRD_QUANT: ComponentCodecQuant = ComponentCodecQuant {
-    ll3: 6,
-    hl3: 6,
-    lh3: 6,
-    hh3: 6,
-    hl2: 7,
-    lh2: 7,
-    hh2: 8,
-    hl1: 8,
-    lh1: 8,
-    hh1: 9,
-};
+pub const GRD_QUANT: ComponentCodecQuant =
+    ComponentCodecQuant { ll3: 6, hl3: 6, lh3: 6, hh3: 6, hl2: 7, lh2: 7, hh2: 8, hl1: 8, lh1: 8, hh1: 9 };
 
 /// A coarse progressive first pass: two extra bits dropped in every band.
-pub const COARSE: ComponentCodecQuant = ComponentCodecQuant {
-    ll3: 2,
-    hl3: 2,
-    lh3: 2,
-    hh3: 2,
-    hl2: 2,
-    lh2: 2,
-    hh2: 2,
-    hl1: 2,
-    lh1: 2,
-    hh1: 2,
-};
+pub const COARSE: ComponentCodecQuant =
+    ComponentCodecQuant { ll3: 2, hl3: 2, lh3: 2, hh3: 2, hl2: 2, lh2: 2, hh2: 2, hl1: 2, lh1: 2, hh1: 2 };
 
 /// A deterministic 64×64 RGBA test pattern (gradients, an edge and some texture).
 pub fn pattern(seed: u32) -> Vec<u8> {
@@ -71,7 +51,13 @@ pub struct EncodedTile {
 }
 
 /// Encodes a 64×64 RGBA tile as a first pass with `quant` and progressive `prog`.
-pub fn encode_tile(x_idx: u16, y_idx: u16, rgba: &[u8], quant: &ComponentCodecQuant, prog: &ComponentCodecQuant) -> EncodedTile {
+pub fn encode_tile(
+    x_idx: u16,
+    y_idx: u16,
+    rgba: &[u8],
+    quant: &ComponentCodecQuant,
+    prog: &ComponentCodecQuant,
+) -> EncodedTile {
     let mut planes = [[0i16; COEFFICIENTS_PER_COMPONENT]; 3];
     {
         let [y, cb, cr] = &mut planes;
@@ -148,8 +134,19 @@ pub fn rect(x: u16, y: u16, width: u16, height: u16) -> RfxRectangle {
 }
 
 /// A REGION with the g-r-d quant table and `prog` as the progressive table.
-pub fn region<'a>(rects: Vec<RfxRectangle>, prog: Vec<ProgressiveCodecQuant>, tiles: Vec<ProgressiveTile<'a>>) -> ProgressiveRegion<'a> {
-    ProgressiveRegion { tile_size: 0x40, rects, quant_vals: vec![GRD_QUANT], quant_prog_vals: prog, flags: 0, tiles }
+pub fn region<'a>(
+    rects: Vec<RfxRectangle>,
+    prog: Vec<ProgressiveCodecQuant>,
+    tiles: Vec<ProgressiveTile<'a>>,
+) -> ProgressiveRegion<'a> {
+    ProgressiveRegion {
+        tile_size: 0x40,
+        rects,
+        quant_vals: vec![GRD_QUANT],
+        quant_prog_vals: prog,
+        flags: 0,
+        tiles,
+    }
 }
 
 /// A complete bitmap stream: [SYNC + CONTEXT] + FRAME_BEGIN + regions + FRAME_END,
@@ -158,7 +155,11 @@ pub fn stream(with_context: bool, regions: Vec<ProgressiveRegion<'_>>) -> Vec<u8
     let mut blocks = Vec::new();
     if with_context {
         blocks.push(ProgressiveBlock::Sync(ProgressiveSyncPdu));
-        blocks.push(ProgressiveBlock::Context(ProgressiveContextPdu { context_id: 0, tile_size: 0x40, flags: 0 }));
+        blocks.push(ProgressiveBlock::Context(ProgressiveContextPdu {
+            context_id: 0,
+            tile_size: 0x40,
+            flags: 0,
+        }));
     }
     blocks.push(ProgressiveBlock::FrameBegin(ProgressiveFrameBeginPdu {
         frame_index: 0,

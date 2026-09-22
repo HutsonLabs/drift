@@ -23,6 +23,7 @@ fn assert_replay_matches(capture: &str, golden: &str, threads: usize) {
     assert!(replay.tiles > 0, "the capture must contain progressive tiles");
     assert!(replay.frames > 0, "the capture must contain complete frames");
     let psnr = psnr_bgra_vs_rgba(&bgra, &rgba);
+    eprintln!("{golden}: PSNR {psnr:.2} dB over {} tiles, {} frames", replay.tiles, replay.frames);
     assert!(psnr >= MIN_PSNR_DB, "PSNR {psnr:.2} dB < {MIN_PSNR_DB} dB");
 }
 

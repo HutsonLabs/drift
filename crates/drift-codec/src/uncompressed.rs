@@ -3,7 +3,7 @@
 use drift_core::Rect;
 
 use crate::error::{CodecError, CodecKind};
-use crate::tile::{BPP, BgraTile};
+use crate::tile::{BPP, BgraTile, validate_dest};
 
 /// Pixel format of an uncompressed payload (`RDPGFX_PIXELFORMAT`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,9 +19,27 @@ pub enum UncompressedFormat {
 /// # Errors
 /// [`CodecError::InvalidRect`] for an empty `dest`, [`CodecError::SizeMismatch`] when
 /// `data` is not exactly `width × height × 4` bytes.
-pub fn decode_uncompressed(dest: Rect, format: UncompressedFormat, data: &[u8]) -> Result<BgraTile, CodecError> {
-    let _ = (dest, format, data, BPP, CodecKind::Uncompressed, BgraTile::full as fn(_, _) -> _);
-    todo!("M1-4: decode_uncompressed")
+pub fn decode_uncompressed(
+    dest: Rect,
+    format: UncompressedFormat,
+    data: &[u8],
+) -> Result<BgraTile, CodecError> {
+    let (w, h) = validate_dest(CodecKind::Uncompressed, dest)?;
+    let expected = usize::from(w) * usize::from(h) * BPP;
+    if data.len() != expected {
+        return Err(CodecError::SizeMismatch {
+            codec: CodecKind::Uncompressed,
+            expected,
+            actual: data.len(),
+        });
+    }
+    let mut px = data.to_vec();
+    if format == UncompressedFormat::Xrgb {
+        for p in px.chunks_exact_mut(BPP) {
+            p[3] = 0xFF;
+        }
+    }
+    Ok(BgraTile::full(dest, px))
 }
 
 #[cfg(test)]

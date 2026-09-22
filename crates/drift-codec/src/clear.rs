@@ -4,7 +4,7 @@ use drift_core::Rect;
 use ironrdp_graphics::clearcodec::ClearCodecDecoder;
 
 use crate::error::{CodecError, CodecKind};
-use crate::tile::BgraTile;
+use crate::tile::{BgraTile, validate_dest};
 
 /// A ClearCodec decoder. ClearCodec keeps V-bar and glyph caches across commands, so a
 /// session holds one instance for its whole lifetime (caches are reset in-band by
@@ -32,8 +32,21 @@ impl ClearCodec {
     /// [`CodecError::InvalidRect`] for an empty or oversized `dest`, [`CodecError::Malformed`]
     /// when the stream does not decode.
     pub fn decode(&mut self, dest: Rect, data: &[u8]) -> Result<BgraTile, CodecError> {
-        let _ = (dest, data, CodecKind::ClearCodec, BgraTile::full as fn(_, _) -> _);
-        todo!("M1-4: ClearCodec::decode")
+        let (w, h) = validate_dest(CodecKind::ClearCodec, dest)?;
+        let bgra = self
+            .inner
+            .get_or_insert_with(ClearCodecDecoder::new)
+            .decode(data, w, h)
+            .map_err(|e| CodecError::malformed(CodecKind::ClearCodec, e))?;
+        let expected = usize::from(w) * usize::from(h) * 4;
+        if bgra.len() != expected {
+            return Err(CodecError::SizeMismatch {
+                codec: CodecKind::ClearCodec,
+                expected,
+                actual: bgra.len(),
+            });
+        }
+        Ok(BgraTile::full(dest, bgra))
     }
 }
 
@@ -46,7 +59,8 @@ mod tests {
     #[test]
     fn clearcodec_round_trips_colour_and_is_opaque() {
         let (w, h) = (6u16, 4u16);
-        let bgra: Vec<u8> = (0..u32::from(w) * u32::from(h)).flat_map(|i| [i as u8, 0x40, 0x80, 0x10]).collect();
+        let bgra: Vec<u8> =
+            (0..u32::from(w) * u32::from(h)).flat_map(|i| [i as u8, 0x40, 0x80, 0x10]).collect();
         let stream = ClearCodecEncoder::new().encode(&bgra, w, h);
         let mut codec = ClearCodec::new();
         assert!(format!("{codec:?}").contains("allocated: false"));

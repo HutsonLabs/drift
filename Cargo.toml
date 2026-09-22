@@ -118,3 +118,9 @@ opt-level = 3
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# macOS 27's `strip -S` corrupts proc-macro dylibs ("mis-aligned LINKEDIT string pool"),
+# so rustc cannot load them and every release build fails with E0463 (seen in M1-4).
+# Build scripts and proc-macros are host-only tools; leave them unstripped.
+[profile.release.build-override]
+strip = false

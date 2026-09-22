@@ -2,6 +2,8 @@
 
 use drift_core::{Point, Rect, Size};
 
+use crate::error::{CodecError, CodecKind};
+
 /// Bytes per BGRA8 pixel.
 pub(crate) const BPP: usize = 4;
 
@@ -55,18 +57,66 @@ impl BgraTile {
     /// The blits for every update rectangle. Rectangles that are empty or fall outside the
     /// buffer's footprint are skipped (never produced by this crate's decoders).
     pub fn blits(&self) -> impl Iterator<Item = Blit<'_>> + '_ {
-        let _ = self;
-        let v: Vec<Blit<'_>> = todo!("M1-4: BgraTile::blits");
-        #[allow(unreachable_code)]
-        v.into_iter()
+        let footprint = self.footprint();
+        let stride = self.stride();
+        self.update_rects.iter().filter_map(move |&rect| {
+            if rect.is_empty() || !contains(footprint, rect) {
+                return None;
+            }
+            let local_x = (rect.x - self.origin.x) as usize;
+            let local_y = (rect.y - self.origin.y) as usize;
+            let start = local_y * stride + local_x * BPP;
+            let needed = (rect.height as usize - 1) * stride + rect.width as usize * BPP;
+            let data = self.data.get(start..)?;
+            (data.len() >= needed).then_some(Blit { rect, stride, data })
+        })
     }
 
     /// Copies the update rectangles into a BGRA8 surface buffer of `surface` size
     /// (tightly packed). Rectangles outside the surface are clipped.
     pub fn blit_into(&self, surface: Size<u32>, dst: &mut [u8]) {
-        let _ = (surface, dst);
-        todo!("M1-4: BgraTile::blit_into")
+        let dst_stride = surface.width as usize * BPP;
+        for blit in self.blits() {
+            let r = blit.rect;
+            let right = r.right().min(surface.width);
+            let bottom = r.bottom().min(surface.height);
+            if right <= r.x || bottom <= r.y {
+                continue;
+            }
+            let row_bytes = (right - r.x) as usize * BPP;
+            for row in 0..(bottom - r.y) as usize {
+                let src = &blit.data[row * blit.stride..][..row_bytes];
+                let d = (r.y as usize + row) * dst_stride + r.x as usize * BPP;
+                if let Some(out) = dst.get_mut(d..d + row_bytes) {
+                    out.copy_from_slice(src);
+                }
+            }
+        }
     }
+}
+
+/// Largest destination rectangle a `WireToSurface1` codec will decode, in pixels (128 MiB of
+/// BGRA). Bounds the allocation a hostile server can trigger with a single rectangle.
+pub(crate) const MAX_DEST_PIXELS: usize = 1 << 25;
+
+/// Checks a `WireToSurface1` destination rectangle: non-empty, 16-bit dimensions (the wire
+/// uses `RECT16`) and at most [`MAX_DEST_PIXELS`]. Returns `(width, height)`.
+pub(crate) fn validate_dest(codec: CodecKind, rect: Rect) -> Result<(u16, u16), CodecError> {
+    let invalid = || CodecError::InvalidRect { codec, rect };
+    let w = u16::try_from(rect.width).map_err(|_| invalid())?;
+    let h = u16::try_from(rect.height).map_err(|_| invalid())?;
+    if w == 0 || h == 0 || usize::from(w) * usize::from(h) > MAX_DEST_PIXELS {
+        return Err(invalid());
+    }
+    Ok((w, h))
+}
+
+/// `true` when `inner` lies entirely inside `outer`.
+fn contains(outer: Rect, inner: Rect) -> bool {
+    inner.x >= outer.x
+        && inner.y >= outer.y
+        && inner.right() <= outer.right()
+        && inner.bottom() <= outer.bottom()
 }
 
 #[cfg(test)]

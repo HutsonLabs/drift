@@ -146,7 +146,10 @@ impl Replay {
             }
             GfxPdu::CreateSurface(c) => {
                 let size = Size::new(u32::from(c.width), u32::from(c.height));
-                self.surfaces.insert(c.surface_id, Surface { size, px: vec![0; (size.width * size.height * 4) as usize] });
+                self.surfaces.insert(
+                    c.surface_id,
+                    Surface { size, px: vec![0; (size.width * size.height * 4) as usize] },
+                );
             }
             GfxPdu::DeleteSurface(d) => {
                 self.surfaces.remove(&d.surface_id);
@@ -161,7 +164,9 @@ impl Replay {
                 self.progressive.end_frame();
                 self.frames += 1;
             }
-            GfxPdu::DeleteEncodingContext(d) => self.progressive.delete_context(d.surface_id, d.codec_context_id),
+            GfxPdu::DeleteEncodingContext(d) => {
+                self.progressive.delete_context(d.surface_id, d.codec_context_id)
+            }
             GfxPdu::SolidFill(f) => {
                 for r in &f.rectangles {
                     let Some(r) = rect(r) else { continue };
@@ -211,7 +216,8 @@ impl Replay {
             }
             GfxPdu::WireToSurface2(w) => {
                 let size = self.surfaces.get(&w.surface_id).map(|s| s.size).unwrap();
-                let tiles = self.progressive.decode(w.surface_id, w.codec_context_id, size, &w.bitmap_data).unwrap();
+                let tiles =
+                    self.progressive.decode(w.surface_id, w.codec_context_id, size, &w.bitmap_data).unwrap();
                 self.tiles += tiles.len();
                 for t in &tiles {
                     self.blit(w.surface_id, t);
@@ -239,7 +245,8 @@ impl Replay {
 }
 
 fn rect(r: &ironrdp_pdu::geometry::ExclusiveRectangle) -> Option<Rect> {
-    Rect::from_ltrb(u32::from(r.left), u32::from(r.top), u32::from(r.right), u32::from(r.bottom)).filter(|r| !r.is_empty())
+    Rect::from_ltrb(u32::from(r.left), u32::from(r.top), u32::from(r.right), u32::from(r.bottom))
+        .filter(|r| !r.is_empty())
 }
 
 /// Replays a DRFTGFX1 capture and returns the final output image (BGRA).
@@ -284,8 +291,9 @@ pub fn psnr_bgra_vs_rgba(bgra: &[u8], rgba: &[u8]) -> f64 {
 pub fn real_tile_stream() -> Vec<u8> {
     use ironrdp_pdu::codecs::rfx::RfxRectangle;
     use ironrdp_pdu::codecs::rfx::progressive::{
-        ProgressiveBlock, ProgressiveContextPdu, ProgressiveFrameBeginPdu, ProgressiveFrameEndPdu, ProgressiveRegion,
-        ProgressiveSyncPdu, ProgressiveTile, decode_progressive_stream, encode_progressive_stream,
+        ProgressiveBlock, ProgressiveContextPdu, ProgressiveFrameBeginPdu, ProgressiveFrameEndPdu,
+        ProgressiveRegion, ProgressiveSyncPdu, ProgressiveTile, decode_progressive_stream,
+        encode_progressive_stream,
     };
 
     let capture = read_fixture("gfx/greeter_v81noavc.gfx");

@@ -5,7 +5,9 @@ mod support;
 
 use std::sync::OnceLock;
 
-use drift_codec::{ClearCodec, ProgressiveCodec, TilePool, UncompressedFormat, decode_planar, decode_uncompressed};
+use drift_codec::{
+    ClearCodec, ProgressiveCodec, TilePool, UncompressedFormat, decode_planar, decode_uncompressed,
+};
 use drift_core::{Rect, Size};
 use proptest::prelude::*;
 use support::synth;
@@ -38,7 +40,8 @@ fn mutation() -> impl Strategy<Value = Mutation> {
     prop_oneof![
         (any::<usize>(), 1u8..).prop_map(|(at, xor)| Mutation::Flip { at, xor }),
         any::<usize>().prop_map(|at| Mutation::Truncate { at }),
-        (any::<usize>(), proptest::collection::vec(any::<u8>(), 1..16)).prop_map(|(at, bytes)| Mutation::Splice { at, bytes }),
+        (any::<usize>(), proptest::collection::vec(any::<u8>(), 1..16))
+            .prop_map(|(at, bytes)| Mutation::Splice { at, bytes }),
     ]
 }
 

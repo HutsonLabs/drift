@@ -28,8 +28,11 @@ impl TilePool {
     /// # Errors
     /// Returns the rayon error if the OS refuses to spawn the worker threads.
     pub fn new(threads: usize) -> Result<Self, rayon::ThreadPoolBuildError> {
-        let _ = threads;
-        todo!("M1-4: TilePool::new")
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads.max(1))
+            .thread_name(|i| format!("drift-codec-{i}"))
+            .build()?;
+        Ok(Self { pool: Arc::new(pool) })
     }
 
     /// Creates a pool sized to the machine: `available_parallelism`, capped at 8.
@@ -37,7 +40,7 @@ impl TilePool {
     /// # Errors
     /// Returns the rayon error if the OS refuses to spawn the worker threads.
     pub fn with_default_threads() -> Result<Self, rayon::ThreadPoolBuildError> {
-        todo!("M1-4: TilePool::with_default_threads")
+        Self::new(default_threads())
     }
 
     /// Number of worker threads.

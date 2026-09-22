@@ -19,7 +19,9 @@ fn bench(c: &mut Criterion) {
     let capture = support::read_fixture("gfx/greeter_v81noavc.gfx");
     let payloads = support::progressive_payloads(&capture);
     let (s, ctx, frame) = payloads.iter().max_by_key(|p| p.2.len()).unwrap().clone();
-    for (name, pool) in [("1_thread", TilePool::new(1).unwrap()), ("default_pool", TilePool::with_default_threads().unwrap())] {
+    for (name, pool) in
+        [("1_thread", TilePool::new(1).unwrap()), ("default_pool", TilePool::with_default_threads().unwrap())]
+    {
         let mut codec = ProgressiveCodec::new(pool);
         // Establish the codec context (the first payload carries SYNC + CONTEXT).
         codec.decode(payloads[0].0, payloads[0].1, surface, &payloads[0].2).unwrap();
