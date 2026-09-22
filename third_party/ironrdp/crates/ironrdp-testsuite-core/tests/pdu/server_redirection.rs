@@ -106,14 +106,20 @@ fn decodes_gnome_remote_login_redirection() {
     assert_eq!(pdu.username.as_deref().unwrap().chars().count(), 16);
     assert_eq!(pdu.password.as_deref(), Some(PASSWORD_BLOB.as_slice()));
     assert_eq!(pdu.redirection_guid.as_deref().map(<[u8]>::len), Some(50));
-    assert_eq!(pdu.redirection_guid.as_deref(), Some(utf16(GUID_BASE64, true).as_slice()));
+    assert_eq!(
+        pdu.redirection_guid.as_deref(),
+        Some(utf16(GUID_BASE64, true).as_slice())
+    );
     assert_eq!(pdu.target_net_address, None);
     assert_eq!(pdu.domain, None);
     assert_eq!(pdu.target_fqdn, None);
     assert_eq!(pdu.target_netbios_name, None);
     assert_eq!(pdu.tsv_url, None);
     assert_eq!(pdu.target_net_addresses, None);
-    assert_eq!(pdu.target_certificate.as_deref(), Some(utf16(CERT_BASE64, false).as_slice()));
+    assert_eq!(
+        pdu.target_certificate.as_deref(),
+        Some(utf16(CERT_BASE64, false).as_slice())
+    );
 }
 
 #[test]
@@ -156,7 +162,7 @@ fn target_certificate_container_round_trips() {
         }],
     };
 
-    let wire = container.encode_wire();
+    let wire = container.encode_wire().unwrap();
     assert_eq!(wire, utf16(CERT_BASE64, false));
     assert_eq!(TargetCertificateContainer::decode_wire(&wire).unwrap(), container);
 }
