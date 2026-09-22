@@ -91,11 +91,13 @@ fn main() {
         std::process::exit(2);
     });
     let dir = tempfile::tempdir().unwrap();
+    // `..Default::default()` on purpose: a new `RunOptions` field must not break this test
+    // binary, which only `cargo xtask ci`'s `--all-features` lint pass compiles.
     let options = RunOptions {
         config_dir: Some(dir.path().to_path_buf()),
         memory_secrets: true,
-        autoconnect: None,
         on_ready: Some(Box::new(scenario)),
+        ..Default::default()
     };
     drift_app::run_with(options);
 }

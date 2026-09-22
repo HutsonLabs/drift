@@ -82,7 +82,10 @@ fn feature_gaps_are_reported_when_the_lint_list_is_narrow() {
             dir: PathBuf::new(),
         },
     }];
-    let features = [("drift-app".to_owned(), "recording".to_owned()), ("drift-video".to_owned(), "recording".to_owned())];
+    let features = [
+        ("drift-app".to_owned(), "recording".to_owned()),
+        ("drift-video".to_owned(), "recording".to_owned()),
+    ];
     assert_eq!(ci_plan::feature_lint_gaps(&features, &narrow), vec!["drift-app/recording".to_owned()]);
 }
 

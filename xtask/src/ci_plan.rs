@@ -92,9 +92,12 @@ impl Step {
     pub fn command_line(&self) -> Option<String> {
         match &self.action {
             Action::InProcess(_) => None,
-            Action::Run { program, args, .. } => {
-                Some(std::iter::once(program.as_str().to_owned()).chain(args.clone()).collect::<Vec<_>>().join(" "))
-            }
+            Action::Run { program, args, .. } => Some(
+                std::iter::once(program.as_str().to_owned())
+                    .chain(args.clone())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
         }
     }
 
@@ -148,16 +151,48 @@ fn check(name: &str, c: Check) -> Step {
     Step { name: name.to_owned(), action: Action::InProcess(c) }
 }
 
+/// Vendored packages whose own tests `cargo xtask ci` runs (plan M0-2 Done: "the fork's own
+/// tests pass"). These are the crates Drift both patches and depends on, plus the fork's test
+/// suite, which holds M0-2's four Red tests.
+///
+/// `ironrdp-client` and `ironrdp-web` are patched for upstream compatibility only: Drift does
+/// not depend on them, and they do not build on a macOS host (libopus, wasm-bindgen). The whole
+/// vendored workspace cannot be tested for the same reason — see
+/// `docs/adr/M0-6-ci-gate-coverage.md`.
+pub const VENDORED_TEST_PACKAGES: &[&str] =
+    &["ironrdp-testsuite-core", "ironrdp-cliprdr", "ironrdp-connector", "ironrdp-pdu", "ironrdp-session"];
+
 /// The lint pass: formatting and clippy over every target and every feature.
+///
+/// `--all-features` rather than a hand-maintained list: a new cargo feature is then covered by
+/// the gate the moment it is declared. Tests cannot do the same (see [`NEXTEST_FEATURES`]).
 fn lint_steps() -> Vec<Step> {
     vec![
         run("cargo fmt --check", Program::Cargo, "", &["fmt", "--all", "--", "--check"]),
         run(
-            "cargo clippy -D warnings",
+            "cargo clippy -D warnings (--all-features)",
             Program::Cargo,
             "",
-            &["clippy", "--workspace", "--all-targets", "--locked", "--features", NEXTEST_FEATURES, "--", "-D", "warnings"],
+            &["clippy", "--workspace", "--all-targets", "--all-features", "--locked", "--", "-D", "warnings"],
         ),
+    ]
+}
+
+/// The vendored IronRDP workspace: format check plus the fork's own tests (plan M0-2).
+fn vendored_steps() -> Vec<Step> {
+    let mut test_args = vec!["test"];
+    for p in VENDORED_TEST_PACKAGES {
+        test_args.push("-p");
+        test_args.push(p);
+    }
+    vec![
+        run(
+            "vendored ironrdp: cargo fmt --check",
+            Program::Cargo,
+            VENDORED_DIR,
+            &["fmt", "--all", "--", "--check"],
+        ),
+        run("vendored ironrdp: cargo test", Program::Cargo, VENDORED_DIR, &test_args),
     ]
 }
 
@@ -166,6 +201,7 @@ pub fn ci(options: Options) -> Vec<Step> {
     let mut steps = vec![
         check("npm-ban", Check::NpmBan),
         check("secret-scan", Check::SecretScan),
+        check("workflows", Check::Workflows),
         run("bun install --frozen-lockfile", Program::Bun, "ui", &["install", "--frozen-lockfile"]),
         run("bun test", Program::Bun, "ui", &["test"]),
         run("bun run typecheck", Program::Bun, "ui", &["run", "typecheck"]),
@@ -173,6 +209,7 @@ pub fn ci(options: Options) -> Vec<Step> {
         check("bindings freshness", Check::BindingsFresh),
     ];
     steps.extend(lint_steps());
+    steps.extend(vendored_steps());
     if options.coverage {
         steps.push(run(
             "nextest under llvm-cov",
@@ -208,7 +245,12 @@ pub fn ci(options: Options) -> Vec<Step> {
 /// The fast local subset (`cargo xtask check`): fmt, clippy, nextest.
 pub fn check_only() -> Vec<Step> {
     let mut steps = lint_steps();
-    steps.push(run("nextest", Program::Cargo, "", &["nextest", "run", "--workspace", "--features", NEXTEST_FEATURES]));
+    steps.push(run(
+        "nextest",
+        Program::Cargo,
+        "",
+        &["nextest", "run", "--workspace", "--features", NEXTEST_FEATURES],
+    ));
     steps
 }
 
@@ -265,11 +307,7 @@ pub fn feature_lint_gaps(features: &[(String, String)], steps: &[Step]) -> Vec<S
             }
         }
     }
-    features
-        .iter()
-        .map(|(pkg, feat)| format!("{pkg}/{feat}"))
-        .filter(|f| !explicit.contains(f))
-        .collect()
+    features.iter().map(|(pkg, feat)| format!("{pkg}/{feat}")).filter(|f| !explicit.contains(f)).collect()
 }
 
 /// The `-p <name>` argument of a cargo command line, if there is exactly one.
@@ -293,7 +331,8 @@ pub fn vendored_dependencies(root_manifest: &str) -> BTreeSet<String> {
     let Ok(table) = root_manifest.parse::<toml::Table>() else {
         return BTreeSet::new();
     };
-    let Some(deps) = table.get("workspace").and_then(|w| w.get("dependencies")).and_then(toml::Value::as_table)
+    let Some(deps) =
+        table.get("workspace").and_then(|w| w.get("dependencies")).and_then(toml::Value::as_table)
     else {
         return BTreeSet::new();
     };

@@ -5,7 +5,9 @@ use std::process::{Child, Command, ExitCode, Stdio};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use xtask::{coverage, e2e_env, fixtures, host_check, npm_ban, repo, sanitize, secret_scan};
+use xtask::{
+    ci_plan, coverage, e2e_env, fixtures, host_check, npm_ban, repo, sanitize, secret_scan, workflows,
+};
 
 #[derive(Parser)]
 #[command(name = "cargo xtask", about = "Drift build automation")]
@@ -16,8 +18,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Full CI gate: npm-ban, secret-scan, bun test/build, bindings freshness, fmt,
-    /// clippy -D warnings, nextest under llvm-cov + coverage gate, cargo deny.
+    /// Full CI gate: npm-ban, secret-scan, workflow audit, bun test/build, bindings freshness,
+    /// fmt, clippy -D warnings over all features and targets, the vendored IronRDP fork's fmt
+    /// and tests, nextest under llvm-cov + coverage gate, cargo deny. The step list lives in
+    /// `xtask::ci_plan` and is asserted by `xtask/tests/ci_plan.rs`.
     Ci {
         /// Run nextest without llvm-cov instrumentation and skip the coverage gate.
         #[arg(long)]
@@ -30,6 +34,8 @@ enum Cmd {
     Check,
     /// Fail if npm/yarn/pnpm lockfiles or invocations exist (plan §0).
     NpmBan,
+    /// Fail if `.github/workflows/` is missing a run the plan requires (M0-6, §5.3, M9-2).
+    Workflows,
     /// Fail if any dev-machine secret appears in a repository file.
     SecretScan {
         /// Secrets directory (default `$DRIFT_SECRETS_DIR` or `~/code/drift-spikes/secrets`).
@@ -99,6 +105,7 @@ fn run(cmd: Cmd) -> Result<()> {
         Cmd::Ci { no_coverage, no_deny } => ci(&root, !no_coverage, !no_deny),
         Cmd::Check => check(&root),
         Cmd::NpmBan => npm_ban_check(&root),
+        Cmd::Workflows => workflows_check(&root),
         Cmd::SecretScan { dir } => secret_scan_check(&root, dir),
         Cmd::CoverageGate { json } => coverage_gate(&root, &json),
         Cmd::Bindings { check } => bindings(&root, check),
@@ -227,10 +234,6 @@ fn sh(root: &Path, program: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-/// Optional features that CI builds, lints and tests too (feature-gated code must not rot).
-/// `drift-video/recording`: the M8 encoder + MP4 writer.
-const TEST_FEATURES: &str = "drift-video/recording";
-
 fn cargo() -> String {
     std::env::var("CARGO").unwrap_or_else(|_| "cargo".into())
 }
@@ -239,90 +242,73 @@ fn bun() -> String {
     std::env::var("BUN").unwrap_or_else(|_| "bun".into())
 }
 
+/// Runs a list of [`ci_plan`] steps in order, announcing each one.
+///
+/// The gate is described by [`ci_plan::ci`], so `xtask/tests/ci_plan.rs` can assert what it
+/// covers (the feature-gated targets of M6-2/M8-3, and the vendored fork's tests for M0-2).
+fn run_steps(root: &Path, steps: &[ci_plan::Step]) -> Result<()> {
+    for s in steps {
+        step(&s.name);
+        match &s.action {
+            ci_plan::Action::InProcess(c) => run_in_process(root, *c)?,
+            ci_plan::Action::Run { program, args, dir } => {
+                let program = match program {
+                    ci_plan::Program::Cargo => cargo(),
+                    ci_plan::Program::Bun => bun(),
+                };
+                let args: Vec<&str> = args.iter().map(String::as_str).collect();
+                sh(&root.join(dir), &program, &args)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_in_process(root: &Path, check: ci_plan::Check) -> Result<()> {
+    match check {
+        ci_plan::Check::NpmBan => npm_ban_check(root),
+        ci_plan::Check::SecretScan => secret_scan_check(root, None),
+        ci_plan::Check::Workflows => workflows_check(root),
+        ci_plan::Check::BindingsFresh => bindings(root, true),
+        ci_plan::Check::CoverageGate => coverage_gate(root, &root.join(ci_plan::COVERAGE_JSON)),
+    }
+}
+
 fn ci(root: &Path, with_coverage: bool, with_deny: bool) -> Result<()> {
-    step("npm-ban");
-    npm_ban_check(root)?;
-    step("secret-scan");
-    secret_scan_check(root, None)?;
-    ui(root)?;
-    step("bindings freshness");
-    bindings(root, true)?;
-    fmt_clippy(root)?;
-    if with_coverage {
-        step("nextest under llvm-cov");
-        let json = root.join("target/llvm-cov-summary.json");
-        let c = cargo();
-        sh(
-            root,
-            &c,
-            &[
-                "llvm-cov",
-                "nextest",
-                "--workspace",
-                "--features",
-                TEST_FEATURES,
-                "--json",
-                "--summary-only",
-                "--output-path",
-                json.to_str().context("non-UTF-8 path")?,
-            ],
-        )?;
-        step("coverage gate");
-        coverage_gate(root, &json)?;
-    } else {
-        step("nextest");
-        sh(root, &cargo(), &["nextest", "run", "--workspace", "--features", TEST_FEATURES])?;
-    }
-    if with_deny {
-        step("cargo deny");
-        sh(root, &cargo(), &["deny", "--workspace", "check"])?;
-    }
+    run_steps(root, &ci_plan::ci(ci_plan::Options { coverage: with_coverage, deny: with_deny }))?;
     eprintln!("\nxtask: ci passed");
     Ok(())
 }
 
 fn check(root: &Path) -> Result<()> {
     ensure_ui_dist(root)?;
-    fmt_clippy(root)?;
-    step("nextest");
-    sh(root, &cargo(), &["nextest", "run", "--workspace", "--features", TEST_FEATURES])?;
+    run_steps(root, &ci_plan::check_only())?;
     eprintln!("\nxtask: check passed");
     Ok(())
 }
 
-fn fmt_clippy(root: &Path) -> Result<()> {
-    let c = cargo();
-    step("cargo fmt --check");
-    sh(root, &c, &["fmt", "--all", "--", "--check"])?;
-    step("cargo clippy -D warnings");
-    sh(
-        root,
-        &c,
-        &[
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--locked",
-            "--features",
-            TEST_FEATURES,
-            "--",
-            "-D",
-            "warnings",
-        ],
-    )
-}
-
-fn ui(root: &Path) -> Result<()> {
-    let ui = root.join("ui");
-    let b = bun();
-    step("bun install --frozen-lockfile");
-    sh(&ui, &b, &["install", "--frozen-lockfile"])?;
-    step("bun test");
-    sh(&ui, &b, &["test"])?;
-    step("bun run typecheck");
-    sh(&ui, &b, &["run", "typecheck"])?;
-    step("bun run build");
-    sh(&ui, &b, &["run", "build"])
+/// Audits `.github/workflows/` against the runs the plan requires (M0-6, §5.3, M9-2).
+fn workflows_check(root: &Path) -> Result<()> {
+    let dir = root.join(".github/workflows");
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|e| e == "yml" || e == "yaml") {
+            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let text =
+                std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files.push((name, text));
+        }
+    }
+    let problems = workflows::audit(&files);
+    if problems.is_empty() {
+        eprintln!("workflows: {} file(s) satisfy the plan", files.len());
+        return Ok(());
+    }
+    for p in &problems {
+        eprintln!("workflows: {p}");
+    }
+    bail!("{} workflow gap(s); see plan M0-6 and §5.3", problems.len())
 }
 
 /// `tauri::generate_context!` needs `ui/dist`; build it if missing.
