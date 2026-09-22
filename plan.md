@@ -377,7 +377,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
 - [ ] **M0-1 Workspace scaffold** (E). Workspace, toolchain, lints, the crates from §2, `ui/` via `bun init`, `src-tauri` via `cargo tauri init` with the npm references removed, and the profile settings from §0.
   **Red:** an xtask test that fails if there are any npm/yarn/pnpm lockfiles or `npm`/`npx` invocations in scripts, workflows or docs.
   **Done:** `cargo xtask ci` is green and `cargo tauri dev` opens a window.
-- [ ] **M0-2 IronRDP fork** (A). Fork at `b149f50` with branch `drift-main`. Apply `ironrdp-drift.patch` (RDSTLS request), then port three things from `probe2` into IronRDP style: `ServerRedirectionPdu` decode in `ironrdp-pdu` (share type 0xA), a `ActiveStageOutput::ServerRedirect` surfaced by `ironrdp-session`, and an `rdstls` client module in `ironrdp-connector`. Fix the `CB_TEMP_DIRECTORY` length. Open an upstream PR for each change.
+- [x] **M0-2 IronRDP fork** (A). Fork at `b149f50` with branch `drift-main`. Apply `ironrdp-drift.patch` (RDSTLS request), then port three things from `probe2` into IronRDP style: `ServerRedirectionPdu` decode in `ironrdp-pdu` (share type 0xA), a `ActiveStageOutput::ServerRedirect` surfaced by `ironrdp-session`, and an `rdstls` client module in `ironrdp-connector`. Fix the `CB_TEMP_DIRECTORY` length. Open an upstream PR for each change.
   **Red:**
   - decode tests with the captured redirection PDU (sanitized), checking flags `0x1C016`, LB `Cookie: msts=…\r\n`, a 16-char user, a 34-byte password, a 50-byte GUID and the cert container;
   - RDSTLS encode tests against byte vectors from §1.3;
