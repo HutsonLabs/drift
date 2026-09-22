@@ -37,6 +37,8 @@ zeroize.workspace = true
 [dev-dependencies]
 drift-testkit.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+# M9-3: capture the actor's own `tracing` output and assert no credential is in it.
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

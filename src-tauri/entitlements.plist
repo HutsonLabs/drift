@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Drift's entitlements (plan M9-3), used by `cargo tauri build` for both the app bundle and,
+  with the Hardened Runtime, for Developer ID signing and notarization (M9-5).
+
+  Everything Drift does is deliberately inside the default sandbox:
+
+  - RDP connections are outgoing TCP, so `network.client` is the only network entitlement.
+    Drift never listens, so `network.server` stays off. Local Network Privacy is a *separate*
+    macOS permission granted by the user at the first LAN connection; it needs
+    `NSLocalNetworkUsageDescription` in Info.plist and a stable signing identity, not an
+    entitlement (plan §1.8).
+  - The Keychain (`security-framework`) works inside the sandbox for the app's own items: they
+    are filed under the access group `<team>.com.hutsonlabs.drift`, which matches the service
+    name Drift stores under. No `keychain-access-groups` entitlement is needed for that, and
+    adding one would only widen the reach.
+  - Metal, VideoToolbox and NSPasteboard are all sandbox-safe APIs; the pasteboard is the
+    user's own general pasteboard, not another app's.
+  - Configuration goes to `app_config_dir()`, which the sandbox redirects into the app's
+    container, so no file-access entitlement is required. Drift never opens user files.
+
+  See docs/adr/M9-3-sandbox-hardening-and-secrets.md.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

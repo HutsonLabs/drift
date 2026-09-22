@@ -236,3 +236,40 @@ ssh -N -L 23392:localhost:3392 -L 23389:localhost:3389 homelab@10.1.2.40 &
 DRIFT_CONFIG_DIR=/tmp/drift-smoke DRIFT_AUTOCONNECT="Homelab Headless" \
   cargo run -p drift-app --bin drift-app           # profiles.toml pins the daemon's fingerprint
 ```
+
+## M9-3 — App Sandbox, Hardened Runtime and the Local Network prompt
+
+`cargo test -p drift-app --test m9_3_hardening` pins the bundle configuration (entitlements
+file, `hardenedRuntime`, `NSLocalNetworkUsageDescription`), and
+`crates/drift-rdp/tests/m9_3_logging.rs` proves no credential reaches a log. What is left needs
+a **signed, sandboxed build** (`cargo xtask bundle`, M9-5) and a person, because the sandbox and
+the privacy prompts only exist for a real bundle — a `cargo run` binary is unsandboxed and the
+tests would pass either way. See `docs/adr/M9-3-sandbox-hardening-and-secrets.md`.
+
+Install the signed `Drift.app`, then confirm on that build:
+
+- [ ] **The sandbox is on:** `codesign -d --entitlements - /Applications/Drift.app` lists
+      `com.apple.security.app-sandbox` and `com.apple.security.network.client`, and
+      `codesign -dv` shows `flags=0x10000(runtime)` (Hardened Runtime). A container appears at
+      `~/Library/Containers/com.hutsonlabs.drift/`.
+- [ ] **Local Network prompt:** on first connect to a LAN host macOS shows the prompt with
+      Drift's usage description; allowing it connects, and the permission survives relaunching.
+      Deny it (System Settings › Privacy & Security › Local Network) and confirm Drift shows the
+      errno 65 screen whose button opens exactly that pane.
+- [ ] **Keychain:** save a profile password in the sandboxed app, quit, relaunch and connect —
+      the password is found without any prompt (the item lives in the app's own access group,
+      keyed by the bundle identifier). `drift-macos` uses the **legacy** `SecKeychain` API
+      (`security-framework`'s `os::macos` module), which a sandboxed app may use for its own
+      items; if this step ever fails with `errSecInteractionNotAllowed` or an unexpected access
+      panel, the fix is to move `drift_macos::keychain` to the data-protection keychain
+      (`SecItemAdd` with `kSecUseDataProtectionKeychain`), not to widen the entitlements.
+- [ ] **Metal:** the live picture renders at ~60 fps with `anim.py` on the host (the stats HUD);
+      the sandbox must not affect `CAMetalLayer` or the `IOSurface`-backed frames.
+- [ ] **VideoToolbox:** the same session decodes AVC420 in hardware (no fallback message in the
+      log, `fps` stays at 60 with motion), and with the `recording` feature the encoder writes a
+      playable MP4 into the container's `Movies` folder.
+- [ ] **Pasteboard:** copy text and an image in both directions (M5 acceptance) inside the
+      sandboxed app; the general pasteboard is reachable without an entitlement.
+- [ ] **Config:** the profile list is written to
+      `~/Library/Containers/com.hutsonlabs.drift/Data/Library/Application Support/com.hutsonlabs.drift/`
+      and survives a relaunch; nothing is written outside the container.

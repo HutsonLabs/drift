@@ -146,12 +146,24 @@ pub fn run_with(options: RunOptions) {
     });
 }
 
-/// Sets up `tracing` (`RUST_LOG`, default `info`). Secrets never reach a log: passwords live
-/// in `Zeroizing` values whose `Debug` is redacted (ADR M0-5) and are never formatted here.
+/// Sets up `tracing` (`RUST_LOG`, default `info`). Secrets never reach a log: Drift's own
+/// passwords live in `Zeroizing` values whose `Debug` is redacted (ADR M0-5) and are never
+/// formatted here, and the third-party targets that *do* log credentials below `INFO` are
+/// capped by `drift_rdp::logging` whatever `RUST_LOG` asks for (M9-3).
 fn init_logging() {
-    use tracing_subscriber::EnvFilter;
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    use tracing_subscriber::{EnvFilter, filter};
+
+    let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    // Second global filter: `RUST_LOG` chooses verbosity, this one refuses the targets that
+    // log credentials below INFO, whatever `RUST_LOG` asked for (M9-3).
+    let credentials = filter::filter_fn(|m| drift_rdp::logging::allows(m.target(), *m.level()));
+    let _ = tracing_subscriber::registry()
+        .with(env)
+        .with(credentials)
+        .with(tracing_subscriber::fmt::layer())
+        .try_init();
 }
 
 /// Runs the application (called from `main`).

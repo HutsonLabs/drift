@@ -272,6 +272,11 @@ pub(crate) fn gfx_message(pdus: &[GfxPdu]) -> PduResult<DvcMessage> {
     Ok(Box::new(RawDvc(ironrdp_graphics::zgfx::wrap_uncompressed(&bytes))))
 }
 
+/// Arbitrary bytes as one message on the graphics channel (M9-2: malformed server input).
+pub(crate) fn gfx_raw_message(bytes: Vec<u8>) -> DvcMessage {
+    Box::new(RawDvc(bytes))
+}
+
 /// Records the clipboard callbacks of the server-side `Cliprdr`.
 #[derive(Debug)]
 pub(crate) struct FakeClipboardBackend {

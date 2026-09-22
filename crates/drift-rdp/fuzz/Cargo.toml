@@ -1,0 +1,48 @@
+[package]
+name = "drift-rdp-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "cargo-fuzz targets for the parsers drift-rdp drives: Server Redirection, RDSTLS and CLIPRDR (plan M9-2, docs/adr/M9-2-fuzzing-and-malformed-input.md)."
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+drift-clipboard = { path = "../../drift-clipboard" }
+drift-core = { path = "../../drift-core" }
+drift-rdp = { path = ".." }
+ironrdp-cliprdr = { path = "../../../third_party/ironrdp/crates/ironrdp-cliprdr" }
+ironrdp-connector = { path = "../../../third_party/ironrdp/crates/ironrdp-connector" }
+ironrdp-core = { path = "../../../third_party/ironrdp/crates/ironrdp-core" }
+ironrdp-pdu = { path = "../../../third_party/ironrdp/crates/ironrdp-pdu" }
+
+[[bin]]
+name = "redirection"
+path = "fuzz_targets/redirection.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rdstls"
+path = "fuzz_targets/rdstls.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cliprdr"
+path = "fuzz_targets/cliprdr.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone workspace: nightly-only sanitizer builds stay out of the main workspace.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1

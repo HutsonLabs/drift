@@ -13,6 +13,7 @@ applying all of them to the pristine vendored tree reproduces `third_party/ironr
 | `0004-feat-connector-RDSTLS-client-authentication.patch` | connector | `rdstls` module and `RdstlsCapabilities`/`RdstlsAuthResponse` connector states; `ConnectorErrorKind::RdstlsAuthFailed` |
 | `0005-fix-cliprdr-validate-CB_TEMP_DIRECTORY-and-make-it-optional.patch` | cliprdr | `dataLen`/terminator validation; skip the optional PDU when the backend has no temp directory |
 | `0006-feat-connector-zeroize-RdstlsCredentials-on-drop.patch` | connector | Zeroize the one-time RDSTLS credentials (GUID, user, domain, password) on drop (M3-1) |
+| `0007-fix-never-log-credentials.patch` | connector, pdu | Stop logging credentials at DEBUG: the RDSTLS request no longer names the one-time user, and `Credentials`'s `Debug` prints the user name's length instead of its value (M9-3) |
 
 Each patch squashes the Red test commit and the implementation commit of one change; the tests
 live in `ironrdp-testsuite-core`. Regenerate them after changing a commit pair:

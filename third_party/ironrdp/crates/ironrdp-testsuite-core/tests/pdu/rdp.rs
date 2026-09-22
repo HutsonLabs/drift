@@ -538,3 +538,27 @@ fn bitmap_cache_v3_round_trip_does_not_panic() {
     let encoded = encode_vec(&decoded).expect("re-encode must not panic");
     assert_eq!(encoded, input, "round-trip must reproduce the original bytes");
 }
+
+/// `ClientInfoPdu` is logged in full at DEBUG by the connector, so `Credentials`'s `Debug` must
+/// show neither the password nor the user name: with Server Redirection (MS-RDPBCGR 2.2.13.1)
+/// the user name is a one-time, server-issued logon name, as much a secret as the password.
+#[test]
+fn credentials_debug_shows_no_secret() {
+    use ironrdp_pdu::rdp::client_info::Credentials;
+
+    let credentials = Credentials {
+        username: "one-time-user".to_owned(),
+        password: "s3cr3t-p4ssw0rd".to_owned(),
+        domain: Some("EXAMPLE".to_owned()),
+    };
+
+    let rendered = format!("{credentials:?}");
+
+    assert!(!rendered.contains("one-time-user"), "user name in {rendered}");
+    assert!(!rendered.contains("s3cr3t-p4ssw0rd"), "password in {rendered}");
+    assert!(rendered.contains("EXAMPLE"), "the domain is not a secret: {rendered}");
+    assert!(
+        rendered.contains("13 chars"),
+        "the length stays useful for debugging: {rendered}"
+    );
+}

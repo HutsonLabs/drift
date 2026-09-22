@@ -1,4 +1,5 @@
 # Nightly fuzzing (plan M1-2, M9-2): 5 minutes per target on nightly Rust with cargo-fuzz.
+# The required targets are asserted by `cargo xtask fuzz-targets` (xtask::fuzz_audit).
 # Targets live in standalone fuzz workspaces next to the crate they exercise.
 name: fuzz-nightly
 
@@ -24,6 +25,16 @@ jobs:
         include:
           - fuzz_dir: crates/drift-gfx/fuzz
             target: gfx_pdu_zgfx
+          - fuzz_dir: crates/drift-gfx/fuzz
+            target: zgfx
+          - fuzz_dir: crates/drift-rdp/fuzz
+            target: redirection
+          - fuzz_dir: crates/drift-rdp/fuzz
+            target: rdstls
+          - fuzz_dir: crates/drift-rdp/fuzz
+            target: cliprdr
+          - fuzz_dir: crates/drift-macos/fuzz
+            target: pointer
     steps:
       - uses: actions/checkout@v4
 

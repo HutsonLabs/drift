@@ -34,7 +34,7 @@ use ironrdp_cliprdr::pdu::{
 use ironrdp_connector::sspi::generator::NetworkRequest;
 use ironrdp_connector::{ConnectorResult, Sequence as _, ServerName, general_err};
 use ironrdp_core::{WriteBuf, decode, encode_vec};
-use ironrdp_dvc::{DrdynvcServer, encode_dvc_messages};
+use ironrdp_dvc::{DrdynvcServer, DvcMessage, encode_dvc_messages};
 use ironrdp_pdu::input::fast_path::{FastPathInput, FastPathInputEvent};
 use ironrdp_pdu::nego::{self, SecurityProtocol};
 use ironrdp_pdu::rdp::capability_sets::{self as caps, CapabilitySet};
@@ -166,6 +166,9 @@ pub enum ServerAction {
     HoldClipboardResponses(bool),
     /// Send `ResetGraphics` with a new surface of this size on the graphics channel.
     GfxReset(u32, u32),
+    /// Send these bytes verbatim on the graphics channel: a damaged `RDP_SEGMENTED_DATA`
+    /// frame, which the client must reject as `ProtocolError` (M9-2).
+    GfxRaw(Vec<u8>),
 }
 
 /// What one TCP connection to the fake server does.
@@ -550,6 +553,9 @@ async fn serve_leg(
                     }
                 }
                 ServerAction::GfxReset(w, h) => active.gfx_reset(&mut framed, w, h).await?,
+                ServerAction::GfxRaw(bytes) => {
+                    active.gfx_send(&mut framed, fake_channels::gfx_raw_message(bytes)).await?
+                }
             }
             update(log, index, |r| r.actions_done += 1);
         }
@@ -775,6 +781,16 @@ impl Active<'_> {
     }
 
     async fn gfx_reset(&mut self, framed: &mut ServerFramed, width: u32, height: u32) -> Result<()> {
+        let message = fake_channels::gfx_message(&redraw_pdus(&self.state, width, height))
+            .map_err(|e| err("encode gfx", e))?;
+        self.gfx_send(framed, message).await?;
+        let sent = fake_channels::lock(&self.state).gfx_resets_sent.clone();
+        update(self.log, self.index, |r| r.gfx_resets_sent = sent);
+        Ok(())
+    }
+
+    /// Sends one message on the graphics channel; a no-op while the channel is not open.
+    async fn gfx_send(&mut self, framed: &mut ServerFramed, message: DvcMessage) -> Result<()> {
         let Some(drdynvc_id) = self.channels.get_channel_id_by_type::<DrdynvcServer>() else { return Ok(()) };
         let Some(drdynvc) = self
             .channels
@@ -788,14 +804,9 @@ impl Active<'_> {
         else {
             return Ok(());
         };
-        let message = fake_channels::gfx_message(&redraw_pdus(&self.state, width, height))
-            .map_err(|e| err("encode gfx", e))?;
         let messages = encode_dvc_messages(gfx_id, vec![message], ChannelFlags::empty())
             .map_err(|e| err("encode dvc", e))?;
-        send_svc(framed, self.user_channel_id, drdynvc_id, messages).await?;
-        let sent = fake_channels::lock(&self.state).gfx_resets_sent.clone();
-        update(self.log, self.index, |r| r.gfx_resets_sent = sent);
-        Ok(())
+        send_svc(framed, self.user_channel_id, drdynvc_id, messages).await
     }
 }
 

@@ -13,6 +13,7 @@
 //! | [`resize`] | M4-2: Display Control resize driver (debounce, layout change, Fit for Sharing) |
 //! | `clipboard` | M5-2: CLIPRDR backend + `drift_clipboard::ClipboardSync` glue |
 //! | [`greeter`] | M3-2/M7-3: opt-in Linux password typing at the GDM greeter |
+//! | [`logging`] | M9-3: the tracing targets that must never log below INFO |
 //! | [`pointer`] | M2-5: pointer outputs → `SessionEvent::Cursor` |
 //! | [`stats`] | fps / bit rate sampling for `SessionEvent::Stats` |
 
@@ -23,6 +24,7 @@ mod fastpath;
 mod gfx_ack;
 mod graphics;
 pub mod greeter;
+pub mod logging;
 pub mod pointer;
 pub mod rdstls;
 pub mod redirect;

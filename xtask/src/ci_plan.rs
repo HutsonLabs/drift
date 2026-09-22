@@ -57,6 +57,8 @@ pub enum Check {
     SecretScan,
     /// `.github/workflows/` matches what the plan requires (M0-6, §5.3).
     Workflows,
+    /// Every parser plan M9-2 wants fuzzed has a target that the nightly workflow runs.
+    FuzzTargets,
     /// `ui/src/bindings.ts` is regenerated from the current IPC surface.
     BindingsFresh,
     /// The ≥ 85 % line-coverage gate over [`COVERAGE_JSON`].
@@ -205,6 +207,7 @@ pub fn ci(options: Options) -> Vec<Step> {
         check("npm-ban", Check::NpmBan),
         check("secret-scan", Check::SecretScan),
         check("workflows", Check::Workflows),
+        check("fuzz targets", Check::FuzzTargets),
         run("bun install --frozen-lockfile", Program::Bun, "ui", &["install", "--frozen-lockfile"]),
         run("bun test", Program::Bun, "ui", &["test"]),
         run("bun run typecheck", Program::Bun, "ui", &["run", "typecheck"]),
