@@ -29,6 +29,7 @@ Any decision not already fixed by `plan.md` gets an ADR in `docs/adr/<TASKID>-<s
 | `M0-5-nv12-frame-location` | `Nv12Frame` / `H264Decoder` live in `drift_core::video` |
 | `M0-6-dependency-policy` | cargo-deny licenses (MPL-2.0 allowance), advisories |
 | `M1-4-cpu-codecs` | parallel RFX Progressive, `BgraTile`, DRFTGFX1 GFX captures, release strip fix |
+| `M2-1-keyboard-translation` | drift-input: ISO/JIS mapping, deferred Command, lock keys, Unicode, scroll, viewport, allow-list |
 
 ## Commands
 

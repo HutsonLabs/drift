@@ -34,29 +34,59 @@ pub struct Viewport {
 }
 
 impl Viewport {
-    /// Computes the placement of `desktop` in `view`.
+    /// Computes the placement of `desktop` in `view`. Degenerate geometry (zero, NaN or infinite
+    /// sizes or scale) falls back to one point per pixel at the top-left corner.
     pub fn new(view: ViewGeometry, desktop: DesktopSize, mode: ScaleMode) -> Self {
-        let _ = (view, mode);
-        Self { origin: Point::new(0.0, 0.0), points_per_pixel: 1.0, desktop }
+        let (vw, vh) = (view.points.width, view.points.height);
+        let (dw, dh) = (f64::from(desktop.width), f64::from(desktop.height));
+        let scale = match mode {
+            ScaleMode::Fit => (vw / dw).min(vh / dh),
+            ScaleMode::OneToOne => 1.0 / view.backing_scale,
+        };
+        let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+        // Centre when the image is smaller than the view; anchor top-left when it is larger.
+        // `f64::max` ignores NaN, so a NaN view size also lands at 0.
+        let origin = Point::new(((vw - dw * scale) / 2.0).max(0.0), ((vh - dh * scale) / 2.0).max(0.0));
+        Self { origin, points_per_pixel: scale, desktop }
     }
 
     /// Size of the drawn desktop image in view points.
     pub fn image_size(&self) -> Size<f64> {
-        Size::new(0.0, 0.0)
+        Size::new(
+            f64::from(self.desktop.width) * self.points_per_pixel,
+            f64::from(self.desktop.height) * self.points_per_pixel,
+        )
     }
 
     /// `true` when `point` (view points) lies on the desktop image, not on a bar.
     pub fn contains(&self, point: Point<f64>) -> bool {
-        let _ = point;
-        false
+        let size = self.image_size();
+        let (x, y) = (point.x - self.origin.x, point.y - self.origin.y);
+        (0.0..size.width).contains(&x) && (0.0..size.height).contains(&y)
     }
 
     /// Maps a view point to a desktop pixel, clamped to the desktop (so drags past the edge or
     /// over a letterbox bar pin to the nearest edge pixel). `None` for an empty desktop.
     pub fn view_to_desktop(&self, point: Point<f64>) -> Option<Point<u16>> {
-        let _ = point;
-        None
+        if self.desktop.width == 0 || self.desktop.height == 0 {
+            return None;
+        }
+        let x = to_pixel((point.x - self.origin.x) / self.points_per_pixel, self.desktop.width);
+        let y = to_pixel((point.y - self.origin.y) / self.points_per_pixel, self.desktop.height);
+        Some(Point::new(x, y))
     }
+}
+
+/// Floors a fractional pixel coordinate into `0..extent`, then into `u16`.
+fn to_pixel(v: f64, extent: u32) -> u16 {
+    // Absorb rounding noise such as 20.999999999 for an exact pixel boundary.
+    const EPSILON: f64 = 1e-7;
+    if v.is_nan() {
+        return 0;
+    }
+    let max = f64::from(extent.saturating_sub(1).min(u32::from(u16::MAX)));
+    // The value is clamped to `0..=u16::MAX`, so the cast is exact.
+    (v + EPSILON).floor().clamp(0.0, max) as u16
 }
 
 /// Convenience: `Viewport::new(view, desktop, mode).view_to_desktop(point)`.

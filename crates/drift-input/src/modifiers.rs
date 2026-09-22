@@ -184,8 +184,42 @@ impl ModifierSet {
 /// * Synthetic events may carry no device bits. Then the side comes from `changed_kvk` if that key
 ///   belongs to the class, else from `previous` (sides already held), else the left side.
 pub fn held_modifiers(flags: ModifierFlags, changed_kvk: Option<u16>, previous: ModifierSet) -> ModifierSet {
-    let _ = (flags, changed_kvk, previous);
-    ModifierSet::EMPTY
+    use ModifierKey::*;
+    type F = ModifierFlags;
+    // (class bit, left key + device bit, right key + device bit)
+    const CLASSES: [(u64, ModifierKey, u64, ModifierKey, u64); 4] = [
+        (F::SHIFT, LeftShift, F::DEVICE_LEFT_SHIFT, RightShift, F::DEVICE_RIGHT_SHIFT),
+        (F::CONTROL, LeftControl, F::DEVICE_LEFT_CONTROL, RightControl, F::DEVICE_RIGHT_CONTROL),
+        (F::OPTION, LeftOption, F::DEVICE_LEFT_OPTION, RightOption, F::DEVICE_RIGHT_OPTION),
+        (F::COMMAND, LeftCommand, F::DEVICE_LEFT_COMMAND, RightCommand, F::DEVICE_RIGHT_COMMAND),
+    ];
+    let changed = changed_kvk.and_then(ModifierKey::from_kvk);
+    let mut held = ModifierSet::EMPTY;
+    for (class, left, left_bit, right, right_bit) in CLASSES {
+        if !flags.contains(class) {
+            continue;
+        }
+        let (l, r) = (flags.contains(left_bit), flags.contains(right_bit));
+        if l || r {
+            if l {
+                held.insert(left);
+            }
+            if r {
+                held.insert(right);
+            }
+        } else if let Some(key) = changed.filter(|k| *k == left || *k == right) {
+            held.insert(key);
+        } else if previous.contains(left) || previous.contains(right) {
+            for key in [left, right] {
+                if previous.contains(key) {
+                    held.insert(key);
+                }
+            }
+        } else {
+            held.insert(left);
+        }
+    }
+    held
 }
 
 #[cfg(test)]

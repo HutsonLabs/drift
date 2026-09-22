@@ -318,8 +318,11 @@ impl KeyboardType {
     /// Maps the `PhysicalKeyboardLayoutType` returned by `KBGetLayoutType`; unknown values
     /// are treated as ANSI.
     pub const fn from_layout_type(layout_type: u32) -> Self {
-        let _ = layout_type;
-        Self::Ansi
+        match layout_type {
+            Self::LAYOUT_ISO => Self::Iso,
+            Self::LAYOUT_JIS => Self::Jis,
+            _ => Self::Ansi,
+        }
     }
 }
 
@@ -329,23 +332,182 @@ impl KeyboardType {
 /// The Command keys map according to `cmd_as`: `Super` → left/right Windows key (`0x5B`/`0x5C`
 /// extended), `Ctrl` → left/right Control (`0x1D` / `0x1D` extended).
 pub fn scancode_for(kvk: u16, keyboard: KeyboardType, cmd_as: CmdAs) -> Option<Scancode> {
-    let _ = (kvk, keyboard, cmd_as);
-    None
+    match (kvk, keyboard, cmd_as) {
+        // ISO: macOS reports the two ISO-specific positions swapped (module docs).
+        (kvk::ISO_SECTION, KeyboardType::Iso, _) => Some(Scancode::new(0x29)),
+        (kvk::ANSI_GRAVE, KeyboardType::Iso, _) => Some(Scancode::new(0x56)),
+        (kvk::COMMAND, _, CmdAs::Super) => Some(Scancode::ext(0x5B)),
+        (kvk::RIGHT_COMMAND, _, CmdAs::Super) => Some(Scancode::ext(0x5C)),
+        (kvk::COMMAND, _, CmdAs::Ctrl) => Some(Scancode::new(0x1D)),
+        (kvk::RIGHT_COMMAND, _, CmdAs::Ctrl) => Some(Scancode::ext(0x1D)),
+        _ => base_scancode(kvk),
+    }
+}
+
+/// The keyboard-type-independent part of the table (ANSI positions).
+const fn base_scancode(code: u16) -> Option<Scancode> {
+    use kvk::*;
+    let n = Scancode::new;
+    let e = Scancode::ext;
+    Some(match code {
+        ANSI_A => n(0x1E),
+        ANSI_S => n(0x1F),
+        ANSI_D => n(0x20),
+        ANSI_F => n(0x21),
+        ANSI_H => n(0x23),
+        ANSI_G => n(0x22),
+        ANSI_Z => n(0x2C),
+        ANSI_X => n(0x2D),
+        ANSI_C => n(0x2E),
+        ANSI_V => n(0x2F),
+        ANSI_B => n(0x30),
+        ANSI_Q => n(0x10),
+        ANSI_W => n(0x11),
+        ANSI_E => n(0x12),
+        ANSI_R => n(0x13),
+        ANSI_Y => n(0x15),
+        ANSI_T => n(0x14),
+        ANSI_1 => n(0x02),
+        ANSI_2 => n(0x03),
+        ANSI_3 => n(0x04),
+        ANSI_4 => n(0x05),
+        ANSI_6 => n(0x07),
+        ANSI_5 => n(0x06),
+        ANSI_EQUAL => n(0x0D),
+        ANSI_9 => n(0x0A),
+        ANSI_7 => n(0x08),
+        ANSI_MINUS => n(0x0C),
+        ANSI_8 => n(0x09),
+        ANSI_0 => n(0x0B),
+        ANSI_RIGHT_BRACKET => n(0x1B),
+        ANSI_O => n(0x18),
+        ANSI_U => n(0x16),
+        ANSI_LEFT_BRACKET => n(0x1A),
+        ANSI_I => n(0x17),
+        ANSI_P => n(0x19),
+        ANSI_L => n(0x26),
+        ANSI_J => n(0x24),
+        ANSI_QUOTE => n(0x28),
+        ANSI_K => n(0x25),
+        ANSI_SEMICOLON => n(0x27),
+        ANSI_BACKSLASH => n(0x2B),
+        ANSI_COMMA => n(0x33),
+        ANSI_SLASH => n(0x35),
+        ANSI_N => n(0x31),
+        ANSI_M => n(0x32),
+        ANSI_PERIOD => n(0x34),
+        ANSI_GRAVE => n(0x29),
+        ANSI_KEYPAD_DECIMAL => n(0x53),
+        ANSI_KEYPAD_MULTIPLY => n(0x37),
+        ANSI_KEYPAD_PLUS => n(0x4E),
+        ANSI_KEYPAD_DIVIDE => e(0x35),
+        ANSI_KEYPAD_ENTER => e(0x1C),
+        ANSI_KEYPAD_MINUS => n(0x4A),
+        ANSI_KEYPAD_EQUALS => n(0x59),
+        ANSI_KEYPAD_0 => n(0x52),
+        ANSI_KEYPAD_1 => n(0x4F),
+        ANSI_KEYPAD_2 => n(0x50),
+        ANSI_KEYPAD_3 => n(0x51),
+        ANSI_KEYPAD_4 => n(0x4B),
+        ANSI_KEYPAD_5 => n(0x4C),
+        ANSI_KEYPAD_6 => n(0x4D),
+        ANSI_KEYPAD_7 => n(0x47),
+        ANSI_KEYPAD_8 => n(0x48),
+        ANSI_KEYPAD_9 => n(0x49),
+        RETURN => n(0x1C),
+        TAB => n(0x0F),
+        SPACE => n(0x39),
+        DELETE => n(0x0E),
+        ESCAPE => n(0x01),
+        SHIFT => n(0x2A),
+        CAPS_LOCK => n(0x3A),
+        OPTION => n(0x38),
+        CONTROL => n(0x1D),
+        RIGHT_SHIFT => n(0x36),
+        RIGHT_OPTION => e(0x38),
+        RIGHT_CONTROL => e(0x1D),
+        F1 => n(0x3B),
+        F2 => n(0x3C),
+        F3 => n(0x3D),
+        F4 => n(0x3E),
+        F5 => n(0x3F),
+        F6 => n(0x40),
+        F7 => n(0x41),
+        F8 => n(0x42),
+        F9 => n(0x43),
+        F10 => n(0x44),
+        F11 => n(0x57),
+        F12 => n(0x58),
+        F13 => n(0x64),
+        F14 => n(0x65),
+        F15 => n(0x66),
+        F16 => n(0x67),
+        F17 => n(0x68),
+        F18 => n(0x69),
+        F19 => n(0x6A),
+        F20 => n(0x6B),
+        VOLUME_UP => e(0x30),
+        VOLUME_DOWN => e(0x2E),
+        MUTE => e(0x20),
+        CONTEXTUAL_MENU => e(0x5D),
+        // Help sits where a PC keyboard has Insert.
+        HELP => e(0x52),
+        HOME => e(0x47),
+        PAGE_UP => e(0x49),
+        FORWARD_DELETE => e(0x53),
+        END => e(0x4F),
+        PAGE_DOWN => e(0x51),
+        LEFT_ARROW => e(0x4B),
+        RIGHT_ARROW => e(0x4D),
+        DOWN_ARROW => e(0x50),
+        UP_ARROW => e(0x48),
+        // PC 102nd key (ISO keyboards; only reached here on ANSI/JIS, where it does not exist).
+        ISO_SECTION => n(0x56),
+        // JIS: International3 (¥), International1 (ろ), keypad comma, LANG2 (英数), LANG1 (かな).
+        JIS_YEN => n(0x7D),
+        JIS_UNDERSCORE => n(0x73),
+        JIS_KEYPAD_COMMA => n(0x7E),
+        JIS_EISU => n(0x71),
+        JIS_KANA => n(0x72),
+        // No PC equivalent: `fn` is handled by macOS; keypad Clear sits on Num Lock, which Drift
+        // keeps on (see `Keyboard`), so it is not sent.
+        _ => return None,
+    })
 }
 
 /// `true` for the modifier keys that arrive through `flagsChanged:` (Shift, Control, Option,
 /// Command on either side, Caps Lock and `fn`).
 pub const fn is_modifier(kvk: u16) -> bool {
-    let _ = kvk;
-    false
+    matches!(
+        kvk,
+        kvk::SHIFT
+            | kvk::RIGHT_SHIFT
+            | kvk::CONTROL
+            | kvk::RIGHT_CONTROL
+            | kvk::OPTION
+            | kvk::RIGHT_OPTION
+            | kvk::COMMAND
+            | kvk::RIGHT_COMMAND
+            | kvk::CAPS_LOCK
+            | kvk::FUNCTION
+    )
 }
 
 /// `true` for keys whose job is to produce text (letters, digits, punctuation, Space, keypad
 /// digits/operators and the ISO/JIS character keys). Used by the "Type using Mac layout"
 /// routing: everything else (arrows, Return, Tab, Delete, F-keys, …) always goes as a scancode.
 pub const fn is_text_key(kvk: u16) -> bool {
-    let _ = kvk;
-    false
+    use kvk::*;
+    match kvk {
+        // 0x00..=0x2F are the character keys (plus ISO Section at 0x0A), except Return (0x24).
+        ANSI_A..=ANSI_PERIOD => kvk != RETURN,
+        SPACE | ANSI_GRAVE => true,
+        ANSI_KEYPAD_DECIMAL | ANSI_KEYPAD_MULTIPLY | ANSI_KEYPAD_PLUS | ANSI_KEYPAD_DIVIDE
+        | ANSI_KEYPAD_MINUS => true,
+        ANSI_KEYPAD_EQUALS..=ANSI_KEYPAD_7 | ANSI_KEYPAD_8 | ANSI_KEYPAD_9 => true,
+        JIS_YEN | JIS_UNDERSCORE | JIS_KEYPAD_COMMA => true,
+        _ => false,
+    }
 }
 
 #[cfg(test)]

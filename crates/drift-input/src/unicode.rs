@@ -8,6 +8,7 @@
 
 use drift_core::{InputEvent, KeyboardPrefs};
 
+use crate::keymap::is_text_key;
 use crate::modifiers::ModifierFlags;
 
 /// Where a `keyDown:` goes.
@@ -29,8 +30,13 @@ pub enum KeyRoute {
 /// * Otherwise [`KeyRoute::Text`] for text keys ([`crate::keymap::is_text_key`]) and
 ///   [`KeyRoute::Scancode`] for everything else.
 pub fn route_key_down(prefs: &KeyboardPrefs, kvk: u16, flags: ModifierFlags, composing: bool) -> KeyRoute {
-    let _ = (prefs, kvk, flags, composing);
-    KeyRoute::Scancode
+    if !prefs.type_with_mac_layout || flags.command() || flags.control() {
+        KeyRoute::Scancode
+    } else if composing || is_text_key(kvk) {
+        KeyRoute::Text
+    } else {
+        KeyRoute::Scancode
+    }
 }
 
 /// Converts committed text into Unicode events: for every UTF-16 code unit, a press immediately
@@ -38,8 +44,15 @@ pub fn route_key_down(prefs: &KeyboardPrefs, kvk: u16, flags: ModifierFlags, com
 /// Characters outside the BMP become two units (a surrogate pair). Control characters and the
 /// AppKit function-key private-use range (`U+F700..=U+F8FF`) are dropped.
 pub fn text_to_events(text: &str) -> Vec<InputEvent> {
-    let _ = text;
-    Vec::new()
+    let mut events = Vec::with_capacity(text.len() * 2);
+    let mut buf = [0u16; 2];
+    for ch in text.chars().filter(|c| !c.is_control() && !('\u{F700}'..='\u{F8FF}').contains(c)) {
+        for &unit in ch.encode_utf16(&mut buf).iter() {
+            events.push(InputEvent::Unicode { ch: unit, down: true });
+            events.push(InputEvent::Unicode { ch: unit, down: false });
+        }
+    }
+    events
 }
 
 #[cfg(test)]

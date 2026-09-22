@@ -53,17 +53,23 @@ pub enum ScrollDelta {
     },
 }
 
+/// Upper bound on the units one `scrollWheel:` event may produce per axis (64 full events), so a
+/// bogus delta cannot flood the connection.
+const MAX_UNITS_PER_PUSH: f64 = 255.0 * 64.0;
+
 /// Accumulates scroll deltas and emits whole wheel units, carrying the fractional remainder so
 /// that nothing is lost or invented over a gesture.
 #[derive(Debug, Clone, Default)]
 pub struct ScrollAccumulator {
     config: ScrollConfig,
+    vertical: f64,
+    horizontal: f64,
 }
 
 impl ScrollAccumulator {
     /// Creates an accumulator.
     pub fn new(config: ScrollConfig) -> Self {
-        Self { config }
+        Self { config, vertical: 0.0, horizontal: 0.0 }
     }
 
     /// The active configuration.
@@ -73,17 +79,44 @@ impl ScrollAccumulator {
 
     /// Adds one event's deltas and returns the wheel events to send (vertical first).
     pub fn push(&mut self, delta: ScrollDelta) -> Vec<InputEvent> {
-        let _ = delta;
-        Vec::new()
+        let sign = if self.config.reverse { -1.0 } else { 1.0 };
+        let (dx, dy, per_unit, chunk) = match delta {
+            ScrollDelta::Precise { dx, dy } => (dx, dy, self.config.units_per_point, MAX_UNITS_PER_EVENT),
+            ScrollDelta::Lines { dx, dy } => (dx, dy, f64::from(UNITS_PER_NOTCH), UNITS_PER_NOTCH),
+        };
+        let mut out = Vec::new();
+        emit(&mut self.vertical, sign * dy * per_unit, chunk, false, &mut out);
+        emit(&mut self.horizontal, -sign * dx * per_unit, chunk, true, &mut out);
+        out
     }
 
     /// Fractional units not yet sent, `(vertical, horizontal)`, each in `(-1, 1)`.
     pub fn residual(&self) -> (f64, f64) {
-        (0.0, 0.0)
+        (self.vertical, self.horizontal)
     }
 
     /// Drops the remainder (e.g. when a new gesture starts in the opposite direction).
-    pub fn reset(&mut self) {}
+    pub fn reset(&mut self) {
+        self.vertical = 0.0;
+        self.horizontal = 0.0;
+    }
+}
+
+/// Adds `units` to `residual` and emits its whole part in events of at most `chunk` units.
+fn emit(residual: &mut f64, units: f64, chunk: i16, horizontal: bool, out: &mut Vec<InputEvent>) {
+    let units = if units.is_nan() { 0.0 } else { units.clamp(-MAX_UNITS_PER_PUSH, MAX_UNITS_PER_PUSH) };
+    *residual += units;
+    let whole = residual.trunc();
+    *residual -= whole;
+    // `whole` is bounded by MAX_UNITS_PER_PUSH + 1, so the conversion is exact.
+    let mut remaining = whole as i32;
+    let chunk = i32::from(chunk);
+    while remaining != 0 {
+        let step = remaining.clamp(-chunk, chunk);
+        remaining -= step;
+        // `step` is within ±255, so it fits in i16.
+        out.push(InputEvent::Wheel { horizontal, units: step as i16 });
+    }
 }
 
 #[cfg(test)]
