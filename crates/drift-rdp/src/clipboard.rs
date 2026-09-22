@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use drift_clipboard::formats::ClipFormat;
 use drift_clipboard::{ClipboardContents, ClipboardSync, SyncAction, SyncInput};
 use drift_core::{ClipboardPrefs, Clock, DisconnectReason};
+use ironrdp_cliprdr::Client;
 use ironrdp_cliprdr::backend::CliprdrBackend;
 use ironrdp_cliprdr::pdu::{
     ClipboardFormat, ClipboardFormatId, ClipboardFormatName, ClipboardGeneralCapabilityFlags,
@@ -30,7 +31,6 @@ use ironrdp_cliprdr::pdu::{
 use ironrdp_cliprdr::{CliprdrClient, CliprdrSvcMessages};
 use ironrdp_core::impl_as_any;
 use ironrdp_session::ActiveStage;
-use ironrdp_cliprdr::Client;
 
 /// A `CliprdrBackend` callback, handled outside `ActiveStage::process`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,9 +164,29 @@ impl ClipboardChannel {
                     BackendEvent::DataRequest(format_id) => SyncInput::RemoteDataRequest { format_id },
                     BackendEvent::DataResponse(data) => SyncInput::RemoteData(data),
                 };
-                self.sync.handle(input)
+                // Only the kind of input is logged: clipboard payloads may be anything the
+                // user copied, including passwords.
+                let kind = input_kind(&input);
+                let actions = self.sync.handle(input);
+                tracing::debug!(kind, actions = actions.len(), state = ?self.sync, "clipboard input");
+                actions
             })
             .collect()
+    }
+}
+
+/// The name of a sync input, for logs that must never contain clipboard data.
+fn input_kind(input: &SyncInput) -> &'static str {
+    match input {
+        SyncInput::InitialFormatListRequested => "initial-format-list",
+        SyncInput::RemoteFormatList(_) => "remote-format-list",
+        SyncInput::RemoteData(_) => "remote-data",
+        SyncInput::RemoteDataRequest { .. } => "remote-data-request",
+        SyncInput::LocalChanged { .. } => "local-changed",
+        SyncInput::LocalWritten { .. } => "local-written",
+        SyncInput::Focus(_) => "focus",
+        SyncInput::Prefs(_) => "prefs",
+        SyncInput::Tick => "tick",
     }
 }
 
@@ -288,8 +308,7 @@ mod tests {
 
     #[test]
     fn answering_the_initial_request_makes_the_channel_ready() {
-        let mut channel =
-            ClipboardChannel::new(ClipboardPrefs::TextAndImages, true, Arc::new(SystemClock));
+        let mut channel = ClipboardChannel::new(ClipboardPrefs::TextAndImages, true, Arc::new(SystemClock));
         let mut cliprdr = channel.client();
         server_init(&mut cliprdr);
         // The backend queued the request; the sync state answers it with a (possibly empty) list.

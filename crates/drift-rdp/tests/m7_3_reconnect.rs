@@ -10,9 +10,7 @@ use common::{Harness, PASS, USER, is_connected, options, profile, wait_log};
 use drift_core::{ConnectMode, DesktopSize, DisconnectReason, InputEvent, MouseButton, SessionState};
 use drift_rdp::greeter::TYPE_DELAY;
 use drift_rdp::{SessionCommand, SessionEvent, SessionSecrets};
-use drift_testkit::{
-    Channels, FakeServer, LegScript, ManualClock, ServerAction, TestCert, redirection_pdu,
-};
+use drift_testkit::{Channels, FakeServer, LegScript, ManualClock, ServerAction, TestCert, redirection_pdu};
 use ironrdp_pdu::input::fast_path::{FastPathInputEvent, KeyboardFlags, SynchronizeFlags};
 use zeroize::Zeroizing;
 
@@ -54,21 +52,29 @@ async fn a_killed_socket_reconnects_with_backoff_and_resyncs_input() {
     );
     h.wait_for("Connected", WAIT, is_connected).await;
     // A key the user is holding when the transport dies.
-    h.handle.send(SessionCommand::Input(InputEvent::Key { scancode: 0x1D, extended: false, down: true })).unwrap();
+    h.handle
+        .send(SessionCommand::Input(InputEvent::Key { scancode: 0x1D, extended: false, down: true }))
+        .unwrap();
     h.handle.send(SessionCommand::Input(InputEvent::SyncToggles { caps: true, num: true })).unwrap();
 
     let reconnecting = h
-        .wait_for("Reconnecting", WAIT, |e| matches!(e, SessionEvent::State(SessionState::Reconnecting { .. })))
+        .wait_for("Reconnecting", WAIT, |e| {
+            matches!(e, SessionEvent::State(SessionState::Reconnecting { .. }))
+        })
         .await;
     let SessionEvent::State(state) = &reconnecting else { unreachable!() };
     let reason = dropped_reason(state);
     assert!(reason.is_retryable(), "{reason:?}");
     assert_eq!(
         *state,
-        SessionState::Reconnecting { attempt: 1, next_in: match state {
-            SessionState::Reconnecting { next_in, .. } => *next_in,
-            _ => unreachable!(),
-        }, reason: reason.clone() }
+        SessionState::Reconnecting {
+            attempt: 1,
+            next_in: match state {
+                SessionState::Reconnecting { next_in, .. } => *next_in,
+                _ => unreachable!(),
+            },
+            reason: reason.clone()
+        }
     );
     assert!(
         matches!(state, SessionState::Reconnecting { next_in, .. } if *next_in <= Duration::from_millis(500)),
@@ -81,11 +87,8 @@ async fn a_killed_socket_reconnects_with_backoff_and_resyncs_input() {
     clock.advance(Duration::from_secs(1));
     h.wait_for("reconnected", WAIT, is_connected).await;
     let states = h.states();
-    let after: Vec<SessionState> = states
-        .iter()
-        .skip_while(|s| !matches!(s, SessionState::Reconnecting { .. }))
-        .cloned()
-        .collect();
+    let after: Vec<SessionState> =
+        states.iter().skip_while(|s| !matches!(s, SessionState::Reconnecting { .. })).cloned().collect();
     assert!(
         matches!(after.as_slice(), [SessionState::Reconnecting { .. }, rest @ ..]
             if rest.iter().any(|s| matches!(s, SessionState::Connecting { leg: 1, .. }))
@@ -94,8 +97,10 @@ async fn a_killed_socket_reconnects_with_backoff_and_resyncs_input() {
     );
 
     // Plan M7-3: after any reconnect the client releases keys and re-syncs the lock keys.
-    let log = wait_log(&server, "resync input", WAIT, |l| l.legs.len() > 1 && !l.legs[1].fast_path_events.is_empty())
-        .await;
+    let log = wait_log(&server, "resync input", WAIT, |l| {
+        l.legs.len() > 1 && !l.legs[1].fast_path_events.is_empty()
+    })
+    .await;
     let events = &log.legs[1].fast_path_events;
     assert_eq!(
         events.first(),
@@ -141,9 +146,8 @@ async fn an_auth_failure_during_reconnect_fails_without_looping() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancel_stops_the_reconnect_timers() {
     let cert = TestCert::generate("127.0.0.1");
-    let server = FakeServer::start(vec![dropped_leg(&cert), LegScript::nla(cert.clone(), USER, PASS)])
-        .await
-        .unwrap();
+    let server =
+        FakeServer::start(vec![dropped_leg(&cert), LegScript::nla(cert.clone(), USER, PASS)]).await.unwrap();
     let clock = ManualClock::new();
     let mut h = Harness::start_full(
         profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())),
@@ -153,7 +157,9 @@ async fn cancel_stops_the_reconnect_timers() {
     );
     h.wait_for("Connected", WAIT, is_connected).await;
     let reconnecting = h
-        .wait_for("Reconnecting", WAIT, |e| matches!(e, SessionEvent::State(SessionState::Reconnecting { .. })))
+        .wait_for("Reconnecting", WAIT, |e| {
+            matches!(e, SessionEvent::State(SessionState::Reconnecting { .. }))
+        })
         .await;
     let SessionEvent::State(state) = &reconnecting else { unreachable!() };
     let reason = dropped_reason(state);
@@ -173,9 +179,8 @@ async fn cancel_stops_the_reconnect_timers() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unreachable_network_pauses_and_resumes_reconnection() {
     let cert = TestCert::generate("127.0.0.1");
-    let server = FakeServer::start(vec![dropped_leg(&cert), LegScript::nla(cert.clone(), USER, PASS)])
-        .await
-        .unwrap();
+    let server =
+        FakeServer::start(vec![dropped_leg(&cert), LegScript::nla(cert.clone(), USER, PASS)]).await.unwrap();
     let clock = ManualClock::new();
     let mut h = Harness::start_full(
         profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())),
@@ -242,10 +247,12 @@ async fn remote_login_reconnects_to_the_greeter_and_types_the_stored_password() 
     // Nothing is typed before the user picks their tile.
     clock.advance(TYPE_DELAY * 4);
     let _ = h.drain_for(Duration::from_millis(200)).await;
-    assert!(server.log().legs[4].fast_path_events.iter().all(|e| !matches!(
-        e,
-        FastPathInputEvent::UnicodeKeyboardEvent(..)
-    )));
+    assert!(
+        server.log().legs[4]
+            .fast_path_events
+            .iter()
+            .all(|e| !matches!(e, FastPathInputEvent::UnicodeKeyboardEvent(..)))
+    );
 
     let clicks_before = server.log().legs[4].fast_path_events.len();
     for ev in [
@@ -265,13 +272,19 @@ async fn remote_login_reconnects_to_the_greeter_and_types_the_stored_password() 
         .fast_path_events
         .iter()
         .filter_map(|e| match e {
-            FastPathInputEvent::UnicodeKeyboardEvent(flags, ch) if !flags.contains(KeyboardFlags::RELEASE) => {
+            FastPathInputEvent::UnicodeKeyboardEvent(flags, ch)
+                if !flags.contains(KeyboardFlags::RELEASE) =>
+            {
                 Some(*ch)
             }
             _ => None,
         })
         .collect();
-    assert_eq!(typed, LINUX_PASS.encode_utf16().collect::<Vec<_>>(), "the stored password, as Unicode events");
+    assert_eq!(
+        typed,
+        LINUX_PASS.encode_utf16().collect::<Vec<_>>(),
+        "the stored password, as Unicode events"
+    );
     assert!(
         log.legs[4]
             .fast_path_events

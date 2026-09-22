@@ -27,23 +27,25 @@ use std::time::Duration;
 use drift_core::CertFingerprint;
 use ironrdp_acceptor::{Acceptor, DesktopSize};
 use ironrdp_async::{Framed, FramedWrite as _, NetworkClient};
+use ironrdp_cliprdr::CliprdrServer;
+use ironrdp_cliprdr::pdu::{
+    ClipboardFormat, ClipboardFormatId, ClipboardFormatName, OwnedFormatDataResponse,
+};
 use ironrdp_connector::sspi::generator::NetworkRequest;
 use ironrdp_connector::{ConnectorResult, Sequence as _, ServerName, general_err};
 use ironrdp_core::{WriteBuf, decode, encode_vec};
+use ironrdp_dvc::{DrdynvcServer, encode_dvc_messages};
+use ironrdp_pdu::input::fast_path::{FastPathInput, FastPathInputEvent};
 use ironrdp_pdu::nego::{self, SecurityProtocol};
 use ironrdp_pdu::rdp::capability_sets::{self as caps, CapabilitySet};
 use ironrdp_pdu::rdp::client_info::{CompressionType, Credentials};
 use ironrdp_pdu::rdp::headers::{
     CompressionFlags, ShareControlHeader, ShareControlPdu, ShareDataHeader, ShareDataPdu, StreamPriority,
 };
-use ironrdp_cliprdr::CliprdrServer;
-use ironrdp_cliprdr::pdu::{ClipboardFormat, ClipboardFormatId, ClipboardFormatName, OwnedFormatDataResponse};
-use ironrdp_dvc::{DrdynvcServer, encode_dvc_messages};
-use ironrdp_pdu::input::fast_path::{FastPathInput, FastPathInputEvent};
 use ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu;
 use ironrdp_pdu::x224::{X224, X224Data};
-use ironrdp_svc::{ChannelFlags, StaticChannelSet, SvcMessage, server_encode_svc_messages};
 use ironrdp_pdu::{gcc, mcs};
+use ironrdp_svc::{ChannelFlags, StaticChannelSet, SvcMessage, server_encode_svc_messages};
 use ironrdp_tokio::TokioStream;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
@@ -563,7 +565,8 @@ async fn serve_leg(
         };
         let Ok((action, frame)) = frame else { return Ok(()) };
         if action == ironrdp_pdu::Action::FastPath {
-            let events = decode::<FastPathInput>(&frame).map(|i| i.input_events().to_vec()).unwrap_or_default();
+            let events =
+                decode::<FastPathInput>(&frame).map(|i| i.input_events().to_vec()).unwrap_or_default();
             update(log, index, |r| {
                 r.fast_path_inputs += 1;
                 r.fast_path_events.extend(events);
@@ -588,8 +591,8 @@ async fn send_svc(
     if messages.is_empty() {
         return Ok(());
     }
-    let bytes =
-        server_encode_svc_messages(messages, channel_id, user_channel_id).map_err(|e| err("encode svc", e))?;
+    let bytes = server_encode_svc_messages(messages, channel_id, user_channel_id)
+        .map_err(|e| err("encode svc", e))?;
     framed.write_all(&bytes).await.map_err(|e| err("write svc", e))
 }
 
@@ -652,14 +655,18 @@ impl Active<'_> {
         };
         if data.channel_id == self.io_channel_id {
             let Ok(header) = decode::<ShareControlHeader>(data.user_data.as_ref()) else { return Ok(false) };
-            let ShareControlPdu::Data(ShareDataHeader { share_data_pdu, .. }) = header.share_control_pdu else {
+            let ShareControlPdu::Data(ShareDataHeader { share_data_pdu, .. }) = header.share_control_pdu
+            else {
                 return Ok(false);
             };
             match share_data_pdu {
                 ShareDataPdu::ShutdownRequest => {
                     update(self.log, self.index, |r| r.shutdown_requested = true);
-                    let denied =
-                        share_data_frame(ShareDataPdu::ShutdownDenied, self.user_channel_id, self.io_channel_id)?;
+                    let denied = share_data_frame(
+                        ShareDataPdu::ShutdownDenied,
+                        self.user_channel_id,
+                        self.io_channel_id,
+                    )?;
                     framed.write_all(&denied).await.map_err(|e| err("write shutdown denied", e))?;
                 }
                 ShareDataPdu::SuppressOutput(pdu) => {
@@ -729,7 +736,11 @@ impl Active<'_> {
         Ok((cliprdr, id))
     }
 
-    async fn clipboard_copy(&mut self, framed: &mut ServerFramed, formats: Vec<ServerClipFormat>) -> Result<()> {
+    async fn clipboard_copy(
+        &mut self,
+        framed: &mut ServerFramed,
+        formats: Vec<ServerClipFormat>,
+    ) -> Result<()> {
         let list: Vec<ClipboardFormat> = formats
             .iter()
             .map(|f| {
@@ -779,8 +790,8 @@ impl Active<'_> {
         };
         let message = fake_channels::gfx_message(&redraw_pdus(&self.state, width, height))
             .map_err(|e| err("encode gfx", e))?;
-        let messages =
-            encode_dvc_messages(gfx_id, vec![message], ChannelFlags::empty()).map_err(|e| err("encode dvc", e))?;
+        let messages = encode_dvc_messages(gfx_id, vec![message], ChannelFlags::empty())
+            .map_err(|e| err("encode dvc", e))?;
         send_svc(framed, self.user_channel_id, drdynvc_id, messages).await?;
         let sent = fake_channels::lock(&self.state).gfx_resets_sent.clone();
         update(self.log, self.index, |r| r.gfx_resets_sent = sent);

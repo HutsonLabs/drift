@@ -442,7 +442,19 @@ const E2E_HOST: &str = "homelab@10.1.2.40";
 fn e2e(root: &Path, extra: &[String]) -> Result<()> {
     let host = std::env::var("DRIFT_E2E_SSH").unwrap_or_else(|_| E2E_HOST.into());
     let mut ssh = Command::new("ssh");
-    ssh.args(["-N", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes"]);
+    ssh.args([
+        "-N",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        // The suite runs for minutes and the tests open their own SSH connections; keep this
+        // one alive and independent of any multiplexing master.
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ControlPath=none",
+    ]);
     for (local, remote) in E2E_PORTS {
         ssh.arg("-L").arg(format!("{local}:localhost:{remote}"));
     }
@@ -452,7 +464,10 @@ fn e2e(root: &Path, extra: &[String]) -> Result<()> {
     wait_for_port(E2E_PORTS[0].0, &mut child.0)?;
 
     let mut cmd = Command::new(cargo());
-    cmd.current_dir(root).args(["nextest", "run", "-p", "drift-e2e", "--run-ignored", "only"]).args(extra);
+    // The tests share one GNOME host (and one daemon per mode), so they never run in parallel.
+    cmd.current_dir(root)
+        .args(["nextest", "run", "-p", "drift-e2e", "--run-ignored", "only", "--test-threads", "1"])
+        .args(extra);
     cmd.env("DRIFT_E2E_HOST", "127.0.0.1").env("DRIFT_E2E_TLS_NAME", "10.1.2.40");
     for (local, remote) in E2E_PORTS {
         cmd.env(format!("DRIFT_E2E_PORT_{remote}"), local.to_string());

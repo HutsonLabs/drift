@@ -11,9 +11,7 @@ use drift_clipboard::{ClipboardContents, ClipboardItem};
 use drift_core::ConnectMode;
 use drift_rdp::{SessionCommand, SessionEvent, SessionSecrets};
 use drift_testkit::fixtures::{self, names};
-use drift_testkit::{
-    Channels, FakeServer, LegScript, ManualClock, ServerAction, ServerClipFormat, TestCert,
-};
+use drift_testkit::{Channels, FakeServer, LegScript, ManualClock, ServerAction, ServerClipFormat, TestCert};
 
 const WAIT: Duration = Duration::from_secs(20);
 /// `CF_UNICODETEXT`.
@@ -62,9 +60,7 @@ async fn a_remote_text_copy_is_fetched_eagerly() {
     let mut h = Harness::start(profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())), PASS);
     h.handle.send(SessionCommand::Focus(true)).unwrap();
     h.wait_for("Connected", WAIT, is_connected).await;
-    let event = h
-        .wait_for("ClipboardRemote", WAIT, |e| matches!(e, SessionEvent::ClipboardRemote(_)))
-        .await;
+    let event = h.wait_for("ClipboardRemote", WAIT, |e| matches!(e, SessionEvent::ClipboardRemote(_))).await;
     assert_eq!(remote_clip(&event).and_then(|c| c.text().map(str::to_owned)), Some("copy-me-42".to_owned()));
     assert_eq!(server.log().legs[0].client_data_requests, vec![CF_UNICODETEXT], "eager fetch, once");
     h.close().await;
@@ -84,9 +80,7 @@ async fn a_remote_png_copy_is_fetched_unchanged() {
     let mut h = Harness::start(profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())), PASS);
     h.handle.send(SessionCommand::Focus(true)).unwrap();
     h.wait_for("Connected", WAIT, is_connected).await;
-    let event = h
-        .wait_for("ClipboardRemote", WAIT, |e| matches!(e, SessionEvent::ClipboardRemote(_)))
-        .await;
+    let event = h.wait_for("ClipboardRemote", WAIT, |e| matches!(e, SessionEvent::ClipboardRemote(_))).await;
     assert_eq!(remote_clip(&event).map(|c| c.items), Some(vec![ClipboardItem::Png(png)]));
     assert_eq!(server.log().legs[0].client_data_requests, vec![0xD011]);
     h.close().await;
@@ -120,11 +114,7 @@ async fn a_local_copy_is_advertised_and_served() {
     .await;
     assert_eq!(
         log.legs[0].client_format_lists.last().unwrap(),
-        &vec![
-            (CF_UNICODETEXT, None),
-            (LOCAL_PNG, Some("image/png".to_owned())),
-            (CF_DIB, None),
-        ],
+        &vec![(CF_UNICODETEXT, None), (LOCAL_PNG, Some("image/png".to_owned())), (CF_DIB, None),],
         "plan §1.6: CF_UNICODETEXT + image/png (+ CF_DIB for compatibility)"
     );
 
@@ -184,9 +174,7 @@ async fn writing_the_fetched_contents_back_does_not_echo_to_the_server() {
     let mut h = Harness::start(profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())), PASS);
     h.handle.send(SessionCommand::Focus(true)).unwrap();
     h.wait_for("Connected", WAIT, is_connected).await;
-    let event = h
-        .wait_for("ClipboardRemote", WAIT, |e| matches!(e, SessionEvent::ClipboardRemote(_)))
-        .await;
+    let event = h.wait_for("ClipboardRemote", WAIT, |e| matches!(e, SessionEvent::ClipboardRemote(_))).await;
     let lists_before = server.log().legs[0].client_format_lists.len();
 
     // The app wrote the pasteboard; its watcher reports the change straight back.

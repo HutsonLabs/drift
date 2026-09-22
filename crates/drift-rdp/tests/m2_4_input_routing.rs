@@ -10,7 +10,7 @@ use common::{Harness, PASS, USER, is_connected, profile, wait_log};
 use drift_core::{ConnectMode, KeyboardPrefs};
 use drift_input::keymap::{KeyboardType, kvk};
 use drift_input::modifiers::ModifierFlags;
-use drift_input::{Keyboard, KeyDown, MenuShortcut, menu_shortcut};
+use drift_input::{KeyDown, Keyboard, MenuShortcut, menu_shortcut};
 use drift_rdp::SessionCommand;
 use drift_testkit::{Channels, FakeServer, LegScript, TestCert};
 use ironrdp_pdu::input::fast_path::{FastPathInputEvent, KeyboardFlags};
@@ -72,11 +72,10 @@ async fn a_scripted_session_produces_the_exact_fast_path_sequence() {
     assert_eq!(claimed, vec![MenuShortcut::NewTab, MenuShortcut::CloseTab]);
 
     let cert = TestCert::generate("127.0.0.1");
-    let server = FakeServer::start(vec![
-        LegScript::nla(cert.clone(), USER, PASS).with_channels(Channels::all()),
-    ])
-    .await
-    .unwrap();
+    let server =
+        FakeServer::start(vec![LegScript::nla(cert.clone(), USER, PASS).with_channels(Channels::all())])
+            .await
+            .unwrap();
     let mut h = Harness::start(profile(ConnectMode::Headless, server.port(), Some(cert.fingerprint())), PASS);
     h.wait_for("Connected", WAIT, is_connected).await;
     for event in events {
@@ -93,10 +92,9 @@ async fn a_scripted_session_produces_the_exact_fast_path_sequence() {
         key(0x2E, false, false),
         key(0x5B, true, false),
     ];
-    let log = wait_log(&server, "the full sequence", WAIT, |l| {
-        l.legs[0].fast_path_events.len() >= expected.len()
-    })
-    .await;
+    let log =
+        wait_log(&server, "the full sequence", WAIT, |l| l.legs[0].fast_path_events.len() >= expected.len())
+            .await;
     assert_eq!(log.legs[0].fast_path_events, expected);
     assert!(
         !log.legs[0]

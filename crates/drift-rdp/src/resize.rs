@@ -19,7 +19,9 @@
 
 use std::time::{Duration, Instant};
 
-use drift_core::{ConnectMode, DisplayControlCaps, DisplayPrefs, MonitorLayout, ViewGeometry, desired_layout};
+use drift_core::{
+    ConnectMode, DisplayControlCaps, DisplayPrefs, MonitorLayout, ViewGeometry, desired_layout,
+};
 use drift_input::ScaleMode;
 
 /// Trailing debounce window for geometry changes (plan M4-2).

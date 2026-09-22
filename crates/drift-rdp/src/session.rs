@@ -35,8 +35,8 @@ use drift_core::{
     CertFingerprint, Clock, ConnectionProfile, InputEvent, Point, ReconnectConfig, SessionState, Size,
     ViewGeometry,
 };
-pub use drift_input::ScaleMode;
 use drift_gfx::FrameSink;
+pub use drift_input::ScaleMode;
 use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 

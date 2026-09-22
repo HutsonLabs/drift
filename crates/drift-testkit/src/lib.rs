@@ -20,9 +20,9 @@ pub mod frame_sink;
 pub mod golden;
 
 pub use clock::ManualClock;
+pub use fake_channels::{Channels, RecordedLayout, ServerClipFormat};
 pub use fake_server::{
     FakeServer, FakeServerLog, LegAuth, LegRecord, LegScript, RdstlsRequest, ServerAction, TestCert,
     redirection_pdu,
 };
-pub use fake_channels::{Channels, RecordedLayout, ServerClipFormat};
 pub use frame_sink::{FrameLog, FrameSinkCall, PresentMode, RecordingFrameSink};

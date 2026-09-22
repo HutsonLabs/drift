@@ -99,8 +99,7 @@ fn desktop_sharing_and_fixed_profiles_never_resize() {
     assert_eq!(sharing.poll(t0 + Duration::from_secs(5)), None);
     assert_eq!(sharing.connect_layout(), None);
 
-    let mut fixed =
-        ResizeDriver::new(ConnectMode::Headless, DisplayPrefs { adaptive: false, retina: true });
+    let mut fixed = ResizeDriver::new(ConnectMode::Headless, DisplayPrefs { adaptive: false, retina: true });
     fixed.on_leg_activated(layout(1280, 800, 100));
     fixed.on_display_control_ready(CAPS, t0);
     fixed.on_geometry(view(1600.0, 1000.0, 1.0), t0);

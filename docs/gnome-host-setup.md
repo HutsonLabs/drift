@@ -109,3 +109,21 @@ Things the script deliberately does not do:
 - touch Desktop Sharing (:3390, the `homelab` user's daemon);
 - clean up greeter sessions that clients left behind by disconnecting at the GDM greeter
   (plan §1.9; Drift itself closes greeter tabs gracefully, M3-4).
+
+## E2E helpers and session state (stream A, M4-2/M5-2/M6-3/M7-3)
+
+`cargo xtask e2e` needs a little more than the daemons:
+
+- **The test session must be unlocked.** A locked GNOME session swallows input events and stops
+  propagating clipboard changes, which looks exactly like a broken client. The tests call
+  `drift_e2e::host::ensure_unlocked_session`, which turns the idle lock off
+  (`org.gnome.desktop.screensaver lock-enabled false`, `idle-activation-enabled false`,
+  `org.gnome.desktop.session idle-delay 0`) and restarts
+  `gnome-headless-session@<user>.service` when the session is already locked — GNOME cannot be
+  unlocked over D-Bus without the user's password.
+- **Helpers live in the repository.** `host/cliptool.py` (clipboard read/write) and
+  `host/scrolltool.py` (scroll, key and motion counters) are uploaded into the test user's home
+  by the tests themselves; `anim.py` and `clip_in.png` are expected in that home directory
+  (`/home/<user>/`), as set up during the spike.
+- **The tests run one at a time** (`--test-threads 1`): they share one host and one daemon per
+  mode.

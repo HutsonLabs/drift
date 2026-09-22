@@ -24,8 +24,9 @@ use ironrdp_core::{EncodeResult, WriteCursor, impl_as_any};
 use ironrdp_displaycontrol::pdu::{DisplayControlCapabilities, DisplayControlPdu};
 use ironrdp_dvc::{DvcEncode, DvcMessage, DvcProcessor, DvcServerProcessor};
 use ironrdp_egfx::pdu::{
-    CapabilitiesConfirmPdu, CapabilitiesV81Flags, CapabilitySet, Color, CreateSurfacePdu, EndFramePdu, GfxPdu,
-    MapSurfaceToOutputPdu, PixelFormat, QueueDepth, ResetGraphicsPdu, SolidFillPdu, StartFramePdu, Timestamp,
+    CapabilitiesConfirmPdu, CapabilitiesV81Flags, CapabilitySet, Color, CreateSurfacePdu, EndFramePdu,
+    GfxPdu, MapSurfaceToOutputPdu, PixelFormat, QueueDepth, ResetGraphicsPdu, SolidFillPdu, StartFramePdu,
+    Timestamp,
 };
 use ironrdp_pdu::geometry::ExclusiveRectangle;
 use ironrdp_pdu::{PduResult, decode_err, pdu_other_err};
@@ -201,9 +202,10 @@ impl DvcProcessor for FakeGraphics {
         match ironrdp_core::decode::<GfxPdu>(payload).map_err(|e| decode_err!(e))? {
             GfxPdu::CapabilitiesAdvertise(_) => {
                 lock(&self.state).gfx_caps_advertised = true;
-                let confirm = GfxPdu::CapabilitiesConfirm(CapabilitiesConfirmPdu::from_typed(&CapabilitySet::V8_1 {
-                    flags: CapabilitiesV81Flags::AVC420_ENABLED,
-                }));
+                let confirm =
+                    GfxPdu::CapabilitiesConfirm(CapabilitiesConfirmPdu::from_typed(&CapabilitySet::V8_1 {
+                        flags: CapabilitiesV81Flags::AVC420_ENABLED,
+                    }));
                 let (w, h) = self.desktop;
                 let mut pdus = vec![confirm];
                 pdus.extend(redraw_pdus(&self.state, w, h));
@@ -242,7 +244,11 @@ pub(crate) fn redraw_pdus(state: &SharedState, width: u32, height: u32) -> Vec<G
             height: h16,
             pixel_format: PixelFormat::XRgb,
         }),
-        GfxPdu::MapSurfaceToOutput(MapSurfaceToOutputPdu { surface_id, output_origin_x: 0, output_origin_y: 0 }),
+        GfxPdu::MapSurfaceToOutput(MapSurfaceToOutputPdu {
+            surface_id,
+            output_origin_x: 0,
+            output_origin_y: 0,
+        }),
         GfxPdu::StartFrame(StartFramePdu {
             timestamp: Timestamp { milliseconds: 0, seconds: 0, minutes: 0, hours: 0 },
             frame_id,

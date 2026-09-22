@@ -363,10 +363,8 @@ impl Actor {
 
     fn first_leg(&mut self) -> LegRequest {
         let layout = self.resize.connect_layout();
-        let desktop = layout.map_or(connect::DEFAULT_DESKTOP, |l| DesktopSize {
-            width: l.width,
-            height: l.height,
-        });
+        let desktop =
+            layout.map_or(connect::DEFAULT_DESKTOP, |l| DesktopSize { width: l.width, height: l.height });
         self.scale = layout.map_or(100, |l| l.desktop_scale_factor);
         LegRequest {
             leg: 1,
@@ -493,11 +491,8 @@ impl Actor {
             });
             Ok(Vec::new())
         });
-        let channel = ClipboardChannel::new(
-            self.profile.clipboard,
-            self.view.focused,
-            Arc::clone(&self.clock),
-        );
+        let channel =
+            ClipboardChannel::new(self.profile.clipboard, self.view.focused, Arc::clone(&self.clock));
         let cliprdr = channel.client();
         *self.clipboard.lock().unwrap_or_else(PoisonError::into_inner) = Some(channel);
         self.graphics.channels_for_leg(display_control, Some(cliprdr))
@@ -672,8 +667,12 @@ impl Actor {
         let now = self.clock.now();
         if let Some(layout) = self.resize.poll(now) {
             self.scale = layout.desktop_scale_factor;
-            match leg.stage.encode_resize(layout.width, layout.height, Some(layout.desktop_scale_factor), None)
-            {
+            match leg.stage.encode_resize(
+                layout.width,
+                layout.height,
+                Some(layout.desktop_scale_factor),
+                None,
+            ) {
                 Some(Ok(frame)) => {
                     tracing::debug!(?layout, "requesting a monitor layout");
                     if let Err(e) = leg.framed.write_all(&frame).await {

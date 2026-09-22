@@ -32,6 +32,7 @@ pub mod stats;
 mod tls;
 
 pub use session::{
-    CertificateRole, CursorBitmap, CursorUpdate, ScaleMode, SessionCapabilities, SessionClosed, SessionCommand,
-    SessionEvent, SessionEvents, SessionHandle, SessionOptions, SessionSecrets, SessionStats, spawn_session,
+    CertificateRole, CursorBitmap, CursorUpdate, ScaleMode, SessionCapabilities, SessionClosed,
+    SessionCommand, SessionEvent, SessionEvents, SessionHandle, SessionOptions, SessionSecrets, SessionStats,
+    spawn_session,
 };
