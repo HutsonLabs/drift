@@ -259,10 +259,14 @@ thread_local! {
 
 /// Polls the general pasteboard once. Must be called on the main thread.
 fn pump_once(sessions: &dyn SessionFanout) -> usize {
-    PUMP.with_borrow_mut(|pump| {
+    let told = PUMP.with_borrow_mut(|pump| {
         pump.get_or_insert_with(|| ClipboardPump::new(drift_clipboard::pasteboard::NsPasteboard::general()))
             .tick(sessions)
-    })
+    });
+    // Per tick, so `RUST_LOG=drift_app=trace` shows the main-thread timer is alive; never the
+    // contents, which may be anything the user copied.
+    tracing::trace!(told, "pasteboard poll");
+    told
 }
 
 /// The app's platform services. Dropping it stops both.
@@ -298,6 +302,11 @@ impl PlatformServices {
                 Err(_) => Tick::Stop,
             }
         });
+        tracing::debug!(
+            poll_interval = ?CLIPBOARD_POLL_INTERVAL,
+            online = triggers.feed().is_online(),
+            "platform services started"
+        );
         Self { _clipboard: clipboard, _triggers: triggers }
     }
 }
