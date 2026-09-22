@@ -50,3 +50,33 @@ Rendering and intents are covered by `bun test`; these need eyes, VoiceOver or a
 - [ ] At a Retina drawable equal to the desktop size (Retina on, window not resized) terminal
       text is pixel-sharp (no filtering blur); after resizing to a non-matching size the picture
       scales smoothly with black bars, and snaps back to sharp once DISP re-layout completes.
+
+## M1-6 / M2-2 / M2-4 / M2-5 / M3-2 / M6-2 / M7-2 — macOS platform layer (drift-macos)
+
+These need a person, a real keyboard/IME, physical network changes or sleep
+(see `docs/adr/M1-6-macos-platform-layer.md`).
+
+- [ ] **RemoteView placement:** after connecting, the webview disappears, the desktop fills the
+      window, and typing goes to the remote immediately (no click needed). Resizing the window
+      and moving it between a Retina and a 1× display keeps the picture sharp.
+- [ ] **Shortcut routing:** Cmd+C / Cmd+V / Ctrl+Tab / Cmd+K act on the remote; Cmd+T, Cmd+W,
+      Cmd+Q, Cmd+1…9, Cmd+Shift+[ / ], Cmd+` act on Drift and nothing happens on the remote.
+      Holding Cmd+K and releasing K first, then Cmd, leaves no stuck key on the remote.
+- [ ] **Connect form still edits text:** with the connect form visible, Cmd+C / Cmd+V / Cmd+A
+      work in its text fields (the RemoteView does not claim them when it is not focused).
+- [ ] **IME / dead keys (Type using Mac layout on):** Option+E, E types `é`; the Japanese IME
+      shows its candidate window near the bottom-left of the session and commits into gedit;
+      Return while composing confirms locally instead of sending Enter.
+- [ ] **Remote cursor:** the pointer takes GNOME's shapes (I-beam over text, resize arrows on
+      window edges, hand over links) at the same size as local cursors, crisp at Retina/200 %;
+      it disappears where GNOME hides it and becomes the arrow when leaving the window.
+- [ ] **Keychain:** saving a profile with a password creates a Keychain Access item
+      "com.hutsonlabs.drift", account `<profile uuid>/rdp-user` (or `rdp-system`); deleting the
+      profile removes it; no password prompt appears on relaunch of the same signed build.
+- [ ] **Tabs:** three sessions open as tabs of one window even with System Settings › Desktop &
+      Dock › "Prefer tabs when opening documents" = "In Full Screen"; the tab bar's "+" opens
+      the connect form in a new tab; tab titles show the state glyph (● ◐ ◌ ↻ ○ ⚠).
+- [ ] **Network trigger:** with a live Headless session, Wi-Fi off pauses reconnecting (no
+      attempts counted); Wi-Fi on reconnects within ~1 s without waiting for the backoff.
+- [ ] **Wake trigger:** sleep the Mac for > 1 min with a live session; after wake it reconnects
+      immediately (single attempt, not one per trigger).

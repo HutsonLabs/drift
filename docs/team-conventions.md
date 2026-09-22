@@ -30,6 +30,7 @@ Any decision not already fixed by `plan.md` gets an ADR in `docs/adr/<TASKID>-<s
 | `M0-6-dependency-policy` | cargo-deny licenses (MPL-2.0 allowance), advisories |
 | `M1-4-cpu-codecs` | parallel RFX Progressive, `BgraTile`, DRFTGFX1 GFX captures, release strip fix |
 | `M2-1-keyboard-translation` | drift-input: ISO/JIS mapping, deferred Command, lock keys, Unicode, scroll, viewport, allow-list |
+| `M1-6-macos-platform-layer` | drift-macos: RemoteView, key equivalents, IME, cursor decode, Keychain, NWPathMonitor, tabs, main-thread test harness |
 | `M1-6-profiles-and-view-model` | profiles.toml, credentials UX, SessionView/screen model, error texts |
 | `M4-1-layout-policy` | desired_layout details (Retina threshold, device scale, max area) |
 | `M7-1-reconnect-policy` | backoff RNG, attempt budget semantics, trigger merger debounce |
