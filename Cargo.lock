@@ -1483,6 +1483,7 @@ name = "drift-input"
 version = "0.1.0"
 dependencies = [
  "drift-core",
+ "proptest",
 ]
 
 [[package]]
