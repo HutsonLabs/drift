@@ -3,8 +3,9 @@
 //! `drift-video` decodes into IOSurface-backed `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange`
 //! buffers. The compositor imports both planes through a `CVMetalTextureCache` (no copy).
 //! Because [`Nv12Frame`] is an opaque `Arc<dyn Nv12Source>`, the compositor finds the
-//! `CVPixelBuffer` through a list of [`PixelBufferAccessor`]s; [`PixelBufferNv12`] (this
-//! module's wrapper) is always registered, and the decoder's own frame type can be added with
+//! `CVPixelBuffer` through a list of [`PixelBufferAccessor`]s; `drift-video`'s
+//! `DecodedPicture` and [`PixelBufferNv12`] (this module's wrapper) are always registered, and
+//! other frame types can be added with
 //! [`Compositor::add_pixel_buffer_accessor`](crate::Compositor::add_pixel_buffer_accessor).
 //! See `docs/adr/M1-5-metal-compositor.md`.
 
@@ -27,6 +28,11 @@ use crate::gpu::Shared;
 
 /// Finds the `CVPixelBuffer` behind an [`Nv12Frame`], if the frame has one.
 pub type PixelBufferAccessor = for<'a> fn(&'a Nv12Frame) -> Option<&'a CVPixelBuffer>;
+
+/// The built-in accessor for `drift-video`'s decoder output ([`drift_video::DecodedPicture`]).
+pub fn decoded_picture_accessor(frame: &Nv12Frame) -> Option<&CVPixelBuffer> {
+    frame.downcast_ref::<drift_video::DecodedPicture>().map(drift_video::DecodedPicture::pixel_buffer)
+}
 
 /// The built-in accessor for [`PixelBufferNv12`].
 pub fn pixel_buffer_nv12_accessor(frame: &Nv12Frame) -> Option<&CVPixelBuffer> {

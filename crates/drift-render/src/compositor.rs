@@ -41,7 +41,7 @@ use crate::clip::{clip_copy, clip_rect};
 use crate::gpu::{Gpu, Queue, Shared, Texture};
 use crate::image::BgraImage;
 use crate::layout::{Filter, present_layout};
-use crate::pixel_buffer::{PixelBufferAccessor, pixel_buffer_nv12_accessor};
+use crate::pixel_buffer::{PixelBufferAccessor, decoded_picture_accessor, pixel_buffer_nv12_accessor};
 use crate::shaders::{FillParams, PresentParams, RegionParams};
 use crate::target::{OffscreenTarget, PresentTarget, TargetFrame};
 
@@ -180,7 +180,7 @@ impl<T: PresentTarget> Compositor<T> {
             recorder: None,
             capture_counters: Arc::default(),
             nv12_cache: None,
-            accessors: vec![pixel_buffer_nv12_accessor],
+            accessors: vec![decoded_picture_accessor, pixel_buffer_nv12_accessor],
         }
     }
 

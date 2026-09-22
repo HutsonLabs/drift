@@ -26,11 +26,11 @@ details were left open.
    does); each region is clipped to `min(surface, picture)` and converted by a compute kernel
    dispatched over exactly that rectangle, so nothing outside the regions is written.
 3. **Finding the `CVPixelBuffer`.** `Nv12Frame` is an opaque `Arc<dyn Nv12Source>`
-   (ADR M0-5). Instead of depending on `drift-video`'s concrete type (not yet written when this
-   landed), the compositor tries a list of `PixelBufferAccessor` functions. `PixelBufferNv12`
-   (drift-render's own wrapper) is built in; the session wiring registers drift-video's type
-   with `Compositor::add_pixel_buffer_accessor`, or drift-video can return `PixelBufferNv12`
-   directly. CPU `Nv12Planes` are uploaded (goldens only).
+   (ADR M0-5). As that ADR says, drift-render depends on drift-video and downcasts to
+   `drift_video::DecodedPicture`; this is done through a list of `PixelBufferAccessor`
+   functions, with `DecodedPicture` and drift-render's own `PixelBufferNv12` built in, so other
+   producers can be added with `Compositor::add_pixel_buffer_accessor`. CPU `Nv12Planes` are
+   uploaded (goldens only).
 4. **One command buffer per frame; `presented` exactly once.** All operations between two
    `end_frame`s are encoded into one command buffer (blit/compute encoders switched as needed;
    Metal's hazard tracking orders them). The callback is wrapped in a call-on-drop guard, so it
@@ -52,6 +52,5 @@ details were left open.
 
 ## Consequences
 
-- `drift-render` needs no dependency on `drift-video`; integration adds one accessor line.
 - The render thread copies BGRA tile data once into its message (NV12 frames are shared
   handles); the compositor copies it once more into a staging `MTLBuffer`.
