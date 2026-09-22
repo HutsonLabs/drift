@@ -41,12 +41,17 @@
    copies are zeroized and cleared as soon as they are extracted; IronRDP's `RdstlsCredentials`
    now zeroizes itself on drop (fork patch 0006). They are never logged (`Debug` redacted).
 8. **Client name** = first label of `gethostname()`, `[A-Za-z0-9-]`, ≤ 15 chars, else `drift`.
-9. **Interim graphics listener.** g-r-d terminates a session whose client does not open
+9. **Graphics pipeline wiring.** g-r-d terminates a session whose client does not open
    `Microsoft::Windows::RDS::Graphics` ("Failed to open channel … Terminating session",
-   `ERRINFO_BAD_CAPABILITIES`, seen in the first e2e run). Until the actor wires
-   `drift_gfx::GfxClient` (M1-2, rendering through the tab's `FrameSink`), `gfx_ack::GfxAckOnly`
-   advertises exactly `[V8_1{AVC420_ENABLED}, V8{}]` and acknowledges every `EndFrame`; its caps
-   bytes and ack frame ids equal the reference client's on the captured sessions.
+   `ERRINFO_BAD_CAPABILITIES`, seen in the first e2e run). Every leg therefore gets a fresh
+   `drift_gfx::GfxClient` (`graphics.rs`) drawing into the tab's one `FrameSink` through a
+   shared, mutex-guarded wrapper, with VideoToolbox (`drift_video::VtDecoder`) for AVC420 and one
+   process-wide `drift_codec::TilePool`. `AckOutbox` wakes the actor through a `tokio::Notify`;
+   the actor sends the queued `FrameAcknowledge`s on the graphics channel. A GFX processing error
+   ends the leg with the client's own `GfxError::disconnect_reason()`. If the tile pool cannot
+   start, the leg falls back to `gfx_ack::GfxAckOnly` (caps `[V8_1{AVC420_ENABLED}, V8{}]` plus an
+   ack per `EndFrame`, byte-compatible with the reference client on the captured sessions) so the
+   session is not terminated.
 10. **Close** sends a Shutdown Request and waits ≤ 1 s for Shutdown Denied / disconnect
     (groundwork for M3-4); dropping every `SessionHandle` counts as `Close`. After a terminal
     state the actor stays addressable until `Close` (M7 adds reconnect commands).
@@ -67,7 +72,7 @@
 
 ## Consequences
 
-- Wiring `drift_gfx::GfxClient` replaces `GfxAckOnly` in `actor::attach_channels` and needs the
-  actor to drain `AckOutbox` (see the M1-2 ADR).
+- `FrameSink` calls happen on the actor's Tokio worker; the renderer hands them to its render
+  thread. `GfxClient::set_visible` is reachable through `ActiveStage::get_dvc_mut` for M6-3.
 - Display Control, clipboard, Suppress Output and reconnect commands are accepted by the actor
   but ignored until M4-2, M5-2, M6-3 and M7.

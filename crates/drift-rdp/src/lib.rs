@@ -15,6 +15,7 @@ mod actor;
 pub mod connect;
 mod fastpath;
 mod gfx_ack;
+mod graphics;
 pub mod rdstls;
 pub mod redirect;
 pub mod session;

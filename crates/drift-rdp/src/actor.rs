@@ -16,7 +16,6 @@ use drift_core::{
 };
 use drift_gfx::FrameSink;
 use ironrdp_async::FramedWrite as _;
-use ironrdp_connector::ClientConnector;
 use ironrdp_graphics::image_processing::PixelFormat;
 use ironrdp_pdu::rdp::server_redirection::ServerRedirectionPdu;
 use ironrdp_session::image::DecodedImage;
@@ -28,7 +27,7 @@ use crate::connect::{
     UpgradedFramed,
 };
 use crate::fastpath::InputEncoder;
-use crate::gfx_ack::GfxAckOnly;
+use crate::graphics::{self, Graphics};
 use crate::redirect::RedirectLoop;
 use crate::session::{
     CertificateRole, SessionCommand, SessionEvent, SessionEvents, SessionHandle, SessionOptions,
@@ -67,7 +66,7 @@ pub(crate) fn spawn(
     let actor = Actor {
         profile,
         secrets,
-        _frame_sink: frame_sink,
+        graphics: Graphics::new(frame_sink),
         clock,
         options,
         io: Io { cmds: fwd_rx, events: ev_tx, state: SessionState::Idle, leg: 1, session_pin: None },
@@ -157,8 +156,8 @@ impl ConnectObserver for Io {
 struct Actor {
     profile: ConnectionProfile,
     secrets: SessionSecrets,
-    /// Driven by the GFX channel (task M1-2); held for the session's lifetime.
-    _frame_sink: Box<dyn FrameSink>,
+    /// The tab's frame sink and the GFX ack wake-up, shared by every leg.
+    graphics: Graphics,
     clock: Arc<dyn Clock>,
     options: SessionOptions,
     io: Io,
@@ -275,10 +274,11 @@ impl Actor {
         }
         let timeout = self.options.connect_timeout;
         let clock = Arc::clone(&self.clock);
+        let channels = self.graphics.channels_for_leg();
         let closed = &mut self.closed;
         let io = &mut self.io;
         tokio::select! {
-            res = connect::connect_leg(request, &TokioDialer, clock.as_ref(), timeout, io, attach_channels) => res,
+            res = connect::connect_leg(request, &TokioDialer, clock.as_ref(), timeout, io, channels) => res,
             () = wait_closed(closed) => Err(DisconnectReason::UserClosed),
         }
     }
@@ -299,6 +299,7 @@ impl Actor {
         }
         .build();
         let mut input = InputEncoder::default();
+        let acks_ready = self.graphics.acks_ready();
 
         loop {
             tokio::select! {
@@ -309,12 +310,25 @@ impl Actor {
                     };
                     let outputs = match stage.process(&mut image, action, &payload) {
                         Ok(outputs) => outputs,
-                        Err(e) => return LegEnd::Ended(DisconnectReason::ProtocolError(e.to_string())),
+                        Err(e) => {
+                            let reason = graphics::take_gfx_error(&mut stage)
+                                .unwrap_or_else(|| DisconnectReason::ProtocolError(e.to_string()));
+                            return LegEnd::Ended(reason);
+                        }
                     };
                     if let Some(end) = handle_outputs(&mut framed, outputs).await {
                         return end;
                     }
                 }
+                () = acks_ready.notified() => match graphics::flush_acks(&stage) {
+                    Ok(Some(frame)) => {
+                        if let Err(e) = framed.write_all(&frame).await {
+                            return LegEnd::Ended(connect::classify_io_error(&e, ConnectStage::Activation));
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(reason) => return LegEnd::Ended(reason),
+                },
                 cmd = self.io.cmds.recv() => match cmd {
                     None | Some(SessionCommand::Close) => {
                         shutdown(&mut framed, &mut stage, &mut image, self.clock.as_ref()).await;
@@ -337,15 +351,6 @@ impl Actor {
             }
         }
     }
-}
-
-/// Static channels every leg carries: DRDYNVC with the graphics pipeline, without which g-r-d
-/// terminates the session. [`GfxAckOnly`] is the interim listener until the actor wires
-/// `drift_gfx::GfxClient` with the tab's `FrameSink` (M1-2); Display Control and clipboard are
-/// attached here by M4-2 and M5-2.
-fn attach_channels(connector: ClientConnector) -> ClientConnector {
-    connector
-        .with_static_channel(ironrdp_dvc::DrdynvcClient::new().with_dynamic_channel(GfxAckOnly::default()))
 }
 
 /// Writes response frames and turns terminal outputs into a [`LegEnd`].

@@ -38,7 +38,9 @@ async fn e2e_headless_connects() {
     tokio::time::sleep(Duration::from_secs(3)).await;
     let calls = s.frames.calls();
     assert!(
-        calls.iter().any(|c| matches!(c, FrameSinkCall::Reset { output } if output.width == 1280 && output.height == 800)),
+        calls.iter().any(
+            |c| matches!(c, FrameSinkCall::Reset { output } if output.width == 1280 && output.height == 800)
+        ),
         "ResetGraphics 1280x800 reached the sink: {} calls",
         calls.len()
     );
