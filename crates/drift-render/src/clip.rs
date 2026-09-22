@@ -8,8 +8,12 @@ use drift_core::{Point, Rect, Size};
 
 /// Clips `rect` to a surface of `bounds`. `None` if nothing remains.
 pub fn clip_rect(rect: Rect, bounds: Size<u32>) -> Option<Rect> {
-    let _ = (rect, bounds);
-    todo!("M1-5")
+    if rect.is_empty() || rect.x >= bounds.width || rect.y >= bounds.height {
+        return None;
+    }
+    let width = rect.width.min(bounds.width - rect.x);
+    let height = rect.height.min(bounds.height - rect.y);
+    Some(Rect::new(rect.x, rect.y, width, height))
 }
 
 /// A copy of `size` pixels from `src` (in the source) to `dst` (in the destination).
@@ -25,9 +29,15 @@ pub struct CopyRegion {
 
 /// Clips a copy of `src_rect` (inside a source of `src_bounds`) to destination point `dst`
 /// (inside a destination of `dst_bounds`). `None` if nothing remains.
-pub fn clip_copy(src_rect: Rect, src_bounds: Size<u32>, dst: Point<u32>, dst_bounds: Size<u32>) -> Option<CopyRegion> {
-    let _ = (src_rect, src_bounds, dst, dst_bounds);
-    todo!("M1-5")
+pub fn clip_copy(
+    src_rect: Rect,
+    src_bounds: Size<u32>,
+    dst: Point<u32>,
+    dst_bounds: Size<u32>,
+) -> Option<CopyRegion> {
+    let src = clip_rect(src_rect, src_bounds)?;
+    let dst_rect = clip_rect(Rect::new(dst.x, dst.y, src.width, src.height), dst_bounds)?;
+    Some(CopyRegion { src: Point::new(src.x, src.y), dst, size: Size::new(dst_rect.width, dst_rect.height) })
 }
 
 #[cfg(test)]

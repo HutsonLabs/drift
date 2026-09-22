@@ -70,6 +70,7 @@ fn golden_reset() {
     run_scene("reset", scenes::reset);
     let mut gpu = offscreen(Size::new(40, 20));
     scenes::reset(&mut gpu);
+    gpu.end_frame(1, PresentLog::default().callback(1));
     gpu.wait_idle();
     assert!(gpu.read_surface(1).is_none(), "reset drops old surfaces");
     let out = gpu.read_output().unwrap();

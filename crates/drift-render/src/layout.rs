@@ -28,8 +28,30 @@ pub struct PresentLayout {
 /// Computes the present layout for a `desktop`-sized picture on a `drawable`-sized target.
 /// Returns `None` if either size is empty (nothing to draw).
 pub fn present_layout(desktop: Size<u32>, drawable: Size<u32>) -> Option<PresentLayout> {
-    let _ = (desktop, drawable);
-    todo!("M4-3")
+    if desktop.width == 0 || desktop.height == 0 || drawable.width == 0 || drawable.height == 0 {
+        return None;
+    }
+    if desktop == drawable {
+        return Some(PresentLayout {
+            filter: Filter::Nearest,
+            viewport: Rect::new(0, 0, drawable.width, drawable.height),
+        });
+    }
+    let (dw, dh) = (u64::from(desktop.width), u64::from(desktop.height));
+    let (tw, th) = (u64::from(drawable.width), u64::from(drawable.height));
+    // Rounded integer division, clamped to 1..=limit.
+    let scale = |num: u64, den: u64, limit: u64| ((2 * num + den) / (2 * den)).clamp(1, limit);
+    let (w, h) = if tw * dh <= th * dw {
+        (tw, scale(tw * dh, dw, th)) // width-limited: bars top and bottom
+    } else {
+        (scale(th * dw, dh, tw), th) // height-limited: bars left and right
+    };
+    // All values are ≤ the u32 drawable dimensions.
+    let (w, h) = (w as u32, h as u32);
+    Some(PresentLayout {
+        filter: Filter::Linear,
+        viewport: Rect::new((drawable.width - w) / 2, (drawable.height - h) / 2, w, h),
+    })
 }
 
 #[cfg(test)]

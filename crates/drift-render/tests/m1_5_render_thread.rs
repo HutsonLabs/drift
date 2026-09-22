@@ -37,10 +37,12 @@ fn render_thread_runs_the_compositor_on_its_own_named_thread() {
     wait_for(&log, 30);
     assert_eq!(log.ids(), (0..30).collect::<Vec<_>>());
 
-    let (name, image) = thread.with(|c| {
-        c.wait_idle();
-        (std::thread::current().name().map(str::to_owned), c.read_output().unwrap())
-    });
+    let (name, image) = thread
+        .with(|c| {
+            c.wait_idle();
+            (std::thread::current().name().map(str::to_owned), c.read_output().unwrap())
+        })
+        .expect("render thread alive");
     assert_eq!(name.as_deref(), Some("drift-render-tab-1"));
     let mut cpu = CpuCompositor::new();
     scenes::cache_round_trip(&mut cpu);
@@ -88,5 +90,7 @@ fn layer_target_presents_to_a_cametallayer() {
     }
     wait_for(&log, 10);
     assert_eq!(log.ids(), (0..10).collect::<Vec<_>>(), "presented exactly once, in order");
+    let presents = thread.with(|c| c.stats().presents).expect("render thread alive");
+    assert_eq!(presents, 10, "every frame got a drawable and was presented");
     thread.shutdown();
 }

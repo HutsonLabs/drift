@@ -42,3 +42,11 @@ Rendering and intents are covered by `bun test`; these need eyes, VoiceOver or a
 - [ ] Local Network Privacy screen (a freshly ad-hoc-signed build connecting to 10.1.2.40
       directly, errno 65): “Open Local Network Settings” opens System Settings › Privacy &
       Security › Local Network.
+
+## M1-5 / M4-3 — Rendering (drift-render)
+
+- [ ] With a live Headless session (drifttest2), the desktop colours match the host monitor
+      (compare a GNOME Settings window side by side: no tint, blacks are black, whites white).
+- [ ] At a Retina drawable equal to the desktop size (Retina on, window not resized) terminal
+      text is pixel-sharp (no filtering blur); after resizing to a non-matching size the picture
+      scales smoothly with black bars, and snaps back to sharp once DISP re-layout completes.

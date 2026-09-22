@@ -19,7 +19,11 @@ fn draw(s: &mut dyn FrameSink, desktop: Size<u32>, seed: u8) {
 }
 
 /// Renders `desktop` into a `drawable`-sized offscreen target; returns (target, CPU model).
-fn present(desktop: Size<u32>, drawable: Size<u32>, seed: u8) -> (drift_render::BgraImage, drift_render::BgraImage) {
+fn present(
+    desktop: Size<u32>,
+    drawable: Size<u32>,
+    seed: u8,
+) -> (drift_render::BgraImage, drift_render::BgraImage) {
     let mut cpu = CpuCompositor::new();
     draw(&mut cpu, desktop, seed);
     let mut gpu = offscreen(drawable);
@@ -49,10 +53,10 @@ fn scaled_present_is_linear() {
     let (target, reference) = present(Size::new(16, 10), Size::new(32, 20), 9);
     assert_golden(&golden_path("present_scaled_2x"), &g(&reference), &g(&target), 2);
     // Linear filtering produces in-between values that nearest never would.
-    let (target, _) = present(Size::new(2, 1), Size::new(8, 1), 0);
-    let left = target.pixel(0, 0)[0];
-    let right = target.pixel(7, 0)[0];
-    let mid = target.pixel(3, 0)[0];
+    let (target, _) = present(Size::new(2, 1), Size::new(8, 4), 0);
+    let left = target.pixel(0, 1)[0];
+    let right = target.pixel(7, 1)[0];
+    let mid = target.pixel(3, 1)[0];
     assert!(mid > left.min(right) && mid < left.max(right), "not linear: {left} {mid} {right}");
 }
 

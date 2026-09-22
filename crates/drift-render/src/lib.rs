@@ -16,6 +16,7 @@ pub mod image;
 pub mod layout;
 pub mod pixel_buffer;
 pub mod reference;
+pub mod shaders;
 pub mod target;
 pub mod thread;
 

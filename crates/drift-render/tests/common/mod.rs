@@ -139,13 +139,4 @@ pub mod scenes {
         // Surface 1 is gone after reset: operations on it are ignored.
         s.solid_fill(1, Bgra::new(255, 255, 255, 255), &[Rect::new(0, 0, 4, 4)]);
     }
-
-    pub const ALL: &[(&str, fn(&mut dyn FrameSink))] = &[
-        ("solid_fill", solid_fill),
-        ("bgra_blit_offset", bgra_blit_offset),
-        ("surface_to_surface_overlap", surface_to_surface_overlap),
-        ("cache_round_trip", cache_round_trip),
-        ("nv12_region_limited", nv12_region_limited),
-        ("reset", reset),
-    ];
 }

@@ -60,7 +60,9 @@ pub enum Mismatch {
 impl fmt::Display for Mismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Size { expected, actual } => write!(f, "size mismatch: expected {expected:?}, got {actual:?}"),
+            Self::Size { expected, actual } => {
+                write!(f, "size mismatch: expected {expected:?}, got {actual:?}")
+            }
             Self::Pixels { count, first, expected, actual, max_diff } => write!(
                 f,
                 "{count} pixel(s) differ (max channel diff {max_diff}); first at {first:?}: expected BGRA {expected:?}, got {actual:?}"
@@ -145,7 +147,8 @@ pub fn assert_golden(path: &Path, reference: &GoldenImage, actual: &GoldenImage,
     if std::env::var_os(UPDATE_ENV).is_some_and(|v| v == "1") {
         save_png(path, reference).unwrap_or_else(|e| panic!("writing golden: {e}"));
     }
-    let golden = load_png(path).unwrap_or_else(|e| panic!("golden {}: {e} (set {UPDATE_ENV}=1 to create)", path.display()));
+    let golden = load_png(path)
+        .unwrap_or_else(|e| panic!("golden {}: {e} (set {UPDATE_ENV}=1 to create)", path.display()));
     if let Err(m) = compare(&golden, reference, 0) {
         panic!("golden {} is stale versus its reference model: {m}", path.display());
     }

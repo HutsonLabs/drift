@@ -33,19 +33,57 @@ pub const FLOOR_BIAS: f32 = 0.5;
 
 /// g-r-d's integer encoder for one pixel: `(Y, U, V)` before chroma subsampling.
 pub fn grd_rgb_to_yuv(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
-    todo!("M1-5")
+    let (r, g, b) = (i32::from(r), i32::from(g), i32::from(b));
+    let clamp = |v: i32| v.clamp(0, 255) as u8;
+    let y = (54 * r + 183 * g + 18 * b) >> 8;
+    let u = ((-29 * r - 99 * g + 128 * b) >> 8) + 128;
+    let v = ((128 * r - 116 * g - 12 * b) >> 8) + 128;
+    (clamp(y), clamp(u), clamp(v))
 }
 
 /// Encodes a tightly packed BGRA8 image to NV12 exactly as g-r-d's AVC420 main view does:
 /// per-pixel [`grd_rgb_to_yuv`], chroma = rounded mean of the 2×2 block, edge pixels
 /// replicated for odd heights. Returns `None` for an odd width or a wrong buffer length.
 pub fn grd_encode_nv12(size: Size<u32>, bgra: &[u8]) -> Option<Nv12Planes> {
-    todo!("M1-5")
+    let (w, h) = (size.width as usize, size.height as usize);
+    if w % 2 != 0 || bgra.len() != w.checked_mul(h)?.checked_mul(4)? {
+        return None;
+    }
+    let yuv = |x: usize, y: usize| {
+        let o = (y * w + x) * 4;
+        grd_rgb_to_yuv(bgra[o + 2], bgra[o + 1], bgra[o])
+    };
+    let mut y_plane = Vec::with_capacity(w * h);
+    for y in 0..h {
+        for x in 0..w {
+            y_plane.push(yuv(x, y).0);
+        }
+    }
+    let mut uv = Vec::with_capacity(w * h.div_ceil(2));
+    for by in (0..h).step_by(2) {
+        for bx in (0..w).step_by(2) {
+            let y1 = (by + 1).min(h - 1);
+            let px = [yuv(bx, by), yuv(bx + 1, by), yuv(bx, y1), yuv(bx + 1, y1)];
+            let mean = |f: fn(&(u8, u8, u8)) -> u8| {
+                let sum: u32 = px.iter().map(|p| u32::from(f(p))).sum();
+                ((sum + 2) / 4) as u8
+            };
+            uv.push(mean(|p| p.1));
+            uv.push(mean(|p| p.2));
+        }
+    }
+    Nv12Planes::new(size, y_plane, uv)
 }
 
 /// CPU reference of the NV12 → RGB shader: `[r, g, b]`.
 pub fn nv12_to_rgb(y: u8, u: u8, v: u8) -> [u8; 3] {
-    todo!("M1-5")
+    let yuv =
+        [f32::from(y) + FLOOR_BIAS, f32::from(u) + FLOOR_BIAS - 128.0, f32::from(v) + FLOOR_BIAS - 128.0];
+    DECODE_MATRIX.map(|row| {
+        let c = row[0] * yuv[0] + row[1] * yuv[1] + row[2] * yuv[2];
+        // Clamped to 0..=255 first, so the cast is exact.
+        c.clamp(0.0, 255.0).round() as u8
+    })
 }
 
 #[cfg(test)]
@@ -82,8 +120,9 @@ mod tests {
     fn nv12_encoding_averages_2x2_chroma_and_replicates_edges() {
         // 2×3 image: rows 0-1 red/blue mix, row 2 (odd height) replicated for chroma.
         let px = |r: u8, g: u8, b: u8| [b, g, r, 255];
-        let bgra: Vec<u8> = [px(255, 0, 0), px(0, 0, 255), px(255, 0, 0), px(0, 0, 255), px(0, 255, 0), px(0, 255, 0)]
-            .concat();
+        let bgra: Vec<u8> =
+            [px(255, 0, 0), px(0, 0, 255), px(255, 0, 0), px(0, 0, 255), px(0, 255, 0), px(0, 255, 0)]
+                .concat();
         let p = grd_encode_nv12(Size::new(2, 3), &bgra).unwrap();
         assert_eq!(p.y(), &[53, 17, 53, 17, 182, 182]);
         let (_, u0, v0) = grd_rgb_to_yuv(255, 0, 0);
