@@ -514,7 +514,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   **Done (manual M4):** a window resize reflows GNOME in under 0.5 s, text is pixel-sharp on Retina, and moving to a 1× display re-layouts.
 
 ### M5 — Clipboard (text + images, both directions)
-- [ ] **M5-1 Format mapping** (C). The pure mapping, per §1.6:
+- [x] **M5-1 Format mapping** (C). The pure mapping, per §1.6:
 
   | Source | Local ↔ remote |
   |---|---|
@@ -535,7 +535,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - e2e `e2e_clip_remote_text` (Text Editor Ctrl+A/C → `"copy-me-…"`);
   - e2e `e2e_clip_remote_image` (Print Screen → Enter → PNG);
   - e2e `e2e_clip_local_text_image` (advertise, then `cliptool.py read` in the session, which reports the text and 320×200).
-- [ ] **M5-3 NSPasteboard adapter** (C). Poll `changeCount` every 250 ms on the main thread; read and write text, PNG and TIFF; per-profile Off / Text / Text+Images.
+- [x] **M5-3 NSPasteboard adapter** (C). Poll `changeCount` every 250 ms on the main thread; read and write text, PNG and TIFF; per-profile Off / Text / Text+Images.
   **Red:** a smoke test on `NSPasteboard pasteboardWithUniqueName`; a focus-scoping test with fakes.
 
 ### M6 — Multi-session tabs
