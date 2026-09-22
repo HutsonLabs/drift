@@ -142,3 +142,38 @@ fn debug_output_never_contains_the_keychain_password() {
     assert!(!dbg.contains(KEYCHAIN_PASSWORD), "{dbg}");
     assert!(dbg.contains(a.0.service()));
 }
+
+/// `contains` answers "is a password stored?" from the item's *attributes*.
+///
+/// Reading the data (what `get` does) makes Security.framework decrypt the item and evaluate
+/// its ACL; when the running binary is not on that ACL the user gets the "Drift wants to use
+/// your confidential information" panel, and the caller blocks until somebody clicks it.
+/// `drift-app` asks this question for every saved profile while the first window is being
+/// created, so it must never touch the data.
+///
+/// An item whose stored bytes are not UTF-8 makes the difference observable without an ACL:
+/// `get` fails on it, while `contains` — which never looks at the bytes — still says yes.
+#[test]
+fn contains_reports_the_item_without_reading_its_data() {
+    let mut kc = TestKeychain::new();
+    let present = kc.profile();
+    let absent = kc.profile();
+    kc.0.set(present, SecretRole::RdpUser, FAKE).unwrap();
+
+    assert!(kc.0.contains(present, SecretRole::RdpUser).unwrap());
+    assert!(!kc.0.contains(present, SecretRole::LinuxLogin).unwrap());
+    assert!(!kc.0.contains(absent, SecretRole::RdpUser).unwrap());
+
+    // Store bytes that are not UTF-8 under a third account, behind the adapter's back.
+    let undecodable = kc.profile();
+    let account = SecretRole::RdpSystem.account(undecodable);
+    let mut raw = security_framework::os::macos::keychain::SecKeychain::open(kc.path()).unwrap();
+    raw.unlock(Some(KEYCHAIN_PASSWORD)).unwrap();
+    raw.set_generic_password(kc.0.service(), &account, &[0xff, 0xfe, 0x00]).unwrap();
+
+    assert!(kc.0.get(undecodable, SecretRole::RdpSystem).is_err(), "reading the data fails");
+    assert!(
+        kc.0.contains(undecodable, SecretRole::RdpSystem).unwrap(),
+        "contains sees the item without decoding it"
+    );
+}

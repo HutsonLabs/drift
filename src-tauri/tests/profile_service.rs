@@ -207,3 +207,74 @@ fn session_secrets_follow_the_mode() {
     assert_eq!(f.service.session_secrets(none.id).unwrap().rdp_password.as_str(), "", "none stored");
     assert_eq!(f.service.session_secrets(uuid::Uuid::new_v4()).unwrap_err(), CommandError::NotFound);
 }
+
+/// A store that records every call and refuses to hand out secret *values*.
+///
+/// On macOS, reading a generic password's data is what makes Security.framework evaluate the
+/// item's ACL and, when it does not match the running binary, put up the "Drift wants to use
+/// your confidential information" panel. `ProfileService::list` only needs to know *whether* a
+/// password exists, so it must never ask for the value.
+#[derive(Default)]
+struct TrapStore {
+    inner: MemorySecretStore,
+    gets: std::sync::atomic::AtomicUsize,
+}
+
+impl TrapStore {
+    fn gets(&self) -> usize {
+        self.gets.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl SecretStore for TrapStore {
+    fn set(
+        &self,
+        profile: uuid::Uuid,
+        role: SecretRole,
+        secret: &str,
+    ) -> Result<(), drift_app::secrets::SecretError> {
+        self.inner.set(profile, role, secret)
+    }
+
+    fn get(
+        &self,
+        profile: uuid::Uuid,
+        role: SecretRole,
+    ) -> Result<Option<zeroize::Zeroizing<String>>, drift_app::secrets::SecretError> {
+        self.gets.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.inner.get(profile, role)
+    }
+
+    fn delete(&self, profile: uuid::Uuid, role: SecretRole) -> Result<(), drift_app::secrets::SecretError> {
+        self.inner.delete(profile, role)
+    }
+
+    fn has(&self, profile: uuid::Uuid, role: SecretRole) -> bool {
+        self.inner.has(profile, role)
+    }
+}
+
+#[test]
+fn listing_profiles_never_reads_secret_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(TrapStore::default());
+    let service = ProfileService::open(ProfileFile::in_dir(dir.path()), store.clone()).unwrap();
+    let mut remote = profile(ConnectMode::RemoteLogin);
+    remote.linux_username = Some("drifttest".into());
+    service.save(remote, update(Some("pw-Fake1"), LinuxPasswordUpdate::Store("pw-Fake2".into()))).unwrap();
+    service
+        .save(profile(ConnectMode::Headless), update(Some("pw-Fake3"), LinuxPasswordUpdate::Keep))
+        .unwrap();
+    let saved_gets = store.gets();
+
+    let entries = service.list().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert!(entries.iter().all(|e| e.has_rdp_password));
+    assert!(entries.iter().any(|e| e.has_linux_password));
+    assert_eq!(
+        store.gets(),
+        saved_gets,
+        "listing profiles must test for the item, not decrypt it (a Keychain ACL prompt \
+         blocks the main thread and the app launches without a window)"
+    );
+}

@@ -23,6 +23,16 @@ const FILES: &[(&str, &str, &str)] = &[
 /// Local forward port of the `drifttest2` headless daemon (remote :3392).
 pub const HL_PORT: &str = "13392";
 
+/// Which of `ports` already have a listener on `127.0.0.1` (in the given order).
+///
+/// `cargo xtask e2e` checks this before it opens its own SSH forwards: a leftover
+/// `ssh -N -L 1339x:…` from an interrupted run keeps the ports bound, the new `ssh` exits
+/// because of `ExitOnForwardFailure=yes`, and the suite would otherwise run through the stale
+/// forwards without anybody noticing.
+pub fn ports_in_use(ports: &[u16]) -> Vec<u16> {
+    ports.iter().copied().filter(|p| std::net::TcpListener::bind(("127.0.0.1", *p)).is_err()).collect()
+}
+
 /// `(variable, value)` pairs derived from the secrets directory; missing files are skipped.
 pub fn vars_from_dir(dir: &Path) -> Vec<(String, String)> {
     let mut out = Vec::new();

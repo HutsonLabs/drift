@@ -140,3 +140,41 @@ group, `newWindowForTab:`). These need a person:
       connect, then Debug ▸ Record Session (experimental); after a minute toggle it off and play
       `~/Movies/Drift <profile> <timestamp>.mp4` in QuickTime — it shows the session at the right
       size and duration.
+
+## E2E round 1 — what the automated live-app smoke cannot reach
+
+`cargo xtask e2e` covers the protocol, input, clipboard, display and reconnect behaviour
+against the homelab, and `e2e_live_desktop_pixels` (tests/e2e/tests/render.rs) drives the real
+Metal compositor against the live `drifttest2` desktop, writing the composite to
+`target/e2e/live-desktop-{still,anim}.png` and asserting ≥ 55 fps under `anim.py`.
+
+The *window* itself still needs a person, because three things on the dev Mac are only
+available to a session a human has unlocked:
+
+- [ ] **Unlocked screen.** With the Mac's screen locked (`CGSSessionScreenIsLocked = true`),
+      every Drift window reports `occlusionState ∌ Visible`, so Drift correctly sends Suppress
+      Output and presents 0 fps. Verified during round 1: with `anim.py` running full-screen on
+      the host, the app's socket received **0 bytes in 4 s** and the stats line stayed at
+      `fps=0.0`. Repeat the smoke on an unlocked screen and confirm the stats line climbs to
+      ~60 fps within a second of the window becoming visible.
+- [ ] **Screen Recording permission.** `screencapture` fails with "could not create image from
+      display" from an SSH shell *and* from a launchd agent in the Aqua session. Take the
+      screenshot of the connected window as the logged-in user and check: GNOME's wallpaper
+      gradient is blue (not orange — that would mean swapped R/B), blacks are black and the
+      colour-bar test image (`/home/drifttest2/clip_in.png`) shows saturated primaries.
+- [ ] **Keychain partition list.** A password written by `/usr/bin/security` (or by a *different*
+      build of Drift) carries the ACL partition `apple-tool:`, so the app gets the "Drift wants
+      to use your confidential information" panel the first time it reads it, and the session
+      actor waits for the click. Save the profile *through Drift's own connect form*, with the
+      stable "Apple Development" signing identity from plan §5.1, and confirm that relaunching
+      and connecting never shows that panel. The unattended smoke harness
+      (`cargo run -p drift-app --example smoke`, `DRIFT_SMOKE_SECRET=<uuid>:<role>:<password>`)
+      exists only because this step cannot be scripted.
+
+Repeatable setup for the manual run (round 1 used exactly this):
+
+```bash
+ssh -N -L 23392:localhost:3392 -L 23389:localhost:3389 homelab@10.1.2.40 &
+DRIFT_CONFIG_DIR=/tmp/drift-smoke DRIFT_AUTOCONNECT="Homelab Headless" \
+  cargo run -p drift-app --bin drift-app           # profiles.toml pins the daemon's fingerprint
+```

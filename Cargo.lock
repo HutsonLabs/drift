@@ -1515,7 +1515,9 @@ version = "0.1.0"
 dependencies = [
  "drift-clipboard",
  "drift-core",
+ "drift-gfx",
  "drift-rdp",
+ "drift-render",
  "drift-testkit",
  "tokio",
  "tracing",

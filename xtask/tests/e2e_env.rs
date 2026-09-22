@@ -46,3 +46,19 @@ fn maps_files_to_variables() {
     assert_eq!(get("DRIFT_E2E_HL_PORT"), Some("13392"));
     assert_eq!(get("DRIFT_E2E_SHARE_USER"), None);
 }
+
+#[test]
+fn a_port_already_bound_is_reported_as_occupied() {
+    // A leftover `ssh -N -L` from an interrupted run keeps the forward ports bound. The e2e
+    // harness must notice, because `ssh -o ExitOnForwardFailure=yes` then exits and the suite
+    // would otherwise silently run through the *stale* forwards.
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let busy = listener.local_addr().unwrap().port();
+    let free = {
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        probe.local_addr().unwrap().port()
+    };
+    assert_eq!(xtask::e2e_env::ports_in_use(&[busy, free]), vec![busy]);
+    drop(listener);
+    assert!(xtask::e2e_env::ports_in_use(&[busy]).is_empty());
+}

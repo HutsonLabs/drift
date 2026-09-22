@@ -38,6 +38,7 @@ tauri = { workspace = true, optional = true }
 [dev-dependencies]
 drift-testkit.workspace = true
 proptest.workspace = true
+security-framework = "3.7"
 tempfile.workspace = true
 
 # AppKit smoke tests must run on the process main thread (views and windows are

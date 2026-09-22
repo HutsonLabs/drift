@@ -441,6 +441,15 @@ const E2E_HOST: &str = "homelab@10.1.2.40";
 
 fn e2e(root: &Path, extra: &[String]) -> Result<()> {
     let host = std::env::var("DRIFT_E2E_SSH").unwrap_or_else(|_| E2E_HOST.into());
+    let locals: Vec<u16> = E2E_PORTS.iter().map(|(local, _)| *local).collect();
+    let busy = e2e_env::ports_in_use(&locals);
+    if !busy.is_empty() {
+        let list = busy.iter().map(u16::to_string).collect::<Vec<_>>().join(", ");
+        bail!(
+            "local forward port(s) {list} are already in use, so this run's SSH forwards cannot \
+             be trusted; close the leftover forwards first (`pkill -f 'ssh -N .*:localhost:339'`)"
+        );
+    }
     let mut ssh = Command::new("ssh");
     ssh.args([
         "-N",

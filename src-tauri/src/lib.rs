@@ -73,7 +73,7 @@ pub fn export_bindings(path: &Path) -> Result<(), String> {
 #[allow(clippy::expect_used)]
 pub fn run_with(options: RunOptions) {
     init_logging();
-    let RunOptions { config_dir, memory_secrets, autoconnect, on_ready } = options;
+    let RunOptions { config_dir, memory_secrets, secrets: secret_store, autoconnect, on_ready } = options;
     let builder = specta_builder();
     let on_ready = std::sync::Mutex::new(on_ready);
     let app = tauri::Builder::default()
@@ -86,10 +86,10 @@ pub fn run_with(options: RunOptions) {
                 None => app.path().app_config_dir()?,
             };
             // Passwords live in the Keychain (drift-macos, M3-2); tests use memory.
-            let secrets: Arc<dyn secrets::SecretStore> = if memory_secrets {
-                Arc::new(secrets::MemorySecretStore::new())
-            } else {
-                Arc::new(secrets::KeychainSecretStore::new(drift_macos::Keychain::new()))
+            let secrets: Arc<dyn secrets::SecretStore> = match (&secret_store, memory_secrets) {
+                (Some(store), _) => Arc::clone(store),
+                (None, true) => Arc::new(secrets::MemorySecretStore::new()),
+                (None, false) => Arc::new(secrets::KeychainSecretStore::new(drift_macos::Keychain::new())),
             };
             let profiles =
                 Arc::new(profiles::ProfileService::open(profiles::ProfileFile::in_dir(&dir), secrets)?);
@@ -99,8 +99,7 @@ pub fn run_with(options: RunOptions) {
             app.manage(commands::AppState::new(profiles.clone(), sessions));
             app.set_menu(windows::build_menu(&handle)?)?;
             let first_profile = autoconnect.as_deref().and_then(|name| {
-                let profiles = profiles.list().unwrap_or_default();
-                let all: Vec<_> = profiles.into_iter().map(|e| e.profile).collect();
+                let all = profiles.profiles().unwrap_or_default();
                 present::find_autoconnect(&all, name).map(|p| p.id)
             });
             if autoconnect.is_some() && first_profile.is_none() {

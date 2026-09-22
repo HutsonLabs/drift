@@ -25,10 +25,14 @@ pub trait SecretStore: Send + Sync {
     /// Deletes a secret; deleting a missing item is not an error.
     fn delete(&self, profile: Uuid, role: SecretRole) -> Result<(), SecretError>;
 
-    /// Whether a secret exists.
-    fn has(&self, profile: Uuid, role: SecretRole) -> bool {
-        matches!(self.get(profile, role), Ok(Some(_)))
-    }
+    /// Whether a secret exists, **without reading its value**.
+    ///
+    /// There is deliberately no default implementation in terms of [`SecretStore::get`]:
+    /// on the Keychain, reading a password decrypts the item and evaluates its ACL, which
+    /// can put up an authorization panel and block the calling thread until somebody clicks
+    /// it. `ProfileService::list` asks this for every saved profile while the first window
+    /// is being built (`drift_app::run_with`), so it must stay a metadata lookup.
+    fn has(&self, profile: Uuid, role: SecretRole) -> bool;
 }
 
 type SecretMap = HashMap<(Uuid, SecretRole), Zeroizing<String>>;
@@ -64,6 +68,10 @@ impl SecretStore for MemorySecretStore {
         self.lock()?.remove(&(profile, role));
         Ok(())
     }
+
+    fn has(&self, profile: Uuid, role: SecretRole) -> bool {
+        self.lock().is_ok_and(|items| items.contains_key(&(profile, role)))
+    }
 }
 
 /// The production [`SecretStore`]: generic passwords in the Keychain (drift-macos, M3-2).
@@ -96,6 +104,16 @@ impl SecretStore for KeychainSecretStore {
 
     fn delete(&self, profile: Uuid, role: SecretRole) -> Result<(), SecretError> {
         Ok(self.keychain.delete(profile, role)?)
+    }
+
+    fn has(&self, profile: Uuid, role: SecretRole) -> bool {
+        match self.keychain.contains(profile, role) {
+            Ok(found) => found,
+            Err(e) => {
+                tracing::warn!(error = %e, "could not query the Keychain for a stored password");
+                false
+            }
+        }
     }
 }
 

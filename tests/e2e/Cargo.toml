@@ -10,7 +10,9 @@ publish.workspace = true
 [dependencies]
 drift-clipboard.workspace = true
 drift-core.workspace = true
+drift-gfx.workspace = true
 drift-rdp.workspace = true
+drift-render.workspace = true
 drift-testkit.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tracing.workspace = true

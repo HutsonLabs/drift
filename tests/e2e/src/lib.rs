@@ -217,25 +217,45 @@ impl E2eSession {
         password: &str,
         adjust: impl FnOnce(&mut ConnectionProfile),
     ) -> Self {
-        let host = var("DRIFT_E2E_HOST").unwrap_or_else(|| "127.0.0.1".into());
-        let mut profile = ConnectionProfile::new("e2e", host, mode);
-        profile.port = local_port;
-        profile.rdp_username = user.to_owned();
+        let mut profile = Self::profile(mode, local_port, user);
         adjust(&mut profile);
+        let (sink, frames) = RecordingFrameSink::new(PresentMode::Immediate);
+        Self::start_with_sink(profile, password, Box::new(sink), frames)
+    }
+
+    /// Starts a session with a caller-supplied [`FrameSink`] — the real Metal compositor in
+    /// `e2e_live_desktop_pixels`, so the GPU path is exercised against the live host.
+    ///
+    /// `frames` is the [`FrameLog`] reported by [`Self::presented_frames`]; pass the log of a
+    /// [`RecordingFrameSink`] or an empty one when the sink does not record.
+    pub fn start_with_sink(
+        profile: ConnectionProfile,
+        password: &str,
+        sink: Box<dyn drift_gfx::FrameSink>,
+        frames: FrameLog,
+    ) -> Self {
         let options = SessionOptions {
             tls_server_name: var("DRIFT_E2E_TLS_NAME"),
             connect_timeout: Duration::from_secs(20),
             ..SessionOptions::default()
         };
-        let (sink, frames) = RecordingFrameSink::new(PresentMode::Immediate);
         let (handle, events) = drift_rdp::spawn_session(
             profile,
             SessionSecrets::new(password),
-            Box::new(sink),
+            sink,
             Arc::new(SystemClock),
             options,
         );
         Self { handle, events, seen: Arc::default(), frames }
+    }
+
+    /// A profile for the e2e host (`DRIFT_E2E_HOST`) in `mode` on `local_port`.
+    pub fn profile(mode: ConnectMode, local_port: u16, user: &str) -> ConnectionProfile {
+        let host = var("DRIFT_E2E_HOST").unwrap_or_else(|| "127.0.0.1".into());
+        let mut profile = ConnectionProfile::new("e2e", host, mode);
+        profile.port = local_port;
+        profile.rdp_username = user.to_owned();
+        profile
     }
 
     /// Waits for an event matching `pred`, accepting (without pinning) any certificate prompt on
