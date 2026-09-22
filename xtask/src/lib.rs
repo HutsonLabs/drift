@@ -6,9 +6,14 @@
 //! - [`coverage`]: the ≥ 85 % line-coverage gate for the crates listed in plan §0.
 //! - [`e2e_env`]: maps the dev-machine secrets directory onto `DRIFT_E2E_*` variables.
 //! - [`repo`]: repository discovery and file listing helpers.
+//! - [`sanitize`] and [`fixtures`]: `cargo xtask import-fixtures` (M0-3).
+//! - [`host_check`]: `cargo xtask host-setup-check` (M0-4).
 
 pub mod coverage;
 pub mod e2e_env;
+pub mod fixtures;
+pub mod host_check;
 pub mod npm_ban;
 pub mod repo;
+pub mod sanitize;
 pub mod secret_scan;

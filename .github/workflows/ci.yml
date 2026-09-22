@@ -57,5 +57,8 @@ jobs:
         with:
           tool: cargo-nextest,cargo-llvm-cov,cargo-deny
 
+      - name: shellcheck (host/ script tests, M0-4)
+        run: command -v shellcheck || brew install shellcheck
+
       - name: cargo xtask ci
         run: cargo xtask ci

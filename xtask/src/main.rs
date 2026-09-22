@@ -5,7 +5,7 @@ use std::process::{Child, Command, ExitCode, Stdio};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use xtask::{coverage, e2e_env, npm_ban, repo, secret_scan};
+use xtask::{coverage, e2e_env, fixtures, host_check, npm_ban, repo, sanitize, secret_scan};
 
 #[derive(Parser)]
 #[command(name = "cargo xtask", about = "Drift build automation")]
@@ -55,10 +55,31 @@ enum Cmd {
     },
     /// Build the universal .app/.dmg (task M9-5).
     Bundle,
-    /// Verify the GNOME host configuration over SSH (task M0-4).
-    HostSetupCheck,
-    /// Import §1.7 fixtures from ~/code/drift-spikes (task M0-3).
-    ImportFixtures,
+    /// Verify the GNOME host configuration over SSH, read-only (task M0-4).
+    HostSetupCheck {
+        /// SSH destination (default `$DRIFT_E2E_SSH` or `homelab@10.1.2.40`).
+        #[arg(long)]
+        host: Option<String>,
+        /// Headless daemons as USER:PORT[:persistent] (default: the homelab test users).
+        #[arg(long = "headless")]
+        headless: Vec<String>,
+        /// Evaluate a saved report instead of connecting.
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// Also write the raw report here.
+        #[arg(long)]
+        save_report: Option<PathBuf>,
+    },
+    /// Import sanitized §1.7 fixtures from a staging directory into fixtures/ (task M0-3).
+    ImportFixtures {
+        /// Staging directory with provenance.toml (default `$DRIFT_FIXTURES_STAGING` or
+        /// `~/code/drift-spikes/fixtures-staging`).
+        #[arg(long)]
+        staging: Option<PathBuf>,
+        /// Secrets directory (default `$DRIFT_SECRETS_DIR` or `~/code/drift-spikes/secrets`).
+        #[arg(long)]
+        secrets: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -83,13 +104,110 @@ fn run(cmd: Cmd) -> Result<()> {
         Cmd::Bindings { check } => bindings(&root, check),
         Cmd::E2e { args } => e2e(&root, &args),
         Cmd::Bundle => not_yet("bundle", "M9-5"),
-        Cmd::HostSetupCheck => not_yet("host-setup-check", "M0-4"),
-        Cmd::ImportFixtures => not_yet("import-fixtures", "M0-3"),
+        Cmd::HostSetupCheck { host, headless, report, save_report } => {
+            host_setup_check(host, &headless, report.as_deref(), save_report.as_deref())
+        }
+        Cmd::ImportFixtures { staging, secrets } => import_fixtures(&root, staging, secrets),
     }
 }
 
 fn not_yet(name: &str, task: &str) -> Result<()> {
     bail!("`cargo xtask {name}` is not implemented yet (owned by task {task})")
+}
+
+fn import_fixtures(root: &Path, staging: Option<PathBuf>, secrets: Option<PathBuf>) -> Result<()> {
+    let staging = staging
+        .or_else(|| std::env::var_os("DRIFT_FIXTURES_STAGING").map(PathBuf::from))
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join("code/drift-spikes/fixtures-staging"))
+        })
+        .context("no staging directory; pass --staging")?;
+    let secrets_dir =
+        secrets.or_else(secret_scan::default_secrets_dir).context("no secrets directory; pass --secrets")?;
+    let known = sanitize::load_known_secrets(&secrets_dir)?;
+    if known.is_empty() {
+        bail!("no secrets loaded from {}; refusing to import unsanitized fixtures", secrets_dir.display());
+    }
+    let dest = root.join("fixtures");
+    step(&format!("import-fixtures {} -> {}", staging.display(), dest.display()));
+    let report = fixtures::import(&staging, &dest, &known)?;
+    let problems = fixtures::verify_manifest(&dest)?;
+    if !problems.is_empty() {
+        bail!("manifest verification failed:\n{}", problems.join("\n"));
+    }
+    eprintln!(
+        "import-fixtures: {} files, {} known + {} one-time secrets, {} replacements, {} stale removed",
+        report.files,
+        known.len(),
+        report.one_time_secrets,
+        report.replacements,
+        report.removed.len()
+    );
+    for r in &report.removed {
+        eprintln!("import-fixtures: removed stale {r}");
+    }
+    Ok(())
+}
+
+fn host_setup_check(
+    host: Option<String>,
+    headless: &[String],
+    report: Option<&Path>,
+    save: Option<&Path>,
+) -> Result<()> {
+    let mut exp = host_check::Expectations::default();
+    if !headless.is_empty() {
+        exp.headless = headless.iter().map(|s| s.parse()).collect::<Result<_>>()?;
+    }
+    let host = host.or_else(|| std::env::var("DRIFT_E2E_SSH").ok()).unwrap_or_else(|| E2E_HOST.into());
+    // The system daemon briefly stops listening while it hands a connection over, so a
+    // failing live check is retried a few times before it is reported.
+    let attempts = if report.is_some() { 1 } else { 3 };
+    let mut last = Vec::new();
+    for attempt in 1..=attempts {
+        let text = match report {
+            Some(p) => std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))?,
+            None => fetch_host_report(&host, &exp)?,
+        };
+        if let Some(p) = save {
+            std::fs::write(p, &text)?;
+        }
+        let parsed = host_check::parse_report(&text)?;
+        last = host_check::evaluate(&parsed, &exp);
+        if last.iter().all(|c| c.ok) || attempt == attempts {
+            break;
+        }
+        eprintln!("host-setup-check: attempt {attempt} had failures; retrying");
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
+    for c in &last {
+        eprintln!("host-setup-check: {} {} ({})", if c.ok { "ok  " } else { "FAIL" }, c.name, c.detail);
+    }
+    let failed = last.iter().filter(|c| !c.ok).count();
+    if failed > 0 {
+        bail!(
+            "{failed} host check(s) failed; see docs/gnome-host-setup.md (host/drift-host-setup.sh --check)"
+        );
+    }
+    eprintln!("host-setup-check: {} checks passed on {host}", last.len());
+    Ok(())
+}
+
+fn fetch_host_report(host: &str, exp: &host_check::Expectations) -> Result<String> {
+    use std::io::Write as _;
+    let specs: Vec<String> = exp.headless.iter().map(ToString::to_string).collect();
+    let mut child = Command::new("ssh")
+        .args(["-o", "BatchMode=yes", host, &format!("bash -s -- {}", specs.join(" "))])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .context("spawning ssh")?;
+    child.stdin.take().context("ssh stdin")?.write_all(host_check::REPORT_SCRIPT.as_bytes())?;
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        bail!("ssh {host} failed ({})", out.status);
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 fn step(name: &str) {

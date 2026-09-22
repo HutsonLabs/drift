@@ -33,6 +33,8 @@ Any decision not already fixed by `plan.md` gets an ADR in `docs/adr/<TASKID>-<s
 | `M1-6-profiles-and-view-model` | profiles.toml, credentials UX, SessionView/screen model, error texts |
 | `M4-1-layout-policy` | desired_layout details (Retina threshold, device scale, max area) |
 | `M7-1-reconnect-policy` | backoff RNG, attempt budget semantics, trigger merger debounce |
+| `M0-3-fixture-capture-and-sanitization` | fixture capture, layout, `.rec` format, sanitizer |
+| `M0-4-host-setup` | check-first host setup script, host-setup-check |
 
 ## Commands
 
@@ -47,8 +49,8 @@ another JS package manager.
 | `cargo xtask bindings` | regenerate `ui/src/bindings.ts` after changing IPC commands/types |
 | `cargo xtask npm-ban` / `secret-scan` | the individual hygiene checks |
 | `cargo xtask e2e [nextest args]` | real-host tests through SSH forwards (below) |
-| `cargo xtask import-fixtures` | M0-3 (stub until then) |
-| `cargo xtask host-setup-check` | M0-4 (stub until then) |
+| `cargo xtask import-fixtures [--staging DIR]` | sanitize + import `~/code/drift-spikes/fixtures-staging` into `fixtures/` (M0-3, ADR `M0-3-fixture-capture-and-sanitization`) |
+| `cargo xtask host-setup-check` | read-only check of the GNOME host over SSH (M0-4, `docs/gnome-host-setup.md`) |
 | `cargo xtask bundle` | M9-5 (stub until then) |
 | `cargo tauri dev` / `cargo tauri build` | run / bundle the app (UI is built by bun first) |
 
@@ -72,7 +74,10 @@ and poll. Other agents build in parallel on the same machine.
 `fixtures/` is tracked with git-lfs (`.gitattributes`: `fixtures/**`, except `README.md` and
 `MANIFEST*`). Run `git lfs install --local` once per clone. Fixtures come from
 `~/code/drift-spikes` via `cargo xtask import-fixtures` (M0-3), which sanitises them; the
-secret scan must stay green. Load them in tests through `drift_testkit::fixtures`.
+secret scan must stay green. Load them in tests through `drift_testkit::fixtures` (path
+constants in `drift_testkit::fixtures::names`, `read`, `records` for `*.rec`); provenance and
+formats are in `fixtures/README.md`. The host scripts in `host/` are tested with `shellcheck`
+(`brew install shellcheck`).
 
 ## Secrets and e2e
 
