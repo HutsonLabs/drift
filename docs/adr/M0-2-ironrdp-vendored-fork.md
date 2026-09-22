@@ -39,8 +39,12 @@ owner's public GitHub presence and must not be taken without the owner's explici
 
 - "Bump the rev" (plan §2.1) becomes: re-vendor a new upstream rev in a dedicated branch,
   re-apply `third_party/ironrdp-patches/*.patch` with `git am`, run the full e2e suite.
-- `cargo fmt`/`clippy`/`nextest`/coverage in `cargo xtask ci` cover Drift workspace members only;
-  the vendored crates are built as path dependencies (`opt-level = 3` in dev via
-  `[profile.dev.package."*"]`). `npm-ban` skips `third_party/`; the secret scan does not.
+- `cargo clippy`/`nextest`/coverage in `cargo xtask ci` cover Drift workspace members only; the
+  vendored crates are built as path dependencies (`opt-level = 3` in dev via
+  `[profile.dev.package."*"]`). On top of that, `cargo xtask ci` enters `third_party/ironrdp`
+  for `cargo fmt --check` and `cargo test` over the crates Drift patches and depends on plus
+  `ironrdp-testsuite-core`, which is what makes M0-2's Done ("the fork's own tests pass")
+  enforceable — see `docs/adr/M0-6-ci-gate-coverage.md`. `npm-ban` skips `third_party/`; the
+  secret scan does not.
 - If the owner later creates the public fork, switching is mechanical: replace the path
   dependencies with `git = …, rev = …` and delete `third_party/ironrdp`.

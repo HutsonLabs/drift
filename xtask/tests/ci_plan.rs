@@ -104,6 +104,11 @@ fn the_gate_runs_the_vendored_ironrdp_tests() {
         "the vendored workspace is not format-checked: {:?}",
         vendored.iter().map(|s| s.command_line()).collect::<Vec<_>>()
     );
+    assert!(
+        vendored.iter().any(|s| s.is_cargo_with(&["test", "--locked"])),
+        "the vendored tree has its own committed Cargo.lock; tests must run --locked: {:?}",
+        vendored.iter().map(|s| s.command_line()).collect::<Vec<_>>()
+    );
 }
 
 /// Every vendored crate that Drift both patches and consumes must have its tests run, so a

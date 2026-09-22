@@ -180,7 +180,9 @@ fn lint_steps() -> Vec<Step> {
 
 /// The vendored IronRDP workspace: format check plus the fork's own tests (plan M0-2).
 fn vendored_steps() -> Vec<Step> {
-    let mut test_args = vec!["test"];
+    // `--locked`: the vendored tree has its own committed Cargo.lock, and re-vendoring a new
+    // upstream rev must update it rather than resolve differently on every machine.
+    let mut test_args = vec!["test", "--locked"];
     for p in VENDORED_TEST_PACKAGES {
         test_args.push("-p");
         test_args.push(p);
@@ -280,20 +282,19 @@ pub fn feature_lint_gaps(features: &[(String, String)], steps: &[Step]) -> Vec<S
     let mut explicit = BTreeSet::new();
     for step in steps {
         let Action::Run { program: Program::Cargo, args, .. } = &step.action else { continue };
-        if !args.iter().any(|a| a == "clippy" || a == "check") {
+        let lints = args.iter().any(|a| a == "clippy" || a == "check");
+        // A step that does not build every target cannot vouch for a feature: the test binary
+        // that feature gates (M6-2's `tabs_ui`) would never be compiled.
+        if !lints || !args.iter().any(|a| a == "--all-targets") {
             continue;
         }
-        let all_targets = args.iter().any(|a| a == "--all-targets");
+        let package = package_of(args);
         for (i, arg) in args.iter().enumerate() {
             if arg != "--features" {
                 continue;
             }
             let Some(list) = args.get(i + 1) else { continue };
-            let package = package_of(args);
             for feature in list.split(',') {
-                if !all_targets {
-                    continue;
-                }
                 match feature.split_once('/') {
                     Some((pkg, feat)) => {
                         explicit.insert(format!("{pkg}/{feat}"));
