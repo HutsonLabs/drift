@@ -66,7 +66,8 @@ another JS package manager.
 from every zsh (hooked in `~/.zshenv`) and at GUI login, so builds over SSH work too. If codesign
 fails with `errSecInternalComponent`, the keychain is locked: run `signing-unlock -v`. Check a
 build with `codesign -dv --verbose=2 target/release/bundle/macos/Drift.app`.
-Notarization is not wired up yet (M9-5); until it is, the .dmg is signed but not notarized.
+Notarize and staple the .dmg with `xcrun notarytool submit … --wait` (App Store Connect API key)
+and `xcrun stapler staple`; `cargo xtask bundle` does not wire this up yet (M9-5).
 
 Builds are large; long cargo runs can exceed a 10-minute tool call — run them in the background
 and poll. Other agents build in parallel on the same machine.

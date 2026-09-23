@@ -15,7 +15,7 @@ Read §0–§5 before starting any task.
 | **TDD always** | Red → Green → Refactor for every task. First write the listed failing tests, run them, and watch them fail *for the right reason*. Then write the smallest implementation that passes. Then refactor while staying green. Production code only merges together with a test that failed before that code existed. |
 | **Cargo first** | Use `cargo` for build, test, lint, run, bundle and automation (`cargo xtask …`). The Tauri CLI is `cargo tauri` (`cargo install tauri-cli --version "^2" --locked`). |
 | **Bun, never npm** | JS/TS exists only for the thin webview UI in `ui/`. Use `bun install`, `bun test`, `bun run build`. No `npm`, `npx`, `yarn` or `pnpm` in scripts, CI or docs. |
-| **macOS only** | Targets are `aarch64-apple-darwin` (primary) and `x86_64-apple-darwin` (universal bundle). Minimum macOS **27.0** (raised from 14.0 with the glass redesign). No code paths, stubs or CI for any other OS. |
+| **macOS only** | Target is `aarch64-apple-darwin` only (macOS 27 runs on Apple silicon only). Minimum macOS **27.0** (raised from 14.0 with the glass redesign). No code paths, stubs or CI for any other OS. |
 | **Thin UI** | All logic lives in Rust. TypeScript renders state and sends intents back. |
 | **Humble objects** | FFI and main-thread glue (AppKit, Metal, VideoToolbox, NSPasteboard, Network.framework) stays as thin as possible. Decision logic lives in pure, unit-tested Rust. |
 | **Optimised deps in dev** | `[profile.dev.package."*"] opt-level = 3` and `[profile.dev.package.drift-codec] opt-level = 3`. This is verified: a debug-built decoder acks frames late, and g-r-d then throttles the stream from 60 fps to about 30 fps. |
@@ -594,7 +594,7 @@ sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$UID DBUS_SESSION_BUS_ADDRESS=unix:
   - App Sandbox (`network.client`), Hardened Runtime, and `NSLocalNetworkUsageDescription`.
   - The errno 65 screen links to System Settings › Privacy & Security › Local Network.
 - [ ] **M9-4 Polish & accessibility** (D). VoiceOver labels; mode-specific errors with next steps (for example "Desktop Sharing credentials must be set in GNOME Settings on the host", or "Headless session not running — see host/drift-host-setup.sh").
-- [ ] **M9-5 Packaging** (E). `cargo xtask bundle` builds a universal .app and .dmg, with Developer ID signing, notarytool, and the Tauri updater with a signed manifest.
+- [ ] **M9-5 Packaging** (E). `cargo xtask bundle` builds an Apple silicon (aarch64) .app and .dmg, with Developer ID signing, notarytool, and the Tauri updater with a signed manifest.
   **Done:** clean macOS 27 machines install, pass Gatekeeper, prompt for Local Network once, and pass `docs/acceptance.md` in full against the homelab.
 
 ---

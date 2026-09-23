@@ -69,7 +69,7 @@ enum Cmd {
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
-    /// Build the universal .app/.dmg (task M9-5).
+    /// Build the Apple silicon .app/.dmg (task M9-5).
     Bundle,
     /// Verify the GNOME host configuration over SSH, read-only (task M0-4).
     HostSetupCheck {

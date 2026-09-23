@@ -3,7 +3,7 @@
 # docs/adr/M0-6-dependency-policy.md.
 
 [graph]
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+targets = ["aarch64-apple-darwin"]
 all-features = false
 no-default-features = false
 
