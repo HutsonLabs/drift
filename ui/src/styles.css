@@ -508,6 +508,7 @@ body[data-hud="stats"] #app { display: flex; align-items: flex-end; justify-cont
 body.strip { background: var(--window); overflow: hidden; }
 body.strip #strip { height: 100%; }
 .tabstrip { height: 100%; display: flex; align-items: center; gap: 4px; padding: 0 10px 0 84px; }
+.tabstrip .tablist { position: absolute; width: 0; height: 0; overflow: hidden; }
 .tabstrip .tabs { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 0 1 auto; }
 .tabstrip .spacer { flex: 1; align-self: stretch; }
 .tab {

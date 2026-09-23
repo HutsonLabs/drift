@@ -41,9 +41,15 @@ function glyph(tab: TabItem): HTMLElement {
   return modeGlyph(tab.mode);
 }
 
+/** The DOM id of tab `id`'s role="tab" button (the tablist owns it by id). */
+function tabElementId(id: string): string {
+  return `tab-${id}`;
+}
+
 function renderTab(tab: TabItem, active: boolean, on: StripIntents): HTMLElement {
   const status = STATUS_TEXT[tab.status];
   const statusId = `tab-status-${tab.id}`;
+  const tabId = tabElementId(tab.id);
   const dot = tab.kind === "session" && tab.status !== "connecting" && tab.status !== "idle";
   return h(
     "div",
@@ -57,6 +63,7 @@ function renderTab(tab: TabItem, active: boolean, on: StripIntents): HTMLElement
       "button",
       {
         type: "button",
+        id: tabId,
         class: "tab-main",
         role: "tab",
         "aria-selected": active ? "true" : "false",
@@ -71,7 +78,13 @@ function renderTab(tab: TabItem, active: boolean, on: StripIntents): HTMLElement
     ),
     h(
       "button",
-      { type: "button", class: "close", "aria-label": `Close ${tab.title}`, onclick: () => on.close(tab.id) },
+      {
+        type: "button",
+        class: "close",
+        "aria-label": `Close ${tab.title}`,
+        "aria-controls": tabId,
+        onclick: () => on.close(tab.id),
+      },
       icon("close"),
     ),
   );
@@ -90,9 +103,17 @@ export function renderTabStrip(root: HTMLElement, strip: TabStrip, on: StripInte
     h(
       "nav",
       { class: "tabstrip", "aria-label": "Tabs", "data-tauri-drag-region": true },
-      // The + sits right after the last tab (like Safari's tab bar, inside the list); the rest of
-      // the row drags the window.
-      h("div", { class: "tabs", role: "tablist", "aria-label": "Open tabs" }, tabs, plus),
+      // The + sits right after the last tab (Firefox-style); the rest of the row drags the window.
+      // The row itself has no role: each pill holds a tab and its ×, and a tablist may own only
+      // tabs. So the (boxless) tablist owns the tab buttons by id, and the × and + stay outside
+      // it, so VoiceOver counts "tab 1 of N" right.
+      h("div", {
+        class: "tablist",
+        role: "tablist",
+        "aria-label": "Open tabs",
+        "aria-owns": strip.tabs.map((tab) => tabElementId(tab.id)).join(" "),
+      }),
+      h("div", { class: "tabs" }, tabs, plus),
       h("span", { class: "spacer", "data-tauri-drag-region": true }),
     ),
   );

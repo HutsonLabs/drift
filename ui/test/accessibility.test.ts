@@ -200,7 +200,17 @@ describe("accessible names", () => {
     );
     expect(auditAccessibility(r)).toEqual([]);
     expect(accessibleName(r.querySelector("nav") as Element)).toBe("Tabs");
-    expect(accessibleName(r.querySelector("[role=tablist]") as Element)).toBe("Open tabs");
+    const list = r.querySelector("[role=tablist]") as Element;
+    expect(accessibleName(list)).toBe("Open tabs");
+    // A tablist owns only tabs: no wrappers with a role, no × or + inside it (so VoiceOver counts
+    // "tab 1 of 2" right and does not read the buttons as part of the group).
+    const owned = ownedChildren(list);
+    expect(owned.map((e) => e.getAttribute("role"))).toEqual(["tab", "tab"]);
+    expect(list.contains(r.querySelector("[aria-label='New Tab']"))).toBe(false);
+    for (const close of Array.from(r.querySelectorAll(".close"))) {
+      expect(list.contains(close)).toBe(false);
+      expect(close.getAttribute("aria-controls")).not.toBeNull();
+    }
     // The dot is colour only; VoiceOver hears the state in the tab's description.
     const tab = r.querySelector("[role=tab]") as Element;
     const described = text(r.querySelector(`[id="${tab.getAttribute("aria-describedby")}"]`));
@@ -210,3 +220,25 @@ describe("accessible names", () => {
     }
   });
 });
+
+/** The accessibility-tree children of `el`: its DOM children (looking through role=none /
+ * presentation elements and elements without a role that only group) plus what it aria-owns. */
+function ownedChildren(el: Element): Element[] {
+  const out: Element[] = [];
+  const walk = (node: Element) => {
+    for (const child of Array.from(node.children)) {
+      const role = child.getAttribute("role");
+      if (role === "none" || role === "presentation" || (!role && child.tagName === "DIV") || child.tagName === "SPAN") {
+        walk(child);
+      } else {
+        out.push(child);
+      }
+    }
+  };
+  walk(el);
+  for (const id of (el.getAttribute("aria-owns") ?? "").split(/\s+/).filter(Boolean)) {
+    const owned = el.ownerDocument.getElementById(id);
+    if (owned) out.push(owned);
+  }
+  return out;
+}

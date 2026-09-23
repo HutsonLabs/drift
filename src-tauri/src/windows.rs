@@ -604,7 +604,8 @@ pub(crate) fn apply_cursor<R: Runtime>(
 /// Releases the window's session resources (render thread, handle, cursor).
 pub(crate) fn release_session<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let label = label.to_owned();
-    let _ = on_main(app, move |_| {
+    let app = app.clone();
+    let _ = on_main(&app.clone(), move |_| {
         with_platform(&label, |plat| {
             #[cfg(feature = "recording")]
             if let Some(recording) = plat.recording.take() {
@@ -617,6 +618,8 @@ pub(crate) fn release_session<R: Runtime>(app: &AppHandle<R>, label: &str) {
                 render.shutdown();
             }
         });
+        // The profile is no longer live: other tabs drop its "open in another tab" dot.
+        broadcast_tabs(&app);
     });
 }
 
@@ -857,7 +860,11 @@ pub(crate) fn run_menu_action<R: Runtime>(app: &AppHandle<R>, action: MenuAction
         }
         MenuAction::PreviousTab | MenuAction::NextTab => {
             if let Some(label) = label {
-                with_platform(&label, |plat| select_sibling_tab(&plat.window, action));
+                // Outside the map's borrow: selecting makes the window key, whose observer lays it
+                // out (re-hiding AppKit's tab bar, placing the strip) and pushes the strips.
+                if let Some(window) = with_platform(&label, |plat| plat.window.clone()) {
+                    select_sibling_tab(&window, action);
+                }
             }
         }
         MenuAction::SendCtrlAltDel => {
