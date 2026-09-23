@@ -128,20 +128,54 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
   -webkit-backdrop-filter: blur(40px) saturate(170%);
   backdrop-filter: blur(40px) saturate(170%);
   box-shadow: var(--shadow-window), inset 0 0 0 0.5px var(--rim);
-  display: grid;
-  grid-template-columns: 272px 1fr;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
-.window.small { height: 560px; grid-template-columns: 1fr; }
-.lights { position: absolute; top: 19px; left: 20px; display: flex; gap: 8px; z-index: 5; }
+.window > .body { flex: 1; min-height: 0; display: grid; grid-template-columns: 272px 1fr; }
+.window.small { height: 560px; }
+.window > .pane { position: relative; flex: 1; min-height: 0; }
+.lights { position: absolute; top: 17px; left: 18px; display: flex; gap: 8px; z-index: 5; }
 .lights span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px oklch(0 0 0 / 0.15); }
 .lights span:nth-child(1) { background: #ff5f57; }
 .lights span:nth-child(2) { background: #febc2e; }
 .lights span:nth-child(3) { background: #28c840; }
 
+/* ---------- title bar = tab strip ----------
+   The title bar has no fill and no divider (titlebarAppearsTransparent + fullSizeContentView):
+   the tabs sit directly on the window material next to the traffic lights, so the strip reads
+   as part of the window rather than a bar on top of it. */
+.titlebar {
+  position: relative; flex: none; height: 46px; z-index: 4;
+  display: flex; align-items: center; gap: 4px; padding: 0 10px 0 84px;
+}
+.titlebar .spacer { flex: 1; }
+.tab {
+  position: relative; display: flex; align-items: center; gap: 7px; min-width: 0; flex: 0 1 210px;
+  height: 30px; padding: 0 6px 0 8px; border-radius: 10px;
+  font-weight: 600; font-size: 12.5px; color: var(--secondary);
+}
+.tab:hover { background: var(--hover); }
+.tab.on { background: var(--selected); color: var(--text); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--rim-soft); }
+.tab .glyph { width: 18px; height: 18px; border-radius: 5px; box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.35); }
+.tab .glyph svg.i { width: 11px; height: 11px; stroke-width: 2; }
+.tab .t-name { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tab .status { width: 6px; height: 6px; box-shadow: none; }
+.status.amber { background: var(--warn); }
+.status.red { background: var(--danger); }
+.tab .close { margin-left: auto; width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; color: var(--tertiary); visibility: hidden; }
+.tab .close svg.i { width: 10px; height: 10px; stroke-width: 2.2; }
+.tab.on .close, .tab:hover .close { visibility: visible; }
+.tab .spin { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 1.6px solid color-mix(in oklab, var(--accent) 28%, transparent); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+.glyph.manager { background: linear-gradient(160deg, oklch(0.62 0.02 255), oklch(0.46 0.02 255)); }
+/* Firefox-style new-tab button: sits right after the last tab, not at the far edge. */
+.newtab { flex: none; width: 28px; height: 28px; border: 0; border-radius: 9px; display: grid; place-items: center; background: none; color: var(--secondary); }
+.newtab:hover, .newtab.hl { background: var(--hover); color: var(--text); }
+.newtab svg.i { width: 15px; height: 15px; stroke-width: 1.9; }
+
 /* Floating glass sidebar, inset from the window edge (macOS 26 style). */
 .sidebar {
-  margin: 8px 0 8px 8px;
+  margin: 0 0 8px 8px;
   border-radius: var(--r-panel);
   background: var(--sidebar);
   box-shadow: var(--shadow-panel), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
@@ -149,7 +183,7 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
   backdrop-filter: blur(24px) saturate(180%);
   display: flex;
   flex-direction: column;
-  padding: 50px 10px 10px;
+  padding: 12px 10px 10px;
   min-height: 0;
 }
 .search {
@@ -194,7 +228,7 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
 
 /* ---------- detail pane ---------- */
 .detail { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.detail-scroll { flex: 1; padding: 30px 40px 96px; }
+.detail-scroll { flex: 1; padding: 12px 40px 96px; }
 .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; }
 .hero .glyph { width: 52px; height: 52px; border-radius: 14px; }
 .hero .glyph svg.i { width: 26px; height: 26px; }
@@ -333,23 +367,16 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
 .error-steps li::marker { font-weight: 700; color: var(--text); }
 
 /* ---------- live session window ---------- */
-.session { position: relative; height: 560px; border-radius: var(--r-window); overflow: hidden; box-shadow: var(--shadow-window), inset 0 0 0 0.5px var(--rim); }
-.tabbar {
-  position: absolute; top: 0; left: 0; right: 0; height: 44px; z-index: 4;
-  display: flex; align-items: center; gap: 6px; padding: 0 10px 0 88px;
-  background: color-mix(in oklab, var(--window) 70%, transparent);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
-  backdrop-filter: blur(30px) saturate(180%);
-  box-shadow: inset 0 -0.5px 0 var(--hairline);
+.session {
+  position: relative; height: 560px; border-radius: var(--r-window); overflow: hidden;
+  background: var(--window);
+  -webkit-backdrop-filter: blur(40px) saturate(170%);
+  backdrop-filter: blur(40px) saturate(170%);
+  box-shadow: var(--shadow-window), inset 0 0 0 0.5px var(--rim);
 }
-.tabbar .lights { top: 16px; }
-.tab { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px; border-radius: 999px; font-weight: 600; font-size: 12.5px; color: var(--secondary); }
-.tab.on { background: var(--selected); color: var(--text); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--rim-soft); }
-.tab .status { width: 6px; height: 6px; box-shadow: none; }
-.tab .status.amber { background: var(--warn); }
-.tabbar .spacer { flex: 1; }
+.session .tab { flex-basis: 190px; }
 .remote {
-  position: absolute; inset: 44px 0 0 0;
+  position: absolute; inset: 46px 0 0 0;
   background:
     radial-gradient(80% 90% at 30% 20%, oklch(0.45 0.12 290) 0%, transparent 60%),
     radial-gradient(70% 80% at 85% 90%, oklch(0.4 0.14 20) 0%, transparent 60%),
@@ -390,7 +417,7 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
 .banner strong { display: block; font-weight: 600; font-size: 13px; }
 .banner span { font-size: 12px; color: oklch(1 0 0 / 0.72); }
 
-.reconnect-scrim { position: absolute; inset: 44px 0 0 0; background: oklch(0 0 0 / 0.35); -webkit-backdrop-filter: blur(6px) saturate(80%); backdrop-filter: blur(6px) saturate(80%); display: grid; place-items: center; }
+.reconnect-scrim { position: absolute; inset: 46px 0 0 0; background: oklch(0 0 0 / 0.35); -webkit-backdrop-filter: blur(6px) saturate(80%); backdrop-filter: blur(6px) saturate(80%); display: grid; place-items: center; }
 .ring { position: relative; width: 64px; height: 64px; margin: 0 auto 10px; }
 .ring svg { width: 64px; height: 64px; transform: rotate(-90deg); }
 .ring circle { fill: none; stroke-width: 4; }
@@ -398,6 +425,62 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
 .ring .fill { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 175.9; stroke-dashoffset: 70; }
 .ring b { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .sheet.compact { width: 320px; padding: 24px; }
+
+/* ---------- tab model: four cropped windows showing one tab's life ---------- */
+.flow { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 28px; }
+.step { display: grid; gap: 12px; align-content: start; }
+.step .desk { padding: 22px; border-radius: 22px; }
+.window.strip { height: 132px; }
+.strip .pane { margin: 0 8px 8px; border-radius: var(--r-panel); background: var(--sidebar); box-shadow: inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft); padding: 14px 16px; display: grid; gap: 8px; align-content: start; }
+.strip .pane.dark { background: radial-gradient(80% 120% at 30% 20%, oklch(0.45 0.12 290) 0%, transparent 60%), oklch(0.24 0.04 280); box-shadow: none; margin: 0; border-radius: 0; }
+.strip .ph { height: 9px; border-radius: 5px; background: var(--hairline); }
+.strip .pane.dark .ph { background: oklch(1 0 0 / 0.12); }
+.step-cap { display: flex; gap: 12px; padding: 0 4px; }
+.step-cap .n { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 12px; color: #fff; background: var(--accent); }
+.step-cap strong { display: block; font-size: 14px; }
+.step-cap span { color: var(--secondary); font-size: 13px; }
+.step-cap kbd, .board-head kbd { font: 600 11px var(--font); padding: 1px 5px; border-radius: 5px; background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.pointer { position: absolute; width: 14px; height: 20px; z-index: 6; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 20'%3E%3Cpath d='M1 1v15l4-3.5 2.6 5.8 2.4-1-2.6-5.7H13z' fill='black' stroke='white' stroke-width='1.2' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat; }
+
+/* ---------- full screen: no tab strip; the menu bar is the only way between tabs ---------- */
+.fs { position: relative; aspect-ratio: 16 / 10; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-window); }
+.fs .remote { inset: 0; }
+.fs .gnome-bar { height: 22px; line-height: 22px; }
+.menubar {
+  position: absolute; top: 0; left: 0; right: 0; height: 26px; z-index: 5;
+  display: flex; align-items: center; gap: 1px; padding: 0 8px;
+  font: 500 12.5px var(--font); color: var(--text);
+  background: color-mix(in oklab, var(--window) 82%, transparent);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: 0 6px 20px -10px oklch(0 0 0 / 0.5);
+}
+.menubar > span { padding: 2px 9px; border-radius: 6px; }
+.menubar .app { font-weight: 700; }
+.menubar .open { background: var(--selected); box-shadow: inset 0 0 0 0.5px var(--rim-soft); }
+.menubar .right { margin-left: auto; color: var(--secondary); }
+.menu {
+  position: absolute; top: 29px; z-index: 6; min-width: 268px; padding: 5px;
+  border-radius: 12px; font-size: 13px;
+  background: var(--sheet);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: var(--shadow-window), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+}
+.mi { display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px 0 6px; border-radius: 7px; white-space: nowrap; }
+.mi .ck { width: 14px; display: grid; place-items: center; }
+.mi .ck svg.i { width: 11px; height: 11px; stroke-width: 2.4; }
+.mi kbd { margin-left: auto; padding-left: 24px; font: inherit; color: var(--tertiary); letter-spacing: 0.04em; }
+.mi .glyph { width: 16px; height: 16px; border-radius: 4px; }
+.mi .glyph svg.i { width: 10px; height: 10px; stroke-width: 2; }
+.mi .status { width: 6px; height: 6px; box-shadow: none; margin-left: 2px; }
+.mi.dim { color: var(--tertiary); }
+.mi.hl { background: var(--accent); color: #fff; }
+.mi.hl kbd { color: oklch(1 0 0 / 0.78); }
+.menu hr { border: 0; height: 0.5px; background: var(--hairline); margin: 5px 8px; }
+.menu .sec { padding: 4px 10px 2px 27px; font-size: 11px; font-weight: 700; color: var(--tertiary); }
+.fs-cap { color: var(--secondary); font-size: 13px; margin: 12px 4px 0; }
+.fs-cap strong { color: var(--text); }
 </style>
 </head>
 <body>
@@ -415,13 +498,15 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
   <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></symbol>
   <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20c1.4-3.6 4.2-5.5 7.5-5.5s6.1 1.9 7.5 5.5"/></symbol>
   <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/></symbol>
+  <symbol id="i-manager" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 4v16M12.5 9h4M12.5 12.5h4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
 </svg>
 
 <div class="deck">
   <header class="deck-head">
     <div>
       <h1>Drift — glass redesign</h1>
-      <p>Static mockup for review. Same screens, same copy, same controls as today; new layout, Liquid Glass–style materials, and Avenir Next throughout. Toggle the appearance to check both modes.</p>
+      <p>Static mockup for review. Every window is a strip of tabs of two kinds: a <strong>Connection Manager</strong> tab, where you pick and edit a connection, and a <strong>Session</strong> tab, which that manager tab turns into when you connect. Liquid Glass–style materials and Avenir Next throughout. Toggle the appearance to check both modes.</p>
     </div>
     <div class="theme-switch" role="group" aria-label="Appearance">
       <button type="button" data-set="light" aria-pressed="true">Light</button>
@@ -429,13 +514,85 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
     </div>
   </header>
 
-  <!-- 1. Connections ================================================================== -->
+  <!-- 0. Tab model =================================================================== -->
   <section class="board">
     <div class="board-head">
-      <h2>1 · Connections</h2>
+      <h2>0 · Two kinds of tab</h2>
       <ul>
-        <li>Window uses native vibrancy; the sidebar floats as an inset glass panel with the traffic lights sitting on it.</li>
+        <li>The title bar is transparent: no fill, no divider, no window title. The tabs sit on the window material beside the traffic lights.</li>
+        <li><strong>Connection Manager</strong> tabs have a neutral grey icon and are titled “Connections”.</li>
+        <li><strong>Session</strong> tabs show the connection’s mode glyph, name and a live dot (green live, amber reconnecting, red failed).</li>
+        <li>Connecting doesn’t open anything new. The manager tab itself becomes the session, so you stay in the same place.</li>
+        <li>The + sits right after the last tab, like Firefox. It (and <kbd>⌘T</kbd>) opens a new Connection Manager tab.</li>
+        <li>Disconnecting turns a session tab back into a Connection Manager. Closing the last tab closes the window.</li>
+      </ul>
+    </div>
+    <div class="flow">
+      <div class="step">
+        <div class="desk">
+          <div class="window strip">
+            <div class="titlebar">
+              <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+              <div class="tab on"><span class="glyph manager"><svg class="i"><use href="#i-manager"/></svg></span><span class="t-name">Connections</span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+              <button class="newtab" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
+            </div>
+            <div class="pane"><div class="ph" style="width:40%"></div><div class="ph" style="width:65%"></div><div class="ph" style="width:52%"></div></div>
+          </div>
+        </div>
+        <div class="step-cap"><span class="n">1</span><div><strong>A new window opens on Connections</strong><span>One Connection Manager tab. Pick a connection and press Connect.</span></div></div>
+      </div>
+      <div class="step">
+        <div class="desk">
+          <div class="window strip">
+            <div class="titlebar">
+              <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+              <div class="tab on"><span class="spin" aria-hidden="true"></span><span class="t-name">Connecting to Homelab…</span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+              <button class="newtab" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
+            </div>
+            <div class="pane"><div class="ph" style="width:40%"></div><div class="ph" style="width:65%"></div><div class="ph" style="width:52%"></div></div>
+          </div>
+        </div>
+        <div class="step-cap"><span class="n">2</span><div><strong>The same tab starts connecting</strong><span>Its title and icon change straight away. Closing the tab cancels the connection.</span></div></div>
+      </div>
+      <div class="step">
+        <div class="desk">
+          <div class="window strip">
+            <div class="titlebar">
+              <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+              <div class="tab on"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><span class="t-name">Homelab</span><span class="status"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+              <button class="newtab hl" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
+              <span class="pointer" style="left:328px;top:26px"></span>
+            </div>
+            <div class="pane dark"></div>
+          </div>
+        </div>
+        <div class="step-cap"><span class="n">3</span><div><strong>It becomes the Session</strong><span>The manager is gone from the strip; the tab is now Homelab. Press + for another connection.</span></div></div>
+      </div>
+      <div class="step">
+        <div class="desk">
+          <div class="window strip">
+            <div class="titlebar">
+              <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+              <div class="tab"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><span class="t-name">Homelab</span><span class="status"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+              <div class="tab on"><span class="glyph manager"><svg class="i"><use href="#i-manager"/></svg></span><span class="t-name">Connections</span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+              <button class="newtab" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
+            </div>
+            <div class="pane"><div class="ph" style="width:40%"></div><div class="ph" style="width:65%"></div><div class="ph" style="width:52%"></div></div>
+          </div>
+        </div>
+        <div class="step-cap"><span class="n">4</span><div><strong>+ opens a new Connection Manager</strong><span>It opens beside the session, which keeps running. Connecting here turns this tab into a second session.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 1. Connection Manager ============================================================ -->
+  <section class="board">
+    <div class="board-head">
+      <h2>1 · Connection Manager tab</h2>
+      <ul>
+        <li>The tab strip runs along the transparent title bar; the sidebar floats as an inset glass panel just below it.</li>
         <li>Each connection gets a colored mode glyph, host and live-session dot. Connect is a single play button on the selected row, not a button on every row.</li>
+        <li>Connect replaces this tab with the Homelab session. A connection that’s already open in another tab (the green dot) switches to that tab instead.</li>
         <li>The form becomes System Settings–style grouped rows: label left, control right.</li>
         <li>Connection type is three tiles with icons; the selected mode’s explanation stays underneath.</li>
         <li>Checkboxes become switches. Trust status moves into the header (“Certificate trusted”).</li>
@@ -444,8 +601,13 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
     </div>
     <div class="desk">
       <div class="window">
-        <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
-
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="tab"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span class="t-name">Studio Workstation</span><span class="status"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <div class="tab on"><span class="glyph manager"><svg class="i"><use href="#i-manager"/></svg></span><span class="t-name">Connections</span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <button class="newtab" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
+        </div>
+        <div class="body">
         <nav class="sidebar" aria-label="Saved connections">
           <div class="search"><svg class="i"><use href="#i-search"/></svg>Search</div>
           <h3>Connections</h3>
@@ -554,6 +716,7 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
             <button class="btn primary">Save</button>
           </div>
         </div>
+        </div>
       </div>
     </div>
   </section>
@@ -565,13 +728,20 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
       <ul>
         <li>Connecting shows every stage as a checklist instead of one line of status text, so a stall is obvious.</li>
         <li>The certificate prompt is a glass sheet: shield badge, fingerprint in a card, “Remember” as a switch.</li>
-        <li>Both sheets blur and dim the window behind them instead of replacing it.</li>
+        <li>Both sheets blur and dim the tab’s content, not the tab strip, so you can still switch to another tab while one is connecting.</li>
+        <li>While connecting, the tab shows a spinner and the connection name; closing the tab cancels.</li>
       </ul>
     </div>
     <div class="pair">
       <div class="desk" style="padding:32px">
         <div class="window small">
-          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="titlebar">
+            <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="tab"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span class="t-name">Studio Workstation</span><span class="status"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+            <div class="tab on"><span class="spin" aria-hidden="true"></span><span class="t-name">Connecting to Homelab…</span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+            <button class="newtab" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
+          </div>
+          <div class="pane">
           <div class="scrim">
             <section class="sheet">
               <h2 style="margin-top:0">Connecting to Homelab…</h2>
@@ -586,11 +756,18 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
               <div class="actions"><button class="btn">Cancel</button></div>
             </section>
           </div>
+          </div>
         </div>
       </div>
       <div class="desk" style="padding:32px">
         <div class="window small">
-          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="titlebar">
+            <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="tab"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span class="t-name">Studio Workstation</span><span class="status"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+            <div class="tab on"><span class="spin" aria-hidden="true"></span><span class="t-name">Homelab</span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+            <button class="newtab" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
+          </div>
+          <div class="pane">
           <div class="scrim">
             <section class="sheet">
               <div class="badge-icon shield"><svg class="i"><use href="#i-shield"/></svg></div>
@@ -605,28 +782,32 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
               <div class="actions split"><button class="btn">Cancel</button><button class="btn primary">Connect</button></div>
             </section>
           </div>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- 3. In session =================================================================== -->
+  <!-- 3. Session =================================================================== -->
   <section class="board">
     <div class="board-head">
-      <h2>3 · In session</h2>
+      <h2>3 · Session tab</h2>
       <ul>
-        <li>Session tabs live in a thin glass title bar; the dot shows each tab’s state (green live, amber reconnecting).</li>
+        <li>The tab strip sits on the window material with no bar or divider; the remote desktop starts right under it.</li>
+        <li>You can always see which tab is yours: the active session is a raised glass pill with its mode glyph, name and live dot. Other tabs are flat text.</li>
+        <li>The + stays right after the last tab and opens a new Connection Manager (<kbd>⌘T</kbd>).</li>
         <li>The greeter hint becomes a floating glass capsule over the login screen.</li>
         <li>Statistics split into labelled readouts in Avenir Next with tabular figures, instead of one monospace line.</li>
-        <li>Reconnecting blurs the last frame and counts down in a ring.</li>
+        <li>Reconnecting blurs the last frame and counts down in a ring; the tab’s dot turns amber.</li>
       </ul>
     </div>
     <div class="pair">
       <div class="session">
-        <div class="tabbar">
+        <div class="titlebar">
           <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
-          <div class="tab on"><span class="status"></span>Homelab</div>
-          <div class="tab"><span class="status"></span>Studio Workstation</div>
+          <div class="tab on"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><span class="t-name">Homelab</span><span class="status"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <div class="tab"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span class="t-name">Studio Workstation</span><span class="status"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <button class="newtab" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
           <span class="spacer"></span>
           <button class="btn icon" aria-label="Statistics"><svg class="i"><use href="#i-gauge"/></svg></button>
         </div>
@@ -647,11 +828,11 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
       </div>
 
       <div class="session">
-        <div class="tabbar">
+        <div class="titlebar">
           <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
-          <div class="tab"><span class="status"></span>Homelab</div>
-          <div class="tab on"><span class="status amber"></span>Studio Workstation</div>
-          <span class="spacer"></span>
+          <div class="tab"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><span class="t-name">Homelab</span><span class="status"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <div class="tab on"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span class="t-name">Studio Workstation</span><span class="status amber"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <button class="newtab" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
         </div>
         <div class="remote">
           <div class="gnome-bar"><span>Activities</span><span>Tue 22 Sep 14:08</span><span>⏻</span></div>
@@ -669,19 +850,90 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
     </div>
   </section>
 
-  <!-- 4. Error ======================================================================== -->
+  <!-- 4. Full screen ================================================================== -->
   <section class="board">
     <div class="board-head">
-      <h2>4 · Errors</h2>
+      <h2>4 · Full screen</h2>
+      <ul>
+        <li>In full screen the tab strip is hidden completely, so the remote desktop fills the display. It stays hidden when the menu bar slides down.</li>
+        <li>Switch sessions from the <strong>Window</strong> menu: every tab is listed with its glyph and live dot, with a checkmark on the current one and <kbd>⌘1</kbd>–<kbd>⌘9</kbd> shortcuts.</li>
+        <li>Open a new tab from <strong>File › New Tab</strong> (<kbd>⌘T</kbd>). It opens a Connection Manager in full screen too.</li>
+        <li>Move the pointer to the top edge to reveal the menu bar, as in any full-screen Mac app. When the remote desktop has the keyboard, Drift’s shortcuts still work.</li>
+      </ul>
+    </div>
+    <div class="pair">
+      <div>
+        <div class="fs">
+          <div class="remote">
+            <div class="gnome-bar" style="margin-top:26px"><span>Activities</span><span>Tue 22 Sep 14:08</span><span>⏻</span></div>
+            <div class="gnome-win"></div>
+          </div>
+          <div class="menubar">
+            <span>&#xF8FF;</span><span class="app">Drift</span><span>File</span><span>Edit</span><span>View</span><span class="open">Window</span><span>Help</span>
+            <span class="right">Tue 22 Sep 14:08</span>
+          </div>
+          <div class="menu" style="left:196px" role="menu" aria-label="Window">
+            <div class="mi dim"><span class="ck"></span>Minimize<kbd>⌘M</kbd></div>
+            <div class="mi dim"><span class="ck"></span>Zoom</div>
+            <hr />
+            <div class="mi"><span class="ck"></span>Show Previous Tab<kbd>⌃⇧⇥</kbd></div>
+            <div class="mi"><span class="ck"></span>Show Next Tab<kbd>⌃⇥</kbd></div>
+            <hr />
+            <div class="mi"><span class="ck"></span>Exit Full Screen<kbd>fn F</kbd></div>
+            <hr />
+            <div class="sec">Tabs</div>
+            <div class="mi"><span class="ck"><svg class="i"><use href="#i-check"/></svg></span><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span>Homelab<span class="status"></span><kbd>⌘1</kbd></div>
+            <div class="mi hl"><span class="ck"></span><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>Studio Workstation<span class="status"></span><kbd>⌘2</kbd></div>
+            <div class="mi"><span class="ck"></span><span class="glyph manager"><svg class="i"><use href="#i-manager"/></svg></span>Connections<kbd>⌘3</kbd></div>
+          </div>
+        </div>
+        <p class="fs-cap"><strong>Window menu</strong> — switching sessions. Homelab is current; Studio Workstation is highlighted.</p>
+      </div>
+      <div>
+        <div class="fs">
+          <div class="remote">
+            <div class="gnome-bar" style="margin-top:26px"><span>Activities</span><span>Tue 22 Sep 14:08</span><span>⏻</span></div>
+            <div class="gnome-win"></div>
+          </div>
+          <div class="menubar">
+            <span>&#xF8FF;</span><span class="app">Drift</span><span class="open">File</span><span>Edit</span><span>View</span><span>Window</span><span>Help</span>
+            <span class="right">Tue 22 Sep 14:08</span>
+          </div>
+          <div class="menu" style="left:72px" role="menu" aria-label="File">
+            <div class="mi hl"><span class="ck"></span>New Tab<kbd>⌘T</kbd></div>
+            <div class="mi"><span class="ck"></span>New Window<kbd>⌘N</kbd></div>
+            <div class="mi"><span class="ck"></span>New Connection…<kbd>⇧⌘N</kbd></div>
+            <hr />
+            <div class="mi"><span class="ck"></span>Disconnect Homelab<kbd>⇧⌘D</kbd></div>
+            <div class="mi"><span class="ck"></span>Close Tab<kbd>⌘W</kbd></div>
+            <div class="mi"><span class="ck"></span>Close Window<kbd>⇧⌘W</kbd></div>
+          </div>
+        </div>
+        <p class="fs-cap"><strong>File menu</strong> — New Tab opens a Connection Manager beside the current session.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Error ======================================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>5 · Errors</h2>
       <ul>
         <li>Same glass sheet; amber badge instead of the ⚠︎ glyph.</li>
         <li>“What to do” steps sit in a numbered card so they read as a checklist.</li>
         <li>The first action stays primary and focused.</li>
+        <li>The failed tab keeps the connection’s name with a red dot. Closing it, or Disconnect, turns it back into a Connection Manager.</li>
       </ul>
     </div>
     <div class="desk" style="padding:32px">
       <div class="window small" style="height:600px">
-        <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="tab"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span class="t-name">Studio Workstation</span><span class="status"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <div class="tab on"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><span class="t-name">Homelab</span><span class="status red"></span><span class="close"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <button class="newtab" aria-label="New tab"><svg class="i"><use href="#i-plus"/></svg></button>
+        </div>
+        <div class="pane">
         <div class="scrim">
           <section class="sheet" style="width:480px">
             <div class="badge-icon warn"><svg class="i"><use href="#i-warn"/></svg></div>
@@ -697,6 +949,7 @@ select.field { appearance: none; padding-right: 30px; background-image: linear-g
             </div>
             <div class="actions"><button class="btn">Reconnect</button><button class="btn primary">Open Local Network Settings</button></div>
           </section>
+        </div>
         </div>
       </div>
     </div>
