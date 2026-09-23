@@ -128,10 +128,8 @@ fn blank_or_control_character_names_are_cleaned() {
 fn the_strip_keeps_the_tab_group_order_and_marks_its_own_window_active() {
     let a = Uuid::from_u128(2);
     let b = Uuid::from_u128(1);
-    let tabs: Vec<TabItem> = ["session-3", "session-0", "session-5"]
-        .iter()
-        .map(|id| tab_item(id, None, None))
-        .collect();
+    let tabs: Vec<TabItem> =
+        ["session-3", "session-0", "session-5"].iter().map(|id| tab_item(id, None, None)).collect();
     let strip = TabStrip::new(tabs, "session-0", vec![a, b, a]);
     let ids: Vec<&str> = strip.tabs.iter().map(|t| t.id.as_str()).collect();
     assert_eq!(ids, ["session-3", "session-0", "session-5"], "leading to trailing, as AppKit orders them");

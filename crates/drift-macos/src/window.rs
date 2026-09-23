@@ -35,6 +35,16 @@ pub enum WindowEvent {
     Resized,
 }
 
+/// Runs `work` on the main thread from the main dispatch queue (returns at once).
+///
+/// Unlike tao's `run_on_main_thread`, the block runs from the run loop and **not** inside tao's
+/// event handler. AppKit calls that draw synchronously — `addTabbedWindow:ordered:` syncs the
+/// tab sizes and redraws, selecting a tab redraws — re-enter tao's `drawRect:` handler, which
+/// takes the handler lock tao already holds while it runs user events: a deadlock (UI-tabs).
+pub fn dispatch_main(work: impl FnOnce() + Send + 'static) {
+    dispatch2::DispatchQueue::main().exec_async(work);
+}
+
 /// Whether any part of `window` is visible (`occlusionState ∋ Visible`).
 pub fn is_visible(window: &NSWindow) -> bool {
     window.occlusionState().contains(NSWindowOcclusionState::Visible)

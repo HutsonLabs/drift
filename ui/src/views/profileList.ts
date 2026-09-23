@@ -1,6 +1,7 @@
-// Saved connections sidebar: a search field, one row per connection (mode glyph, name, host)
-// and "New Connection". Every row keeps its own Connect button; it is drawn only on the
-// selected or hovered row but stays in the tab order.
+// Saved connections sidebar: a search field, one row per connection (mode glyph, name, host,
+// and a green dot when it is open in another tab) and "New Connection". Every row keeps its own
+// Connect button; it is drawn only on the selected or hovered row but stays in the tab order.
+// Connecting a connection that is open in another tab switches to that tab (Rust decides).
 import type { ConnectMode, ProfileEntry_Serialize } from "../bindings";
 import { h } from "../dom";
 import { icon, modeGlyph } from "../icons";
@@ -34,6 +35,7 @@ export function profileList(
   selectedId: string | null,
   on: ListIntents,
   query = "",
+  live: ReadonlySet<string> = new Set(),
 ): HTMLElement {
   const rows = entries.map((entry) => {
     const p = entry.profile;
@@ -56,6 +58,9 @@ export function profileList(
           h("span", { class: "item-name" }, p.name),
           h("span", { class: "item-detail" }, `${p.host} · ${MODE_NAMES[p.mode]}`),
         ),
+        live.has(p.id)
+          ? h("span", { class: "status live", title: "Connected in another tab", role: "img", "aria-label": "Connected in another tab" })
+          : null,
       ),
       h(
         "button",

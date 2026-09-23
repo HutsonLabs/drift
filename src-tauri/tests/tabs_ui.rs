@@ -30,8 +30,13 @@ const NAME: &str = "session_windows_join_one_native_tab_group";
 fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(&AppHandle) -> T + Send + 'static) -> T {
     let (tx, rx) = mpsc::channel();
     let a = app.clone();
+    // Like the app's own `windows::on_main`: after tao's queued messages, then on the main
+    // dispatch queue, outside tao's event handler — AppKit may draw synchronously (selecting a
+    // tab does) without deadlocking on tao's handler lock.
     app.run_on_main_thread(move || {
-        let _ = tx.send(f(&a));
+        drift_macos::dispatch_main(move || {
+            let _ = tx.send(f(&a));
+        });
     })
     .unwrap();
     rx.recv_timeout(Duration::from_secs(10)).expect("main thread responds")
@@ -74,41 +79,86 @@ fn wait_for_strips(app: &AppHandle, want: usize) {
     }
 }
 
+/// What one window looks like, read on the main thread (asserted on the test thread: a panic
+/// inside a main-queue block would abort the process).
+struct WindowFacts {
+    label: String,
+    covered: f64,
+    has_strip_webview: bool,
+    group_order: Vec<String>,
+    strip: Option<drift_app::strip::TabStrip>,
+}
+
+fn window_facts(a: &AppHandle, labels: &[String]) -> Vec<WindowFacts> {
+    let windows: Vec<_> = labels.iter().map(|l| ns_window(a, l)).collect();
+    let label_of = |w: &NSWindow| {
+        labels
+            .iter()
+            .zip(&windows)
+            .find(|(_, ns)| std::ptr::eq(&***ns, w))
+            .map_or_else(|| "?".to_owned(), |(l, _)| l.clone())
+    };
+    labels
+        .iter()
+        .zip(&windows)
+        .map(|(label, ns)| {
+            let content = ns.contentView().unwrap();
+            WindowFacts {
+                label: label.clone(),
+                covered: content.bounds().size.height - ns.contentLayoutRect().size.height,
+                has_strip_webview: a.get_webview(&strip_label(label)).is_some(),
+                group_order: drift_macos::tabs::tab_windows(ns).iter().map(|w| label_of(w)).collect(),
+                strip: tab_strip(a, label),
+            }
+        })
+        .collect()
+}
+
+/// `(close button centre from the top, close button x)` of the selected tab's window.
+fn traffic_lights(a: &AppHandle) -> (f64, f64) {
+    let any = ns_window(a, &window_label(0));
+    let key = any.tabGroup().and_then(|g| g.selectedWindow()).unwrap_or(any);
+    let close = key.standardWindowButton(NSWindowButton::CloseButton).unwrap();
+    let rect = close.convertRect_toView(close.bounds(), None);
+    let height = key.contentView().unwrap().bounds().size.height;
+    (height - rect.origin.y - rect.size.height / 2.0, rect.origin.x)
+}
+
 fn check_strips_and_title_bar(app: &AppHandle) {
     wait_for_strips(app, 3);
-    on_main(app, |a| {
-        let labels: Vec<String> = (0..3).map(window_label).collect();
-        for label in &labels {
-            let ns = ns_window(a, label);
-            let content = ns.contentView().unwrap();
-            let covered = content.bounds().size.height - ns.contentLayoutRect().size.height;
-            assert!(covered < 40.0, "{label}: AppKit's tab bar is hidden, {covered} pt covered");
-            assert!(a.get_webview(&strip_label(label)).is_some(), "{label} has a strip webview");
-            let strip = tab_strip(a, label).unwrap();
-            let ids: Vec<&str> = strip.tabs.iter().map(|t| t.id.as_str()).collect();
-            assert_eq!(ids, labels.iter().map(String::as_str).collect::<Vec<_>>(), "{label}: group order");
-            assert_eq!(strip.active, *label);
-            assert!(strip.tabs.iter().all(|t| t.kind == TabKind::Manager && t.title == CONNECTIONS_TITLE));
-        }
-        // The traffic lights sit centred in the strip, beside the tabs (mockup: 18 pt / 17 pt).
-        let key = ns_window(a, &labels[2]);
-        let close = key.standardWindowButton(NSWindowButton::CloseButton).unwrap();
-        let rect = close.convertRect_toView(close.bounds(), None);
-        let height = key.contentView().unwrap().bounds().size.height;
-        let centre = height - rect.origin.y - rect.size.height / 2.0;
-        assert!((centre - STRIP_HEIGHT / 2.0).abs() <= 3.0, "close button centre {centre} pt from the top");
-        assert!((rect.origin.x - 18.0).abs() <= 3.0, "close button at x {}", rect.origin.x);
-    });
+    let labels: Vec<String> = (0..3).map(window_label).collect();
+    let facts = {
+        let labels = labels.clone();
+        on_main(app, move |a| window_facts(a, &labels))
+    };
+    for f in &facts {
+        assert!(f.covered < 40.0, "{}: AppKit's tab bar is hidden, {} pt covered", f.label, f.covered);
+        assert!(f.has_strip_webview, "{} has a strip webview", f.label);
+        let strip = f.strip.as_ref().unwrap();
+        let ids: Vec<&str> = strip.tabs.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            f.group_order.iter().map(String::as_str).collect::<Vec<_>>(),
+            "{}: AppKit's order",
+            f.label
+        );
+        assert_eq!(f.group_order, facts[0].group_order, "one group");
+        assert_eq!(strip.active, f.label);
+        assert!(strip.tabs.iter().all(|t| t.kind == TabKind::Manager && t.title == CONNECTIONS_TITLE));
+    }
+    // The traffic lights sit centred in the strip, beside the tabs (mockup: 18 pt / 17 pt).
+    let (centre, x) = on_main(app, traffic_lights);
+    assert!((centre - STRIP_HEIGHT / 2.0).abs() <= 3.0, "close button centre {centre} pt from the top");
+    assert!((x - 18.0).abs() <= 3.0, "close button at x {x}");
     // Clicking a tab in the strip selects that window of the group.
-    on_main(app, |a| select_tab(a, &window_label(0)).unwrap());
+    on_main(app, |a| select_tab(a, &window_label(0))).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
     let selected = on_main(app, |a| {
         let ns = ns_window(a, &window_label(0));
-        let group = ns.tabGroup().unwrap();
-        let sel = group.selectedWindow().unwrap();
-        std::ptr::eq(&*sel, &*ns)
+        ns.tabGroup().and_then(|g| g.selectedWindow()).is_some_and(|sel| std::ptr::eq(&*sel, &*ns))
     });
     assert!(selected, "select_tab selects the window in its tab group");
-    println!("strip: 3 tabs in group order, native tab bar hidden, traffic lights in the strip");
+    println!("strip: 3 tabs in AppKit's order, native tab bar hidden, traffic lights in the strip");
 }
 
 fn scenario(app: AppHandle) {

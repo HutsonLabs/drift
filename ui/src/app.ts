@@ -8,6 +8,7 @@ import type {
   ErrorAction,
   ProfileEntry_Serialize,
   SessionView_Serialize,
+  TabStrip,
   commands,
 } from "./bindings";
 import { h, mount } from "./dom";
@@ -37,6 +38,7 @@ export type Api = Pick<
   | "cancelReconnect"
   | "closeSession"
   | "disconnect"
+  | "tabStrip"
 >;
 
 type Result<T> = { status: "ok"; data: T } | { status: "error"; error: CommandError };
@@ -80,6 +82,8 @@ export class DriftApp {
   private sessionAt = 0;
   private activeProfileId: string | null = null;
   private query = "";
+  /** Profiles with a live session in some tab (UI-tabs): the list marks them. */
+  private liveProfiles: ReadonlySet<string> = new Set();
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -90,7 +94,7 @@ export class DriftApp {
 
   /** Loads profiles and shows the profiles screen. */
   async start(): Promise<void> {
-    await this.reload();
+    await Promise.all([this.reload(), this.loadTabs()]);
     if (this.entries.length === 0) {
       await this.createProfile(DEFAULT_MODE);
     } else {
@@ -105,6 +109,17 @@ export class DriftApp {
     this.session = view;
     this.sessionAt = this.now();
     this.render();
+  }
+
+  /** The window's tab strip changed (the `tabStripChanged` event, UI-tabs). */
+  onTabs(strip: TabStrip): void {
+    this.liveProfiles = new Set(strip.live_profiles);
+    if (!this.session || this.session.screen === "profiles") this.render();
+  }
+
+  private async loadTabs(): Promise<void> {
+    const r = (await this.api.tabStrip()) as Result<TabStrip>;
+    if (r.status === "ok") this.liveProfiles = new Set(r.data.live_profiles);
   }
 
   /** Stops timers. */
@@ -203,7 +218,9 @@ export class DriftApp {
         void this.intent(this.api.reconnectNow() as Promise<Result<null>>);
         break;
       case "close":
-        void this.intent(this.api.closeSession() as Promise<Result<null>>);
+        // UI-tabs board 5: closing the error turns the tab back into a Connection Manager; the
+        // tab's × in the strip closes the tab itself.
+        void this.intent(this.api.disconnect() as Promise<Result<null>>);
         break;
       case "open-local-network-settings":
         void this.intent(this.api.openLocalNetworkSettings() as Promise<Result<null>>);
@@ -326,7 +343,7 @@ export class DriftApp {
             search: (q) => {
               this.query = q;
             },
-          }, this.query),
+          }, this.query, this.liveProfiles),
       h(
         "div",
         { class: "content" },

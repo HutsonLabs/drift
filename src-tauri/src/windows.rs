@@ -7,11 +7,14 @@
 //! One session = one `NSWindow` = one native tab (plan §1.8):
 //! * the window is built **hidden** with the tabbing identifier `drift.sessions`,
 //! * `tabbingMode = Preferred` and `addTabbedWindow:ordered:` join it to the group,
-//! * `newWindowForTab:` (the tab bar's "+") is installed on tao's window class and opens a tab,
-//! * a `RemoteView` is inserted below the `WKWebView`; the webview is hidden while a live
-//!   picture is on screen, made transparent over it for the reconnect overlay, or shrunk to a
-//!   corner panel for a HUD ([`crate::present::surface_for`], [`show_hud`]),
-//! * per-window AppKit state (view, observer, render thread) lives in a main-thread-only map.
+//! * AppKit's own tab bar is hidden; a second, 46-point webview at the top of every window draws
+//!   Drift's tab strip (task UI-tabs, [`crate::strip`]) and Rust pushes it the group's tabs,
+//! * `newWindowForTab:` is installed on tao's window class and opens a tab,
+//! * a `RemoteView` is inserted below the page's `WKWebView`, under the strip; the page is
+//!   hidden while a live picture is on screen, made transparent over it for the reconnect
+//!   overlay, or shrunk to a corner panel for a HUD ([`crate::present::surface_for`],
+//!   [`layout`]),
+//! * per-window AppKit state (views, observer, render thread) lives in a main-thread-only map.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -26,20 +29,23 @@ use drift_rdp::{SessionCommand, SessionHandle};
 use drift_render::{Compositor, Gpu, LayerTarget, RenderThread};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{MainThreadMarker, Message as _, msg_send};
-use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSView, NSWindow, NSWindowButton, NSWindowStyleMask, NSWindowTitleVisibility,
-};
-use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+use objc2::{MainThreadMarker, msg_send};
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindow, NSWindowStyleMask};
+use objc2_foundation::{NSPoint, NSRect, NSSize};
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID};
-use tauri::{AppHandle, EventTarget, Manager as _, Runtime, Webview, WebviewWindowBuilder};
+use tauri::webview::WebviewBuilder;
+use tauri::{
+    AppHandle, EventTarget, LogicalPosition, LogicalSize, Manager as _, Runtime, WebviewUrl,
+    WebviewWindowBuilder, Window,
+};
 use uuid::Uuid;
 
 use crate::commands::AppState;
 use crate::manager::Reconnect;
 use crate::menu::{MenuAction, MenuEntry, Standard, accelerator, menu_spec};
-use crate::present::{self, Surface};
+use crate::present::{self, Focus, Surface};
 use crate::profiles::CommandError;
+use crate::strip::{self, STRIP_HEIGHT, TabStrip, TabStripChanged, strip_label};
 use crate::view::{SessionView, SessionViewChanged};
 use tauri_specta::Event as _;
 
@@ -55,6 +61,14 @@ type RenderSink = drift_render::RenderSink<Compositor<LayerTarget>>;
 struct WindowPlatform {
     view: Retained<RemoteView>,
     window: Retained<NSWindow>,
+    /// The page's `WKWebView` (profiles, prompts, overlays, HUDs).
+    web: Retained<NSView>,
+    /// The tab strip's `WKWebView`, once it has been added.
+    strip: Option<Retained<NSView>>,
+    /// What the window shows; drives [`layout`] and keyboard focus.
+    surface: Surface,
+    /// The last [`TabStrip`] pushed to this window (identical pushes are skipped).
+    last_strip: Option<TabStrip>,
     link: Rc<SessionLink>,
     _observer: WindowObserver,
     render: Option<RenderThread<Compositor<LayerTarget>>>,
@@ -106,6 +120,13 @@ fn with_platform<T>(label: &str, f: impl FnOnce(&mut WindowPlatform) -> T) -> Op
 }
 
 /// Runs `f` on the main thread (inline when already there) and returns its result.
+///
+/// From another thread the work takes two hops: tao's `run_on_main_thread` first, so it runs
+/// after every message already queued for the event loop (a window built with
+/// `WebviewWindowBuilder::build` only exists once tao has handled its creation message), then
+/// the main dispatch queue ([`drift_macos::dispatch_main`]), so it runs **outside** tao's event
+/// handler: AppKit calls that draw synchronously (joining a tab group, selecting a tab) would
+/// otherwise re-enter tao's handler and deadlock on its lock.
 pub(crate) fn on_main<R: Runtime, T: Send + 'static>(
     app: &AppHandle<R>,
     f: impl FnOnce(MainThreadMarker) -> T + Send + 'static,
@@ -115,8 +136,10 @@ pub(crate) fn on_main<R: Runtime, T: Send + 'static>(
     }
     let (tx, rx) = std::sync::mpsc::channel();
     app.run_on_main_thread(move || {
-        let Some(mtm) = MainThreadMarker::new() else { return };
-        let _ = tx.send(f(mtm));
+        drift_macos::dispatch_main(move || {
+            let Some(mtm) = MainThreadMarker::new() else { return };
+            let _ = tx.send(f(mtm));
+        });
     })
     .map_err(|e| CommandError::Platform { message: e.to_string() })?;
     rx.recv().map_err(|_| CommandError::Platform { message: "the main thread went away".into() })
@@ -125,8 +148,8 @@ pub(crate) fn on_main<R: Runtime, T: Send + 'static>(
 // ---- opening windows ------------------------------------------------------------------------
 
 /// Opens a new session window as a tab of the current group (returns immediately; the window is
-/// built off the main thread, because `WebviewWindowBuilder::build` dispatches to the event
-/// loop, and finished on the main thread).
+/// built off the main thread, because `WebviewWindowBuilder::build` and `Window::add_child`
+/// dispatch to the event loop, and finished on the main thread).
 pub fn open_tab<R: Runtime>(app: &AppHandle<R>) {
     open_tab_with(app, None);
 }
@@ -152,24 +175,34 @@ pub(crate) fn open_tab_with<R: Runtime>(app: &AppHandle<R>, autoconnect: Option<
                 .visible(false)
                 .build()
         });
-        match built {
-            Ok(_) => {
-                if let Err(e) = finish_window(&app, label.clone()) {
-                    tracing::error!(%label, error = %e, "could not finish the session window");
-                    return;
-                }
-                // tao moves the traffic lights when the window first draws, and a new tab shows
-                // the tab bar in every window of the group: measure again once that happened.
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                let handle = app.clone();
-                let _ = on_main(&app, move |_| sync_all_chrome(&handle));
-                if let Some(profile) = autoconnect
-                    && let Err(e) = connect_profile(&app, &label, profile)
-                {
-                    tracing::error!(%label, error = %e, "autoconnect failed");
-                }
-            }
-            Err(e) => tracing::error!(%label, error = %e, "could not create the session window"),
+        if let Err(e) = built {
+            tracing::error!(%label, error = %e, "could not create the session window");
+            return;
+        }
+        if let Err(e) = prepare_window(&app, label.clone()) {
+            tracing::error!(%label, error = %e, "could not prepare the session window");
+            return;
+        }
+        // The tab strip is a webview of its own (UI-tabs): the page is hidden or shrunk to a
+        // HUD over the live picture, but the strip must always be there.
+        if let Err(e) = add_strip(&app, &label) {
+            tracing::error!(%label, error = %e, "could not add the tab strip");
+        }
+        if let Err(e) = show_window(&app, label.clone()) {
+            tracing::error!(%label, error = %e, "could not show the session window");
+            return;
+        }
+        // tao moves the traffic lights when the window first draws: lay out again after that.
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let handle = app.clone();
+        let _ = on_main(&app, move |_| {
+            sync_all_chrome(&handle);
+            broadcast_tabs(&handle);
+        });
+        if let Some(profile) = autoconnect
+            && let Err(e) = connect_profile(&app, &label, profile)
+        {
+            tracing::error!(%label, error = %e, "autoconnect failed");
         }
     });
 }
@@ -177,9 +210,12 @@ pub(crate) fn open_tab_with<R: Runtime>(app: &AppHandle<R>, autoconnect: Option<
 /// Label of the session window template in tauri.conf.json.
 pub const SESSION_TEMPLATE: &str = "session";
 
-/// The `session` window template, relabelled for one tab. With one tab the traffic lights sit on
-/// the glass sidebar and the title shows only over the live picture (`apply_view`); the
-/// vibrancy sits below the RemoteView, which is hidden on the page-only screens.
+/// The page shown in every window's tab strip webview (built by `ui/build.ts`).
+pub const STRIP_PAGE: &str = "strip.html";
+
+/// The `session` window template, relabelled for one tab. The title bar is transparent with no
+/// title; the traffic lights sit in the tab strip row; the vibrancy sits below the RemoteView,
+/// which is hidden on the page-only screens.
 fn session_template<R: Runtime>(
     app: &AppHandle<R>,
     label: &str,
@@ -197,25 +233,34 @@ fn session_template<R: Runtime>(
     Ok(config)
 }
 
-/// Attaches the RemoteView, joins the tab group and shows the window (main thread).
-fn finish_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), CommandError> {
+/// The Tauri window of session window `label`.
+fn window_of<R: Runtime>(app: &AppHandle<R>, label: &str) -> Option<Window<R>> {
+    app.get_webview(label).map(|page| page.window())
+}
+
+fn platform_error(message: impl Into<String>) -> CommandError {
+    CommandError::Platform { message: message.into() }
+}
+
+/// Attaches the RemoteView below the page and registers the window (main thread; the window is
+/// still hidden and has only its page webview).
+fn prepare_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), CommandError> {
     let app2 = app.clone();
     on_main(app, move |mtm| -> Result<(), CommandError> {
-        let window = app2
-            .get_webview_window(&label)
-            .ok_or_else(|| CommandError::Platform { message: format!("window {label} is gone") })?;
-        let view = tauri_glue::attach(&window, KeyboardPrefs::default())
-            .map_err(|e| CommandError::Platform { message: e.to_string() })?;
+        let window =
+            window_of(&app2, &label).ok_or_else(|| platform_error(format!("window {label} is gone")))?;
+        let (view, web) = tauri_glue::attach(&window, KeyboardPrefs::default())
+            .map_err(|e| platform_error(e.to_string()))?;
         let link = SessionLink::new();
         view.set_handler(link.clone());
-        let ns = ns_window(&window)?;
+        let ns = tauri_glue::ns_window(&window).map_err(|e| platform_error(e.to_string()))?;
         tabs::prepare_for_tabs(&ns);
         let observer = {
             let link = link.clone();
             let app = app2.clone();
             let label = label.clone();
-            // Tab switches, new or closed tabs and full screen all change the title and tab bars;
-            // each of them also changes occlusion, key state or full screen.
+            // Tab switches, new or closed tabs and full screen all change the layout; each of
+            // them also changes occlusion, key state or full screen.
             WindowObserver::new(&ns, move |event| {
                 match event {
                     MacWindowEvent::Occlusion { visible } => link.send(SessionCommand::SetVisible(visible)),
@@ -223,23 +268,28 @@ fn finish_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), Co
                     MacWindowEvent::FullScreen(_) | MacWindowEvent::Resized => {}
                 }
                 sync_chrome(&app, &label);
+                if let MacWindowEvent::Key(true) = event {
+                    // "Move Tab to New Window" and friends regroup tabs; the key window changes.
+                    broadcast_tabs(&app);
+                }
             })
         };
-        // The tab bar's "+" (process-wide; the first installation wins).
+        // `newWindowForTab:` (process-wide; the first installation wins).
         let handle = app2.clone();
         if let Err(e) = tabs::install_new_window_for_tab(&ns, move || open_tab(&handle)) {
             tracing::debug!(error = %e, "newWindowForTab: not installed");
         }
         drift_macos::view::install_key_up_monitor(mtm);
-        if let Some(group) = group_leader(&label) {
-            tabs::add_tab(&group, &ns);
-        }
         PLATFORM.with(|p| {
             p.borrow_mut().insert(
                 label.clone(),
                 WindowPlatform {
                     view,
-                    window: ns.clone(),
+                    window: ns,
+                    web,
+                    strip: None,
+                    surface: Surface::Webview,
+                    last_strip: None,
                     link,
                     _observer: observer,
                     render: None,
@@ -248,9 +298,48 @@ fn finish_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), Co
                 },
             );
         });
+        Ok(())
+    })?
+}
+
+/// Adds the tab strip webview to window `label` (off the main thread: `add_child` waits for
+/// the event loop).
+fn add_strip<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), CommandError> {
+    let window = window_of(app, label).ok_or_else(|| platform_error(format!("window {label} is gone")))?;
+    let builder =
+        WebviewBuilder::new(strip_label(label), WebviewUrl::App(STRIP_PAGE.into())).transparent(true);
+    // `layout` owns the frame from here on; this is only the initial size.
+    window
+        .add_child(builder, LogicalPosition::new(0.0, 0.0), LogicalSize::new(1280.0, STRIP_HEIGHT))
+        .map_err(|e| platform_error(e.to_string()))?;
+    Ok(())
+}
+
+/// Finds the strip's `WKWebView`, joins the tab group and shows the window (main thread).
+fn show_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), CommandError> {
+    let app2 = app.clone();
+    on_main(app, move |_| -> Result<(), CommandError> {
+        let window =
+            window_of(&app2, &label).ok_or_else(|| platform_error(format!("window {label} is gone")))?;
+        let page =
+            app2.get_webview(&label).ok_or_else(|| platform_error(format!("window {label} is gone")))?;
+        let content = tauri_glue::content_view(&window).map_err(|e| platform_error(e.to_string()))?;
+        let (ns, web) = with_platform(&label, |plat| {
+            plat.strip = drift_macos::webview::find_webviews(&content)
+                .into_iter()
+                .find(|v| !std::ptr::eq(Retained::as_ptr(v), Retained::as_ptr(&plat.web)));
+            (plat.window.clone(), plat.web.clone())
+        })
+        .ok_or_else(|| platform_error(format!("window {label} is not registered")))?;
+        if let Some(group) = group_leader(&label) {
+            tabs::add_tab(&group, &ns);
+        }
+        tabs::hide_native_tab_bar(&ns);
         ns.makeKeyAndOrderFront(None);
-        let _ = window.show();
-        tauri_glue::show_webview(&window).map_err(|e| CommandError::Platform { message: e.to_string() })
+        window.show().map_err(|e| platform_error(e.to_string()))?;
+        sync_chrome(&app2, &label);
+        broadcast_tabs(&app2);
+        tauri_glue::show_webview(&window, &page, &web).map_err(|e| platform_error(e.to_string()))
     })?
 }
 
@@ -264,15 +353,6 @@ fn group_leader(except: &str) -> Option<Retained<NSWindow>> {
         key.map(|(_, plat)| plat.window.clone())
             .or_else(|| labels.first().and_then(|l| map.get(*l)).map(|plat| plat.window.clone()))
     })
-}
-
-fn ns_window<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Result<Retained<NSWindow>, CommandError> {
-    let ptr =
-        window.ns_window().map_err(|e| CommandError::Platform { message: e.to_string() })?.cast::<NSWindow>();
-    // SAFETY: tao returns its live `NSWindow*`; we are on the main thread and retain it.
-    unsafe { ptr.as_ref() }
-        .map(|w| w.retain())
-        .ok_or_else(|| CommandError::Platform { message: "no NSWindow".into() })
 }
 
 /// Number of tabs in the group of window `label` (main thread only).
@@ -326,14 +406,13 @@ pub(crate) fn attach_session<R: Runtime>(app: &AppHandle<R>, label: &str, handle
     });
 }
 
-/// Applies a new [`SessionView`] to the window: emits it to the webview, updates the title and
-/// subtitle, and switches between the webview and the live picture.
+/// Applies a new [`SessionView`] to the window: emits it to the page, updates the title and
+/// the tab strips, and switches between the page and the live picture.
 pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &SessionView) {
     let _ = SessionViewChanged(view.clone())
         .emit_to(app, EventTarget::webview_window(label))
         .inspect_err(|e| tracing::warn!(error = %e, "could not emit the session view"));
     let title = present::window_title(Some(view));
-    let subtitle = present::window_subtitle(Some(view));
     let accessibility_label = present::accessibility_label(Some(view));
     let surface = present::surface_for(view);
     let desktop = match view.state {
@@ -343,47 +422,44 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
     let label = label.to_owned();
     let app2 = app.clone();
     let _ = on_main(app, move |_| {
-        let Some(window) = app2.get_webview_window(&label) else { return };
+        let (Some(window), Some(page)) = (window_of(&app2, &label), app2.get_webview(&label)) else { return };
+        // Never shown in the (hidden) title bar; AppKit lists it in the Window menu.
         let _ = window.set_title(&title);
-        with_platform(&label, |plat| {
-            // The title shows in the bar over the live picture; on the form, prompts and errors
-            // the traffic lights float over the page on their own.
-            plat.window.setTitleVisibility(if surface == Surface::Webview {
-                NSWindowTitleVisibility::Hidden
-            } else {
-                NSWindowTitleVisibility::Visible
-            });
-            plat.window.setSubtitle(&NSString::from_str(&subtitle));
+        let Some(web) = with_platform(&label, |plat| {
             plat.view.set_accessibility_label(&accessibility_label);
             match desktop {
                 Some(size) => plat.view.set_desktop(size, ScaleMode::Fit),
                 None => plat.view.clear_desktop(),
             }
-        });
+            plat.surface = surface;
+            plat.view.setHidden(surface == Surface::Webview);
+            plat.web.clone()
+        }) else {
+            return;
+        };
         sync_chrome(&app2, &label);
-        let glue = |e: drift_macos::tauri_glue::GlueError| CommandError::Platform { message: e.to_string() };
-        let switched: Result<Option<()>, CommandError> = match surface {
-            Surface::Remote => with_platform(&label, |plat| {
-                plat.view.setHidden(false);
-                tauri_glue::show_remote(&window, &plat.view).map_err(glue)
-            })
-            .transpose(),
-            Surface::Webview | Surface::Overlay => {
-                // With no picture to show, the opaque Metal view would cover the window's
-                // vibrancy; the overlay keeps it for the dimmed last frame.
-                with_platform(&label, |plat| plat.view.setHidden(surface == Surface::Webview));
-                fill_window_with_webview(&window);
-                tauri_glue::show_webview(&window).map_err(glue).map(Some)
+        let glue = |e: drift_macos::tauri_glue::GlueError| platform_error(e.to_string());
+        let switched: Result<(), CommandError> = match surface {
+            Surface::Remote => {
+                with_platform(&label, |plat| tauri_glue::show_remote(&window, &page, &plat.view))
+                    .unwrap_or(Ok(()))
+                    .map_err(glue)
             }
-            Surface::Hud(hud) => with_platform(&label, |plat| {
-                plat.view.setHidden(false);
-                show_hud(&window, &plat.view, hud)
-            })
-            .transpose(),
+            // With no picture to show, the opaque Metal view would cover the window's vibrancy
+            // (hidden above); the overlay keeps it for the dimmed last frame.
+            Surface::Webview | Surface::Overlay => {
+                tauri_glue::show_webview(&window, &page, &web).map_err(glue)
+            }
+            // The page is a corner panel (`layout`); everything else still reaches the picture,
+            // which keeps the keyboard.
+            Surface::Hud(_) => page.show().map_err(|e| platform_error(e.to_string())).map(|()| {
+                with_platform(&label, |plat| drift_macos::webview::focus_remote(&plat.window, &plat.view));
+            }),
         };
         if let Err(e) = switched {
             tracing::warn!(error = %e, "could not switch the window surface");
         }
+        broadcast_tabs(&app2);
     });
 }
 
@@ -396,49 +472,21 @@ pub fn apply_view_for_tests<R: Runtime>(app: &AppHandle<R>, label: &str, view: &
     apply_view(app, label, view);
 }
 
-// ---- overlays over the live picture (M7-3, M1) ------------------------------------------------
+// ---- layout: tab strip, page, picture and HUDs (UI-tabs, M7-3, M1) ---------------------------
 
-/// The window's `WKWebView` (main thread).
-fn webview_view<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Option<Retained<NSView>> {
-    let ptr = window.ns_view().ok()?.cast::<NSView>();
-    // SAFETY: tao returns its live content `NSView*`; we are on the main thread and retain it.
-    let content = unsafe { ptr.as_ref() }?.retain();
-    drift_macos::webview::find_webview(&content)
-}
-
-/// Lays the window out around its title and tab bars ([`present::chrome`], main thread): the
-/// live picture starts below them and the page learns how much room to leave via CSS
-/// variables. A no-op while the window's platform state is being set up or borrowed.
+/// Lays window `label` out ([`layout`], main thread). A no-op while the window's platform state
+/// is being set up or borrowed.
 fn sync_chrome<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    let Some(mtm) = MainThreadMarker::new() else { return };
-    let Some(window) = app.get_webview_window(label) else { return };
-    let Some(chrome) = PLATFORM.with(|p| {
-        let map = p.try_borrow().ok()?;
-        let plat = map.get(label)?;
-        // SAFETY: `superview` returns the (retained) parent or nil; we are on the main thread.
-        let parent = unsafe { plat.view.superview() }?;
-        let bounds = parent.bounds();
-        let layout = plat.window.contentLayoutRect();
-        let covered = bounds.size.height - layout.size.height;
-        let titlebar = title_bar_height(&plat.window, mtm);
-        let lights_bottom = traffic_lights_bottom(&plat.window, bounds.size.height);
-        let tabbed = plat.window.tabGroup().is_some_and(|g| g.isTabBarVisible());
-        let chrome = present::chrome(covered, titlebar, lights_bottom, tabbed);
-        tracing::debug!(covered, titlebar, lights_bottom, tabbed, ?chrome, "window chrome");
-        let height = (bounds.size.height - chrome.picture_top).max(1.0);
-        let y = if parent.isFlipped() { bounds.origin.y + chrome.picture_top } else { bounds.origin.y };
-        plat.view.setAutoresizingMask(
-            NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
-        );
-        plat.view
-            .setFrame(NSRect::new(NSPoint::new(bounds.origin.x, y), NSSize::new(bounds.size.width, height)));
-        Some(chrome)
-    }) else {
+    let _ = app;
+    if MainThreadMarker::new().is_none() {
         return;
-    };
-    let _ = window
-        .eval(chrome.css_script())
-        .inspect_err(|e| tracing::debug!(error = %e, "could not pass the insets"));
+    }
+    PLATFORM.with(|p| {
+        let Ok(map) = p.try_borrow() else { return };
+        if let Some(plat) = map.get(label) {
+            layout(plat);
+        }
+    });
 }
 
 /// [`sync_chrome`] for every session window (main thread).
@@ -450,61 +498,70 @@ fn sync_all_chrome<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Where the traffic lights end, in points from the top of a `height`-high content view.
-fn traffic_lights_bottom(window: &NSWindow, height: f64) -> f64 {
-    let Some(close) = window.standardWindowButton(NSWindowButton::CloseButton) else { return 0.0 };
-    // In window coordinates (origin bottom-left), which match the full-size content view.
-    let rect = close.convertRect_toView(close.bounds(), None);
-    height - rect.origin.y
-}
-
-/// Height of a standard title bar row for `window` (without the tab bar).
-fn title_bar_height(window: &NSWindow, mtm: MainThreadMarker) -> f64 {
-    let style = window.styleMask() & !NSWindowStyleMask::FullSizeContentView;
-    let content = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(100.0, 100.0));
-    let frame = NSWindow::frameRectForContentRect_styleMask(content, style, mtm);
-    frame.size.height - content.size.height
-}
-
-/// Gives the web view its superview's bounds back (a HUD shrinks it to a corner panel).
-fn fill_window_with_webview<R: Runtime>(window: &tauri::WebviewWindow<R>) {
-    let Some(web) = webview_view(window) else { return };
-    // SAFETY: `superview` returns the (retained) parent or nil; we are on the main thread.
-    let Some(parent) = (unsafe { web.superview() }) else { return };
-    web.setAutoresizingMask(
-        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
-    );
-    web.setFrame(parent.bounds());
-}
-
-/// Floats a HUD panel over the live picture.
+/// Places the tab strip, the picture and the page ([`present::chrome`]):
 ///
-/// The web view is shrunk to [`present::hud_frame`] and pinned to its corner, so AppKit hit-tests
-/// everything outside the panel down to the `RemoteView` — which also keeps first responder, so
-/// the remote desktop still receives every key.
-fn show_hud<R: Runtime>(
-    window: &tauri::WebviewWindow<R>,
-    view: &RemoteView,
-    hud: present::Hud,
-) -> Result<(), CommandError> {
-    let platform = |message: String| CommandError::Platform { message };
-    let web = webview_view(window).ok_or_else(|| platform("no WKWebView in the window".into()))?;
+/// * AppKit's tab bar is hidden again (a window gets a fresh one whenever the group changes),
+/// * the strip webview is the top [`STRIP_HEIGHT`] points, hidden in full screen,
+/// * the `RemoteView` fills the rest,
+/// * the page fills the same area for the page-only screens and the reconnect overlay, or is
+///   shrunk to [`present::hud_frame`] and pinned to its corner for a HUD — AppKit then hit-tests
+///   everything outside the panel straight down to the picture.
+fn layout(plat: &WindowPlatform) {
+    if tabs::hide_native_tab_bar(&plat.window) {
+        tracing::debug!("hid AppKit's tab bar");
+    }
     // SAFETY: `superview` returns the (retained) parent or nil; we are on the main thread.
-    let parent =
-        unsafe { web.superview() }.ok_or_else(|| platform("the WKWebView has no superview".into()))?;
-    // Relative to the picture, which starts below the title bar (`sync_chrome`).
-    let bounds = view.frame();
-    let frame = present::hud_frame(Size::new(bounds.size.width, bounds.size.height), hud, parent.isFlipped());
-    let wv: &Webview<R> = window.as_ref();
-    wv.show().map_err(|e| platform(e.to_string()))?;
-    web.setAutoresizingMask(autoresize_mask(frame.flexible, parent.isFlipped()));
-    web.setFrame(NSRect::new(
-        NSPoint::new(bounds.origin.x + frame.x, bounds.origin.y + frame.y),
-        NSSize::new(frame.width, frame.height),
-    ));
-    let ns = ns_window(window)?;
-    drift_macos::webview::focus_remote(&ns, view);
-    Ok(())
+    let Some(parent) = (unsafe { plat.view.superview() }) else { return };
+    let bounds = parent.bounds();
+    let flipped = parent.isFlipped();
+    let full_screen = plat.window.styleMask().contains(NSWindowStyleMask::FullScreen);
+    let chrome = present::chrome(full_screen);
+    let (width, height) = (bounds.size.width, bounds.size.height);
+    let content_height = (height - chrome.content_top).max(1.0);
+    let content = NSRect::new(
+        NSPoint::new(
+            bounds.origin.x,
+            bounds.origin.y + present::band_y(height, chrome.content_top, content_height, flipped),
+        ),
+        NSSize::new(width, content_height),
+    );
+    let fill = NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable;
+    plat.view.setAutoresizingMask(fill);
+    plat.view.setFrame(content);
+    if let Some(strip) = &plat.strip {
+        strip.setHidden(chrome.strip <= 0.0);
+        if chrome.strip > 0.0 {
+            // Pinned to the top edge: the margin below it grows with the window.
+            let below = if flipped {
+                NSAutoresizingMaskOptions::ViewMaxYMargin
+            } else {
+                NSAutoresizingMaskOptions::ViewMinYMargin
+            };
+            strip.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | below);
+            strip.setFrame(NSRect::new(
+                NSPoint::new(
+                    bounds.origin.x,
+                    bounds.origin.y + present::band_y(height, 0.0, chrome.strip, flipped),
+                ),
+                NSSize::new(width, chrome.strip),
+            ));
+        }
+    }
+    match plat.surface {
+        Surface::Webview | Surface::Overlay => {
+            plat.web.setAutoresizingMask(fill);
+            plat.web.setFrame(content);
+        }
+        Surface::Hud(hud) => {
+            let frame = present::hud_frame(Size::new(width, content_height), hud, flipped);
+            plat.web.setAutoresizingMask(autoresize_mask(frame.flexible, flipped));
+            plat.web.setFrame(NSRect::new(
+                NSPoint::new(content.origin.x + frame.x, content.origin.y + frame.y),
+                NSSize::new(frame.width, frame.height),
+            ));
+        }
+        Surface::Remote => {}
+    }
 }
 
 /// Screen-direction flexibility as an AppKit autoresizing mask.
@@ -563,6 +620,95 @@ pub(crate) fn release_session<R: Runtime>(app: &AppHandle<R>, label: &str) {
     });
 }
 
+// ---- the tab strip (UI-tabs) --------------------------------------------------------------------
+
+/// The labels of `window`'s tab group, leading to trailing (windows Drift does not know, such as
+/// one being destroyed, are skipped).
+fn group_labels(map: &HashMap<String, WindowPlatform>, window: &NSWindow) -> Vec<String> {
+    tabs::tab_windows(window)
+        .iter()
+        .filter_map(|member| {
+            map.iter()
+                .find(|(_, plat)| std::ptr::eq(Retained::as_ptr(&plat.window), Retained::as_ptr(member)))
+                .map(|(label, _)| label.clone())
+        })
+        .collect()
+}
+
+/// The strip of every window, from AppKit's tab groups and the session manager (main thread).
+fn strips<R: Runtime>(app: &AppHandle<R>) -> Vec<(String, TabStrip)> {
+    let state = app.state::<AppState>();
+    let live = state.sessions.live_profiles();
+    PLATFORM.with(|p| {
+        let Ok(map) = p.try_borrow() else { return Vec::new() };
+        map.iter()
+            .map(|(label, plat)| {
+                let tabs = group_labels(&map, &plat.window)
+                    .iter()
+                    .map(|l| {
+                        strip::tab_item(l, state.sessions.view(l).as_ref(), state.sessions.profile_id(l))
+                    })
+                    .collect();
+                (label.clone(), TabStrip::new(tabs, label, live.clone()))
+            })
+            .collect()
+    })
+}
+
+/// The tab strip of window `label` (main thread); `None` for an unknown window.
+pub fn tab_strip<R: Runtime>(app: &AppHandle<R>, label: &str) -> Option<TabStrip> {
+    strips(app).into_iter().find(|(l, _)| l == label).map(|(_, strip)| strip)
+}
+
+/// Pushes every window's [`TabStrip`] to its strip webview and its page (the page marks the
+/// connections that are open in another tab), skipping windows whose strip did not change.
+fn broadcast_tabs<R: Runtime>(app: &AppHandle<R>) {
+    for (label, strip) in strips(app) {
+        let changed = PLATFORM.with(|p| {
+            let Ok(mut map) = p.try_borrow_mut() else { return true };
+            map.get_mut(&label).is_some_and(|plat| {
+                let changed = plat.last_strip.as_ref() != Some(&strip);
+                plat.last_strip = Some(strip.clone());
+                changed
+            })
+        });
+        if !changed {
+            continue;
+        }
+        for target in [EventTarget::webview(strip_label(&label)), EventTarget::webview_window(&label)] {
+            let _ = TabStripChanged(strip.clone())
+                .emit_to(app, target)
+                .inspect_err(|e| tracing::warn!(error = %e, "could not emit the tab strip"));
+        }
+    }
+}
+
+/// Selects tab `label` (a click in the strip, or connecting a profile that is already open):
+/// that window becomes the group's selected tab and the key window.
+pub fn select_tab<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), CommandError> {
+    let label = label.to_owned();
+    on_main(app, move |_| {
+        // Outside the map's borrow: selecting makes the window key, whose observer lays it out.
+        let window = with_platform(&label, |plat| plat.window.clone())
+            .ok_or_else(|| platform_error(format!("there is no tab {label}")))?;
+        tabs::select_window(&window);
+        Ok(())
+    })?
+}
+
+/// Hands the keyboard back to whatever window `label`'s surface says owns it
+/// ([`present::focus_for`]); the strip calls this whenever it receives focus, so a click on a
+/// tab never leaves the keyboard in the strip.
+pub(crate) fn focus_content<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), CommandError> {
+    let label = label.to_owned();
+    on_main(app, move |_| {
+        with_platform(&label, |plat| match present::focus_for(plat.surface) {
+            Focus::Remote => drift_macos::webview::focus_remote(&plat.window, &plat.view),
+            Focus::Page => drift_macos::webview::focus_webview(&plat.window, &plat.web),
+        });
+    })
+}
+
 // ---- closing and quitting --------------------------------------------------------------------
 
 /// Closes a tab: the session is closed gracefully (2 s cap), then the window is destroyed.
@@ -582,11 +728,13 @@ pub(crate) fn close_tab<R: Runtime>(app: &AppHandle<R>, label: &str) {
         let label2 = label.clone();
         let _ = on_main(&app, move |_| {
             PLATFORM.with(|p| p.borrow_mut().remove(&label2));
-            if let Some(window) = app2.get_webview_window(&label2) {
+            if let Some(window) = window_of(&app2, &label2) {
                 let _ = window.destroy();
             }
         });
         app.state::<AppState>().finish_closing(&label);
+        let app2 = app.clone();
+        let _ = on_main(&app, move |_| broadcast_tabs(&app2));
     });
 }
 
@@ -618,13 +766,18 @@ pub(crate) fn shutdown_blocking<R: Runtime>(app: &AppHandle<R>) {
 
 // ---- intents ----------------------------------------------------------------------------------
 
-/// Connects `profile` in `label`'s window (command, menu and autoconnect entry point).
+/// Connects `profile` in `label`'s window (command, menu and autoconnect entry point): the
+/// Connection Manager tab becomes the session. If another tab already has a live session for
+/// `profile`, that tab is selected instead (UI-tabs board 1).
 pub(crate) fn connect_profile<R: Runtime>(
     app: &AppHandle<R>,
     label: &str,
     profile: Uuid,
 ) -> Result<(), CommandError> {
     let state = app.state::<AppState>();
+    if let Some(other) = state.sessions.live_window_for(profile, label) {
+        return select_tab(app, &other);
+    }
     let entry = state.profiles.get(profile)?;
     state.sessions.open(label, entry.profile)
 }
@@ -698,8 +851,8 @@ pub(crate) fn run_menu_action<R: Runtime>(app: &AppHandle<R>, action: MenuAction
             }
         }
         MenuAction::SelectTab(n) => {
-            if let Some(label) = label {
-                with_platform(&label, |plat| tabs::select_tab(&plat.window, usize::from(n) - 1));
+            if let Some(window) = label.and_then(|label| with_platform(&label, |plat| plat.window.clone())) {
+                tabs::select_tab(&window, usize::from(n) - 1);
             }
         }
         MenuAction::PreviousTab | MenuAction::NextTab => {

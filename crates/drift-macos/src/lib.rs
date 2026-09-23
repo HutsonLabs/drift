@@ -9,8 +9,8 @@
 //! | [`webview`] | insert the RemoteView below the WKWebView; focus switching | M1-6 |
 //! | [`cursor`] | pure fast-path pointer decode + cache; [`cursor_ns`]: `NSCursor` | M2-5 |
 //! | [`keychain`] | Keychain password adapter | M3-2 |
-//! | [`window`] | occlusion / key-window observer | M6-3 |
-//! | [`tabs`] | native tab helpers (`addTabbedWindow:ordered:`, `newWindowForTab:`), tab titles | M6-2 |
+//! | [`window`] | occlusion / key-window observer, main-queue dispatch | M6-3, UI-tabs |
+//! | [`tabs`] | native tab helpers (`addTabbedWindow:ordered:`, `newWindowForTab:`, hidden tab bar), tab titles | M6-2, UI-tabs |
 //! | [`network`] | `NWPathMonitor`, `NSWorkspace` wake → `TriggerMerger` | M7-2 |
 //! | [`lnp`] | Local Network Privacy (errno 65) detection and System Settings link | M1-1, M9-3 |
 //! | [`keyboard_type`] | ANSI/ISO/JIS detection of the local keyboard | M2-1 |
@@ -39,4 +39,4 @@ pub use input::{InputController, KeyEquivalent};
 pub use keychain::{Keychain, KeychainError};
 pub use network::{PathMonitor, PathStatus, ReconnectTriggers, TriggerFeed, WakeObserver};
 pub use view::{RemoteView, RemoteViewHandler};
-pub use window::{WindowEvent, WindowObserver};
+pub use window::{WindowEvent, WindowObserver, dispatch_main};

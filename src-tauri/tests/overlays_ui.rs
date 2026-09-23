@@ -38,8 +38,13 @@ const NAME: &str = "overlays_are_drawn_over_the_live_picture";
 fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(&AppHandle) -> T + Send + 'static) -> T {
     let (tx, rx) = mpsc::channel();
     let a = app.clone();
+    // Like the app's own `windows::on_main`: after tao's queued messages, then on the main
+    // dispatch queue, outside tao's event handler — AppKit may draw synchronously (selecting a
+    // tab does) without deadlocking on tao's handler lock.
     app.run_on_main_thread(move || {
-        let _ = tx.send(f(&a));
+        drift_macos::dispatch_main(move || {
+            let _ = tx.send(f(&a));
+        });
     })
     .unwrap();
     rx.recv_timeout(Duration::from_secs(10)).expect("main thread responds")
@@ -84,7 +89,8 @@ fn wait_for_window(app: &AppHandle) {
 /// `(RemoteView frame, strip WKWebView)` of the first session window (main thread).
 fn picture_and_strip(app: &AppHandle) -> (NSRect, Retained<NSView>) {
     let (content, web, _) = views(app);
-    let picture = drift_macos::webview::find_subview_of_class(&content, "DriftRemoteView").expect("a RemoteView");
+    let picture =
+        drift_macos::webview::find_subview_of_class(&content, "DriftRemoteView").expect("a RemoteView");
     let strip = drift_macos::webview::find_webviews(&content)
         .into_iter()
         .find(|v| !std::ptr::eq(Retained::as_ptr(v), Retained::as_ptr(&web)))
@@ -168,8 +174,14 @@ fn scenario(app: AppHandle) {
             );
             assert!(!hidden, "the HUD is the web view; it must be visible");
             assert_eq!((frame.size.width, frame.size.height), (want.width, want.height), "HUD size");
-            assert!((frame.origin.x - (picture.origin.x + want.x)).abs() < 0.5, "HUD x: {frame:?} want {want:?}");
-            assert!((frame.origin.y - (picture.origin.y + want.y)).abs() < 0.5, "HUD y: {frame:?} want {want:?}");
+            assert!(
+                (frame.origin.x - (picture.origin.x + want.x)).abs() < 0.5,
+                "HUD x: {frame:?} want {want:?}"
+            );
+            assert!(
+                (frame.origin.y - (picture.origin.y + want.y)).abs() < 0.5,
+                "HUD y: {frame:?} want {want:?}"
+            );
             assert!(frame.size.width < bounds.size.width / 2.0, "the HUD is a corner panel");
             assert_eq!(responder, "DriftRemoteView", "the picture keeps the keyboard under a HUD");
 

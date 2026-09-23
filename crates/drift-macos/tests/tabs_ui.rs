@@ -173,7 +173,8 @@ mod ui {
             | NSWindowStyleMask::Closable
             | NSWindowStyleMask::Resizable
             | NSWindowStyleMask::FullSizeContentView;
-        let windows: Vec<_> = (0..3).map(|i| styled_window(mtm, &format!("Drift strip tab {i}"), style)).collect();
+        let windows: Vec<_> =
+            (0..3).map(|i| styled_window(mtm, &format!("Drift strip tab {i}"), style)).collect();
         for w in &windows {
             prepare_for_tabs(w);
             w.setTitlebarAppearsTransparent(true);
@@ -191,8 +192,8 @@ mod ui {
             assert!(covered(w) < single_bar, "window {i}: only the title bar row is left ({})", covered(w));
             assert_eq!(tab_count(w), 3, "window {i} is still in the group");
         }
-        let order: Vec<_> = tab_windows(&windows[0]).iter().map(|w| Retained::as_ptr(w)).collect();
-        let want: Vec<_> = windows.iter().map(|w| Retained::as_ptr(w)).collect();
+        let order: Vec<_> = tab_windows(&windows[0]).iter().map(Retained::as_ptr).collect();
+        let want: Vec<_> = windows.iter().map(Retained::as_ptr).collect();
         assert_eq!(order, want, "leading to trailing");
         select_window(&windows[2]);
         let selected = windows[0].tabGroup().unwrap().selectedWindow().unwrap();

@@ -39,11 +39,25 @@ export const commands = {
 	closeSession: () => typedError<null, CommandError>(__TAURI_INVOKE("close_session")),
 	/**  Ends this window's session gracefully and returns it to the connect form. */
 	disconnect: () => typedError<null, CommandError>(__TAURI_INVOKE("disconnect")),
+	/**  The tab strip of the calling window: its group's tabs in order, its own tab active. */
+	tabStrip: () => typedError<TabStrip, CommandError>(__TAURI_INVOKE("tab_strip")),
+	/**  Selects tab `tab` (a click on it in the strip). */
+	selectTab: (tab: string) => typedError<null, CommandError>(__TAURI_INVOKE("select_tab", { tab })),
+	/**  Closes tab `tab` (its × in the strip): the session closes gracefully, then the window. */
+	closeTab: (tab: string) => typedError<null, CommandError>(__TAURI_INVOKE("close_tab", { tab })),
+	/**  Opens a new Connection Manager tab (the strip's +, like File ▸ New Tab). */
+	newTab: () => typedError<null, CommandError>(__TAURI_INVOKE("new_tab")),
+	/**
+	 *  Gives the keyboard back to the calling window's page or live picture (the strip never keeps
+	 *  it).
+	 */
+	focusContent: () => typedError<null, CommandError>(__TAURI_INVOKE("focus_content")),
 };
 
 /** Events */
 export const events = {
 	sessionViewChanged: makeEvent<SessionViewChanged_Deserialize>("session-view-changed"),
+	tabStripChanged: makeEvent<TabStripChanged>("tab-strip-changed"),
 };
 
 /* Types */
@@ -542,6 +556,57 @@ export type StatsView = {
 	/**  Frames awaiting acknowledgement. */
 	unacked_frames: number,
 };
+
+/**  One tab of the strip. */
+export type TabItem = {
+	/**  The tab's window label (`session-<n>`); intents from the strip name tabs by it. */
+	id: string,
+	/**  Connection Manager or Session. */
+	kind: TabKind,
+	/**  The text on the tab. */
+	title: string,
+	/**  The connection mode (picks the glyph); `None` for a Connection Manager. */
+	mode: ConnectMode | null,
+	/**  Spinner or dot. */
+	status: TabStatus,
+	/**  The session's profile; `None` for a Connection Manager. */
+	profile_id: string | null,
+	/**  Tooltip: the greeter hint while the GNOME login screen waits for the user. */
+	hint: string | null,
+};
+
+/**  The two kinds of tab. */
+export type TabKind = 
+/**  Pick, edit and connect a saved connection. */
+"manager" | 
+/**  One session (connecting, live, reconnecting or failed). */
+"session";
+
+/**  What a tab's status indicator shows. */
+export type TabStatus = 
+/**  Nothing (a Connection Manager). */
+"idle" | 
+/**  A spinner instead of the glyph: connecting or waiting for a certificate decision. */
+"connecting" | 
+/**  Green dot: the picture (or the GNOME login screen) is live. */
+"live" | 
+/**  Amber dot: waiting out a reconnect backoff. */
+"reconnecting" | 
+/**  Red dot: the session failed or was disconnected with an explanation. */
+"failed";
+
+/**  Everything one window's strip draws. */
+export type TabStrip = {
+	/**  The tabs of the window's group, leading to trailing. */
+	tabs: TabItem[],
+	/**  The id of the window this strip belongs to: its own tab is the raised one. */
+	active: string,
+	/**  Profiles with a live session in some tab (sorted); the connection list marks them. */
+	live_profiles: string[],
+};
+
+/**  Emitted to a window's strip webview and page whenever its [`TabStrip`] changes. */
+export type TabStripChanged = TabStrip;
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

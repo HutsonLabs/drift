@@ -1,8 +1,8 @@
 //! Pure presentation rules for a session window (tasks **M1-6**, **M6-2**, **M3-2**).
 //!
 //! The humble window glue (`crate::windows`) applies these decisions to AppKit/Tauri:
-//! which surface is in front (webview or RemoteView), the tab title and subtitle, and the
-//! remote pointer shape.
+//! which surface is in front (webview or RemoteView), where the tab strip, the page and the
+//! picture sit, who owns the keyboard, the window title and the remote pointer shape.
 
 use std::sync::Arc;
 
@@ -12,10 +12,8 @@ use drift_macos::cursor::CursorImage;
 use drift_macos::tabs::tab_title;
 use drift_rdp::CursorUpdate;
 
+use crate::strip::{CONNECTIONS_TITLE, STRIP_HEIGHT};
 use crate::view::{Screen, SessionView};
-
-/// Title of a window without a session (the connect form).
-pub const NEW_SESSION_TITLE: &str = "New Session";
 
 /// Which view is in front of a session window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +38,7 @@ pub enum Surface {
 /// Which panel a [`Surface::Hud`] draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hud {
-    /// The greeter-wait hint, centred under the title bar (M3-2, M7-3).
+    /// The greeter-wait hint, centred under the tab strip (M3-2, M7-3).
     Banner,
     /// The statistics readouts in the bottom-right corner (M1 "Done (manual M1)", M9-1).
     Stats,
@@ -113,61 +111,51 @@ const STATS_WIDTH: f64 = 300.0;
 /// Height of the statistics panel (value over unit).
 const STATS_HEIGHT: f64 = 56.0;
 
-/// How the window's title bar (and native tab bar) sits over the page, in points.
+/// How a session window is laid out from the top, in points (task UI-tabs).
 ///
-/// Session windows use a transparent, full-size-content title bar: with a single tab the traffic
-/// lights float over the page, inset into the glass sidebar (`trafficLightPosition` in the `session`
-/// window template, tauri.conf.json); once the native
-/// tab bar shows, the page and the live picture start below both bars instead.
+/// The title bar is transparent and has no title; AppKit's tab bar is hidden. The top row is
+/// Drift's HTML tab strip, beside the traffic lights; the page (its own webview) and the live
+/// picture start right under it. In full screen the strip is hidden entirely — also when the
+/// menu bar slides down — and the picture fills the screen; the Window menu switches tabs.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Chrome {
-    /// Height of the draggable title bar row (0 in full screen), for the page's drag strip.
-    pub titlebar: f64,
-    /// Where the traffic lights end, measured from the top of the page (0 when they sit in a bar
-    /// of their own, above the page).
-    pub lights: f64,
-    /// How far down the page content starts (0 when the lights float over the page).
-    pub offset: f64,
-    /// How far down the live picture starts: it never goes under the bars or the lights.
-    pub picture_top: f64,
+    /// Height of the tab strip webview (0 = hidden).
+    pub strip: f64,
+    /// Where the page and the live picture start.
+    pub content_top: f64,
 }
 
-/// Gap between the traffic lights and whatever is below them, in points.
-const LIGHTS_GAP: f64 = 6.0;
-
-/// The [`Chrome`] of a window.
-///
-/// * `covered`: points the bars cover at the top of the content view
-///   (`contentView.bounds.height - contentLayoutRect.height`; 0 in full screen);
-/// * `titlebar`: height of a standard title bar row;
-/// * `lights_bottom`: where the close button ends, from the top of the content view;
-/// * `tabbed`: the native tab bar is showing.
-pub fn chrome(covered: f64, titlebar: f64, lights_bottom: f64, tabbed: bool) -> Chrome {
-    let covered = covered.max(0.0);
-    if covered < 0.5 {
-        return Chrome { titlebar: 0.0, lights: 0.0, offset: 0.0, picture_top: 0.0 };
+/// The [`Chrome`] of a window, in or out of full screen.
+pub fn chrome(full_screen: bool) -> Chrome {
+    if full_screen {
+        Chrome { strip: 0.0, content_top: 0.0 }
+    } else {
+        Chrome { strip: STRIP_HEIGHT, content_top: STRIP_HEIGHT }
     }
-    if tabbed {
-        return Chrome {
-            titlebar: titlebar.clamp(0.0, covered),
-            lights: 0.0,
-            offset: covered,
-            picture_top: covered,
-        };
-    }
-    let lights = lights_bottom.max(0.0);
-    let top = covered.max(lights + LIGHTS_GAP);
-    Chrome { titlebar: top, lights, offset: 0.0, picture_top: top }
 }
 
-impl Chrome {
-    /// A script that hands the insets to the page's CSS (`--titlebar`, `--lights`,
-    /// `--chrome-offset`).
-    pub fn css_script(&self) -> String {
-        format!(
-            "(s=>{{s.setProperty('--titlebar','{}px');s.setProperty('--lights','{}px');s.setProperty('--chrome-offset','{}px')}})(document.documentElement.style)",
-            self.titlebar, self.lights, self.offset
-        )
+/// The origin `y` of a horizontal band `top` points below the top edge and `height` points tall,
+/// in a `parent_height`-high view (`flipped` = the view's `isFlipped`; AppKit's default origin is
+/// bottom-left).
+pub fn band_y(parent_height: f64, top: f64, height: f64, flipped: bool) -> f64 {
+    if flipped { top } else { parent_height - top - height }
+}
+
+/// Which view gets the keyboard in a window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    /// The `RemoteView` (the remote desktop gets every key).
+    Remote,
+    /// The page's webview (forms, prompts, overlays).
+    Page,
+}
+
+/// Who owns the keyboard for `surface`. The tab strip never keeps it: a click on a tab hands
+/// focus straight back to this.
+pub fn focus_for(surface: Surface) -> Focus {
+    match surface {
+        Surface::Remote | Surface::Hud(_) => Focus::Remote,
+        Surface::Webview | Surface::Overlay => Focus::Page,
     }
 }
 
@@ -200,29 +188,28 @@ pub fn hud_frame(parent: Size<f64>, hud: Hud, flipped: bool) -> HudFrame {
     HudFrame { x, y, width, height, flexible }
 }
 
-/// The window (= tab) title: profile name plus state glyph, or [`NEW_SESSION_TITLE`] when the
-/// window shows the connect form.
+/// The window (= tab) title: profile name plus state glyph, or [`CONNECTIONS_TITLE`] when the
+/// window is a Connection Manager. The title bar never shows it; AppKit lists it in the Window
+/// menu, which is how tabs are switched in full screen.
 pub fn window_title(view: Option<&SessionView>) -> String {
     match view {
         Some(view) if view.screen != Screen::Profiles => tab_title(&view.profile_name, &view.state),
-        _ => NEW_SESSION_TITLE.to_owned(),
+        _ => CONNECTIONS_TITLE.to_owned(),
     }
 }
 
-/// The window subtitle (shown next to the title in the title bar): the greeter hint while the
-/// GNOME login screen is live, otherwise empty. The same text is in the [`Hud::Banner`] over the
-/// picture; the subtitle also survives the user scrolling the banner out of mind.
-pub fn window_subtitle(view: Option<&SessionView>) -> String {
-    let Some(view) = view else { return String::new() };
-    if view.screen != Screen::GreeterHint {
-        return String::new();
-    }
-    match (&view.linux_username, view.resuming) {
+/// The greeter hint while the GNOME login screen is live, else `None`.
+///
+/// The title bar is hidden (UI-tabs), so this is no longer the window subtitle: the same words
+/// are the [`Hud::Banner`] floating over the login screen and the session tab's tooltip.
+pub fn greeter_hint(view: Option<&SessionView>) -> Option<String> {
+    let view = view.filter(|v| v.screen == Screen::GreeterHint)?;
+    Some(match (&view.linux_username, view.resuming) {
         (Some(user), true) => format!("Session is still running — log in as “{user}” to resume"),
         (Some(user), false) => format!("Log in as “{user}” to start your session"),
         (None, true) => "Session is still running — log in to resume".to_owned(),
         (None, false) => "Log in to start your session".to_owned(),
-    }
+    })
 }
 
 /// What VoiceOver announces for the live picture (task M9-4).

@@ -58,9 +58,23 @@ pub fn find_subview_of_class(root: &NSView, class_name: &str) -> Option<Retained
     None
 }
 
-/// The window's `WKWebView` (wry uses a subclass).
+/// The window's first `WKWebView` (wry uses a subclass), depth first.
 pub fn find_webview(root: &NSView) -> Option<Retained<NSView>> {
     find_subview_of_class(root, "WKWebView")
+}
+
+/// Every `WKWebView` below `root`, depth first (a session window has the page and, above it,
+/// the tab strip).
+pub fn find_webviews(root: &NSView) -> Vec<Retained<NSView>> {
+    let mut found = Vec::new();
+    for sub in root.subviews().iter() {
+        if is_kind_of(&sub, "WKWebView") {
+            found.push(sub);
+        } else {
+            found.extend(find_webviews(&sub));
+        }
+    }
+    found
 }
 
 /// Inserts `view` directly below `reference` in `reference`'s superview, with the superview's

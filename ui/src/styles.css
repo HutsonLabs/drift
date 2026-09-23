@@ -1,5 +1,7 @@
-/* Drift webview: glass panels over the window's native vibrancy (src-tauri windows.rs), Avenir
-   Next, light and dark. The page itself is transparent; the window material shows through. */
+/* Drift webviews: glass panels over the window's native vibrancy (src-tauri windows.rs), Avenir
+   Next, light and dark. The pages are transparent; the window material shows through.
+   Two webviews share this sheet: the page (index.html) and, above it, the window's tab strip
+   (strip.html, body.strip) in the transparent title bar row. */
 :root {
   color-scheme: light dark;
   --font: "Avenir Next", "Avenir", -apple-system, system-ui, sans-serif;
@@ -12,6 +14,7 @@
   --accent-strong: oklch(0.54 0.16 248);
   --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
   --good: oklch(0.6 0.15 150);
+  --warn: oklch(0.74 0.15 70);
   --danger: oklch(0.56 0.2 25);
 
   --text: oklch(0.22 0.02 255);
@@ -32,11 +35,6 @@
   --shadow-panel: 0 10px 30px -14px oklch(0.25 0.05 260 / 0.3);
   --shadow-control: 0 1px 2px oklch(0.25 0.05 260 / 0.14);
   --switch-off: oklch(0.5 0.01 260 / 0.25);
-
-  /* Title bar insets, set by Rust (present::chrome) whenever the bars change. */
-  --titlebar: 37px;
-  --lights: 31px;
-  --chrome-offset: 0px;
 
   --r-panel: 16px;
   --r-group: 14px;
@@ -91,8 +89,6 @@ body {
 input, select, code, .fingerprint { -webkit-user-select: text; user-select: text; }
 ::selection { background: var(--accent-soft); }
 #app { height: 100%; }
-.drag-strip { position: fixed; inset: 0 0 auto; height: var(--titlebar); z-index: 10; }
-body[data-hud="stats"] .drag-strip, body[data-hud="banner"] .drag-strip, body[data-screen="live"] .drag-strip { display: none; }
 h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; margin: 0 0 8px; text-wrap: balance; }
 h2 { font-size: 13px; font-weight: 700; margin: 0 0 8px; }
 p { margin: 0 0 8px; }
@@ -206,21 +202,21 @@ input[type="checkbox"]:disabled { opacity: 0.45; }
 
 /* ---- Profiles screen -------------------------------------------------------------------- */
 body[data-screen="profiles"] #app { background: var(--window); }
-.profiles { display: flex; height: 100%; padding-top: var(--chrome-offset); }
+/* The page starts right under the tab strip (its own webview, src-tauri present::chrome). */
+.profiles { display: flex; height: 100%; }
 
 /* Floating glass sidebar, inset from the window edge. */
 .sidebar, .profiles .welcome {
   width: 264px;
   flex: none;
-  margin: 8px 0 8px 8px;
+  margin: 0 0 8px 8px;
   border-radius: var(--r-panel);
   background: var(--sidebar);
   box-shadow: var(--shadow-panel), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
 }
-/* The traffic lights float over the top of the sidebar (see --lights). */
-.sidebar { display: flex; flex-direction: column; padding: calc(var(--lights) + 18px) 10px 10px; overflow-y: auto; }
+.sidebar { display: flex; flex-direction: column; padding: 12px 10px 10px; overflow-y: auto; }
 .search { position: relative; margin: 0 2px 16px; color: var(--tertiary); }
 .search svg.icon { position: absolute; left: 10px; top: 8px; width: 14px; height: 14px; }
 .search input[type="search"] { border-radius: 999px; padding-left: 30px; background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--hairline); }
@@ -258,9 +254,11 @@ body[data-screen="profiles"] #app { background: var(--window); }
 .sidebar .connect svg.icon { width: 11px; height: 11px; margin-left: 1px; }
 .sidebar li.selected .connect, .sidebar li:hover .connect, .sidebar .connect:focus-visible { opacity: 1; }
 .no-results { color: var(--tertiary); margin: 4px 10px; }
+/* Connected in another tab (UI-tabs): Connect switches to that tab. */
+.sidebar .item .status { margin-left: auto; }
 .sidebar-foot { margin-top: auto; padding-top: 10px; }
 .sidebar .new { width: 100%; min-height: 34px; border-radius: 11px; background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--hairline); }
-.profiles .welcome { padding: calc(var(--lights) + 18px) 18px 24px; }
+.profiles .welcome { padding: 18px 18px 24px; }
 .profiles .welcome h1 { font-size: 19px; }
 .profiles .welcome p { color: var(--secondary); }
 
@@ -284,7 +282,7 @@ body[data-screen="profiles"] #app { background: var(--window); }
 .glyph-desktop-sharing { background: linear-gradient(160deg, oklch(0.74 0.14 300), oklch(0.58 0.16 290)); }
 
 /* Detail pane */
-.content { position: relative; flex: 1; min-width: 0; overflow-y: auto; padding: max(30px, calc(var(--lights) - 1px)) 40px 0; }
+.content { position: relative; flex: 1; min-width: 0; overflow-y: auto; padding: 12px 40px 0; }
 .profile-form { max-width: 920px; padding-bottom: 96px; }
 .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
 .hero h1 { font-size: 26px; margin: 0; }
@@ -400,7 +398,7 @@ details.advanced[open] summary svg.icon { transform: rotate(90deg); }
 .profile-form:not(.dirty) .actionbar:not(:has(.destructive)) { display: none; }
 
 /* ---- Sheets: connecting, certificate, errors -------------------------------------------- */
-.scrim { min-height: 100%; display: grid; place-items: center; padding: calc(var(--chrome-offset) + 32px) 32px 32px; background: var(--scrim); }
+.scrim { min-height: 100%; display: grid; place-items: center; padding: 32px; background: var(--scrim); }
 .sheet {
   width: min(460px, 100%);
   padding: 28px;
@@ -448,10 +446,8 @@ details.advanced[open] summary svg.icon { transform: rotate(90deg); }
 .next-steps li::marker { font-weight: 700; color: var(--text); }
 
 /* ---- Overlays drawn over the remote picture: the page itself is transparent. ------------ */
-/* The dimming starts below the title bar, where the picture does. */
+/* The page starts below the tab strip, where the picture does. */
 body[data-screen="reconnecting"] #app {
-  margin-top: max(var(--titlebar), var(--chrome-offset));
-  height: calc(100% - max(var(--titlebar), var(--chrome-offset)));
   background: oklch(0 0 0 / 0.4);
   display: grid;
   place-items: center;
@@ -500,3 +496,90 @@ body[data-hud="stats"] #app { display: flex; align-items: flex-end; justify-cont
 .banner-text { display: grid; }
 .banner strong { font-weight: 600; }
 .banner-text > span { color: oklch(1 0 0 / 0.72); font-size: 12px; }
+
+/* ---- Status dots (tabs and the connection list) --------------------------------------------- */
+.status { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 2px color-mix(in oklab, var(--good) 25%, transparent); }
+.status.reconnecting { background: var(--warn); box-shadow: 0 0 0 2px color-mix(in oklab, var(--warn) 25%, transparent); }
+.status.failed { background: var(--danger); box-shadow: 0 0 0 2px color-mix(in oklab, var(--danger) 25%, transparent); }
+
+/* ---- Tab strip (strip.html) ------------------------------------------------------------------
+   The transparent title bar row: no fill beyond the window material, no divider, no title. The
+   traffic lights sit in the first 84 points (tauri.conf.json trafficLightPosition). */
+body.strip { background: var(--window); overflow: hidden; }
+body.strip #strip { height: 100%; }
+.tabstrip { height: 100%; display: flex; align-items: center; gap: 4px; padding: 0 10px 0 84px; }
+.tabstrip .tabs { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 0 1 auto; }
+.tabstrip .spacer { flex: 1; align-self: stretch; }
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 0 1 210px;
+  height: 30px;
+  border-radius: 10px;
+  color: var(--secondary);
+}
+.tab:hover { background: var(--hover); }
+/* The window's own tab: a raised glass pill. */
+.tab.on { background: var(--selected); color: var(--text); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--rim-soft); }
+.tab .tab-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+  height: 30px;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 0 4px 0 8px;
+  border-radius: 10px;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.tab .glyph { width: 18px; height: 18px; border-radius: 5px; box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.35); }
+.tab .glyph svg.icon { width: 11px; height: 11px; stroke-width: 2; }
+.tab .t-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab .status { width: 6px; height: 6px; box-shadow: none; }
+.tab .close {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin-right: 6px;
+  padding: 0;
+  border-radius: 5px;
+  background: none;
+  box-shadow: none;
+  color: var(--tertiary);
+  visibility: hidden;
+}
+.tab .close:hover { background: var(--hover); color: var(--text); }
+.tab .close svg.icon { width: 10px; height: 10px; stroke-width: 2.2; }
+.tab.on .close, .tab:hover .close, .tab .close:focus-visible { visibility: visible; }
+.spin {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.6px solid color-mix(in oklab, var(--accent) 28%, transparent);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+.glyph-manager { background: linear-gradient(160deg, oklch(0.62 0.02 255), oklch(0.46 0.02 255)); }
+/* Firefox-style new tab: right after the last tab, not at the far edge. */
+.newtab {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 9px;
+  background: none;
+  box-shadow: none;
+  color: var(--secondary);
+}
+.newtab:hover { background: var(--hover); color: var(--text); }
+.newtab svg.icon { width: 15px; height: 15px; stroke-width: 1.9; }
