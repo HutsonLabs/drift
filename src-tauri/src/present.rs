@@ -21,7 +21,8 @@ pub const NEW_SESSION_TITLE: &str = "New Session";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
     /// The webview fills the window and there is nothing to see behind it (form, certificate
-    /// prompt, progress, error). The page paints its own opaque background.
+    /// prompt, progress, error). The RemoteView is hidden, so the page's glass panels sit on
+    /// the window's native vibrancy.
     Webview,
     /// The RemoteView with the live picture; the webview is hidden and the view is first
     /// responder.
@@ -41,7 +42,7 @@ pub enum Surface {
 pub enum Hud {
     /// The greeter-wait hint, centred under the title bar (M3-2, M7-3).
     Banner,
-    /// The statistics line in the bottom-right corner (M1 "Done (manual M1)", M9-1).
+    /// The statistics readouts in the bottom-right corner (M1 "Done (manual M1)", M9-1).
     Stats,
 }
 
@@ -107,10 +108,68 @@ const HUD_INSET: f64 = 16.0;
 const BANNER_WIDTH: f64 = 560.0;
 /// Height of the greeter banner (two lines plus its top margin).
 const BANNER_HEIGHT: f64 = 76.0;
-/// Width of the statistics panel.
-const STATS_WIDTH: f64 = 260.0;
-/// Height of the statistics panel.
-const STATS_HEIGHT: f64 = 44.0;
+/// Width of the statistics panel (four labelled readouts).
+const STATS_WIDTH: f64 = 300.0;
+/// Height of the statistics panel (value over unit).
+const STATS_HEIGHT: f64 = 56.0;
+
+/// How the window's title bar (and native tab bar) sits over the page, in points.
+///
+/// Session windows use a transparent, full-size-content title bar: with a single tab the traffic
+/// lights float over the page, inset into the glass sidebar (`trafficLightPosition` in the `session`
+/// window template, tauri.conf.json); once the native
+/// tab bar shows, the page and the live picture start below both bars instead.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Chrome {
+    /// Height of the draggable title bar row (0 in full screen), for the page's drag strip.
+    pub titlebar: f64,
+    /// Where the traffic lights end, measured from the top of the page (0 when they sit in a bar
+    /// of their own, above the page).
+    pub lights: f64,
+    /// How far down the page content starts (0 when the lights float over the page).
+    pub offset: f64,
+    /// How far down the live picture starts: it never goes under the bars or the lights.
+    pub picture_top: f64,
+}
+
+/// Gap between the traffic lights and whatever is below them, in points.
+const LIGHTS_GAP: f64 = 6.0;
+
+/// The [`Chrome`] of a window.
+///
+/// * `covered`: points the bars cover at the top of the content view
+///   (`contentView.bounds.height - contentLayoutRect.height`; 0 in full screen);
+/// * `titlebar`: height of a standard title bar row;
+/// * `lights_bottom`: where the close button ends, from the top of the content view;
+/// * `tabbed`: the native tab bar is showing.
+pub fn chrome(covered: f64, titlebar: f64, lights_bottom: f64, tabbed: bool) -> Chrome {
+    let covered = covered.max(0.0);
+    if covered < 0.5 {
+        return Chrome { titlebar: 0.0, lights: 0.0, offset: 0.0, picture_top: 0.0 };
+    }
+    if tabbed {
+        return Chrome {
+            titlebar: titlebar.clamp(0.0, covered),
+            lights: 0.0,
+            offset: covered,
+            picture_top: covered,
+        };
+    }
+    let lights = lights_bottom.max(0.0);
+    let top = covered.max(lights + LIGHTS_GAP);
+    Chrome { titlebar: top, lights, offset: 0.0, picture_top: top }
+}
+
+impl Chrome {
+    /// A script that hands the insets to the page's CSS (`--titlebar`, `--lights`,
+    /// `--chrome-offset`).
+    pub fn css_script(&self) -> String {
+        format!(
+            "(s=>{{s.setProperty('--titlebar','{}px');s.setProperty('--lights','{}px');s.setProperty('--chrome-offset','{}px')}})(document.documentElement.style)",
+            self.titlebar, self.lights, self.offset
+        )
+    }
+}
 
 /// The rectangle a HUD panel occupies over a `parent`-sized picture.
 ///

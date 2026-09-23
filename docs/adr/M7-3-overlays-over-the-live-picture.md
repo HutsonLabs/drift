@@ -34,7 +34,9 @@ Neither existed:
 `tauri` feature `macos-private-api`, and `WebviewWindowBuilder` gets `.transparent(true)`. The
 `RemoteView` (`CAMetalLayer`) already sits **below** the `WKWebView` in the same superview, so a
 transparent page simply shows the last presented frame through it. Screens that are not overlays
-paint an opaque `--bg` background in CSS, so they look exactly as before.
+(`Surface::Webview`) hide the `RemoteView` instead and show the window's native vibrancy
+(`.effects(UnderWindowBackground)`) through glass panels drawn in CSS (glass redesign,
+`docs/design/mockup-glass.html`).
 
 **Cost:** `drawsBackground` is a private KVC key on `WKWebView`, so an App Store submission would
 be rejected. Drift ships as a Developer ID–signed, notarised `.dmg` (plan M9-5) and the plan

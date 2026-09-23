@@ -1,4 +1,4 @@
-//! Window visibility and key-state observer (task **M6-3**, platform part; plan §1.8).
+//! Window visibility, key-state and full-screen observer (task **M6-3**, platform part; plan §1.8).
 //!
 //! Only the selected tab of a group reports `occlusionState ∋ Visible`, and
 //! `NSWindowDidChangeOcclusionStateNotification` fires on every tab switch. Background tabs
@@ -14,7 +14,8 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{
     NSWindow, NSWindowDidBecomeKeyNotification, NSWindowDidChangeOcclusionStateNotification,
-    NSWindowDidResignKeyNotification, NSWindowOcclusionState,
+    NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification,
+    NSWindowDidResignKeyNotification, NSWindowDidResizeNotification, NSWindowOcclusionState,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNotificationName, NSObjectProtocol};
 
@@ -28,6 +29,10 @@ pub enum WindowEvent {
     },
     /// The window became (`true`) or resigned (`false`) key.
     Key(bool),
+    /// The window entered or left full screen, so its title bar appeared or went away.
+    FullScreen(bool),
+    /// The window's frame changed size.
+    Resized,
 }
 
 /// Whether any part of `window` is visible (`occlusionState ∋ Visible`).
@@ -73,7 +78,16 @@ impl WindowObserver {
             let window = note.object()?.downcast::<NSWindow>().ok()?;
             Some(WindowEvent::Occlusion { visible: is_visible(&window) })
         });
+        // SAFETY: as above.
+        let entered_full_screen = unsafe { NSWindowDidEnterFullScreenNotification };
+        // SAFETY: as above.
+        let exited_full_screen = unsafe { NSWindowDidExitFullScreenNotification };
         observe(became_key, |_| Some(WindowEvent::Key(true)));
+        observe(entered_full_screen, |_| Some(WindowEvent::FullScreen(true)));
+        observe(exited_full_screen, |_| Some(WindowEvent::FullScreen(false)));
+        // SAFETY: as above.
+        let resized = unsafe { NSWindowDidResizeNotification };
+        observe(resized, |_| Some(WindowEvent::Resized));
         observe(resigned_key, |_| Some(WindowEvent::Key(false)));
         Self { center, tokens }
     }

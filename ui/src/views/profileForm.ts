@@ -14,6 +14,7 @@ import type {
   SecretsUpdate,
 } from "../bindings";
 import { actionButton, h, mount } from "../dom";
+import { icon, modeGlyph } from "../icons";
 
 /** Everything the form renders. */
 export interface FormModel {
@@ -37,6 +38,8 @@ export interface FormModel {
   error: string | null;
   /** A save is in flight. */
   busy: boolean;
+  /** Edited since it was loaded or saved (shows Cancel and Save). */
+  dirty?: boolean;
 }
 
 /** The form's current values. */
@@ -55,6 +58,8 @@ export interface FormIntents {
   cancel(): void;
   remove(): void;
   forgetCertificate(): void;
+  /** Connect to this saved profile (the header's Connect button). */
+  connect?(): void;
 }
 
 /** A fresh model for `profile`. */
@@ -144,18 +149,24 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
   const isLogin = p.mode === "remote-login";
   const needsPassword = model.isNew || !model.hasRdpPassword;
 
-  const form = h("form", { class: "profile-form", novalidate: true, "aria-labelledby": "form-title" });
+  // `dirty` shows Cancel/Save in the action bar; a new profile is unsaved from the start.
+  const form = h("form", {
+    class: ["profile-form", model.isNew || model.dirty ? "dirty" : null].filter(Boolean).join(" "),
+    novalidate: true,
+    "aria-labelledby": "form-title",
+  });
   const draft = () => readDraft(form, p);
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     if (!model.busy) on.save(draft());
   });
+  form.addEventListener("input", () => form.classList.add("dirty"));
 
   const modeGroup = h(
     "fieldset",
     // The mode explanation is part of the group's description, so VoiceOver reads it with the
     // radio buttons instead of leaving it as unattached text (M9-4).
-    { class: "mode", "aria-describedby": "mode-hint" },
+    { class: "mode field", "aria-describedby": "mode-hint" },
     h("legend", {}, "Connection type"),
     h(
       "div",
@@ -171,6 +182,7 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
             checked: m.mode === p.mode,
             onchange: () => on.change(draft()),
           }),
+          modeGlyph(m.mode, "small"),
           m.label,
         ),
       ),
@@ -182,14 +194,16 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
     "fieldset",
     { class: "credentials", "aria-describedby": "credentials-hint" },
     h("legend", {}, cred.legend),
-    h("p", { class: "hint", id: "credentials-hint" }, cred.hint),
-    textField("rdp-user", cred.user, p.rdp_username, issueFor("rdp-username"), { autocomplete: "username" }),
-    textField("rdp-password", cred.password, model.rdpPassword, undefined, {
-      type: "password",
-      autocomplete: "current-password",
-      required: needsPassword,
-      placeholder: needsPassword ? "Required" : KEEP,
-    }),
+    h("p", { class: "hint group-hint", id: "credentials-hint" }, cred.hint),
+    group(
+      textField("rdp-user", cred.user, p.rdp_username, issueFor("rdp-username"), { autocomplete: "username" }),
+      textField("rdp-password", cred.password, model.rdpPassword, undefined, {
+        type: "password",
+        autocomplete: "current-password",
+        required: needsPassword,
+        placeholder: needsPassword ? "Required" : KEEP,
+      }),
+    ),
   );
 
   const greeter = isLogin
@@ -197,44 +211,58 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
         "fieldset",
         { class: "greeter" },
         h("legend", {}, "GNOME login screen"),
-        textField("linux-user", "Linux user (optional)", p.linux_username ?? "", issueFor("linux-username"), {
-          autocomplete: "off",
-          hint: "Shown as a reminder while the login screen is open.",
-        }),
-        h(
-          "label",
-          { class: "check" },
-          h("input", {
-            type: "checkbox",
-            id: "type-linux-password",
-            checked: model.typeLinuxPassword,
-            "aria-describedby": "type-linux-password-hint",
-            onchange: () => on.change(draft()),
-          }),
-          "Type my Linux password at the login screen",
-        ),
-        h(
-          "p",
-          { class: "hint", id: "type-linux-password-hint" },
-          "Off by default. When on, the password is kept in your Keychain and Drift types it into the GNOME password field for you.",
-        ),
-        model.typeLinuxPassword &&
-          textField("linux-password", "Linux password", model.linuxPassword, undefined, {
-            type: "password",
+        group(
+          textField("linux-user", "Linux user (optional)", p.linux_username ?? "", issueFor("linux-username"), {
             autocomplete: "off",
-            required: !model.hasLinuxPassword,
-            placeholder: model.hasLinuxPassword ? KEEP : "Required",
+            hint: "Shown as a reminder while the login screen is open.",
           }),
+          h(
+            "div",
+            { class: "field check-field" },
+            h(
+              "label",
+              { class: "check" },
+              h("input", {
+                type: "checkbox",
+                role: "switch",
+                id: "type-linux-password",
+                checked: model.typeLinuxPassword,
+                "aria-describedby": "type-linux-password-hint",
+                onchange: () => on.change(draft()),
+              }),
+              "Type my Linux password at the login screen",
+            ),
+            h(
+              "p",
+              { class: "hint", id: "type-linux-password-hint" },
+              "Off by default. When on, the password is kept in your Keychain and Drift types it into the GNOME password field for you.",
+            ),
+          ),
+          model.typeLinuxPassword &&
+            textField("linux-password", "Linux password", model.linuxPassword, undefined, {
+              type: "password",
+              autocomplete: "off",
+              required: !model.hasLinuxPassword,
+              placeholder: model.hasLinuxPassword ? KEEP : "Required",
+            }),
+        ),
       )
     : null;
 
   const pin = p.cert_pin
     ? h(
-        "div",
-        { class: "pin" },
-        h("span", { class: "pin-label", id: "pin-label" }, "Trusted certificate (SHA-256)"),
-        h("code", { class: "fingerprint", "aria-labelledby": "pin-label" }, p.cert_pin),
-        actionButton("Forget Certificate", () => on.forgetCertificate()),
+        "section",
+        { class: "security", "aria-labelledby": "security-title" },
+        h("h2", { class: "group-title", id: "security-title" }, "Security"),
+        group(
+          h(
+            "div",
+            { class: "field pin" },
+            h("span", { class: "pin-label", id: "pin-label" }, "Trusted certificate (SHA-256)"),
+            h("code", { class: "fingerprint", "aria-labelledby": "pin-label" }, p.cert_pin),
+            actionButton("Forget Certificate", () => on.forgetCertificate()),
+          ),
+        ),
       )
     : null;
 
@@ -242,48 +270,75 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
   const advanced = h(
     "details",
     { class: "advanced" },
-    h("summary", {}, "Keyboard, display and clipboard"),
-    selectField("cmd-as", "Command key sends", p.keyboard.cmd_as ?? "super", [
-      ["super", "Super (Windows key)"],
-      ["ctrl", "Control"],
-    ]),
-    checkField("mac-layout", "Type using Mac layout", p.keyboard.type_with_mac_layout ?? false,
-      "Sends typed characters instead of key positions, so the Mac keyboard layout applies."),
-    checkField("adaptive", "Resize the remote desktop to fit the window", sharing ? false : (p.display.adaptive ?? true),
-      sharing ? "Desktop Sharing can’t resize the remote screen; Drift scales it to fit." : null, sharing),
-    checkField("retina", "Use Retina resolution", p.display.retina ?? true,
-      "Renders GNOME at 2× on Retina displays for sharp text."),
-    selectField("clipboard", "Clipboard", p.clipboard ?? "text-and-images", [
-      ["text-and-images", "Text and images"],
-      ["text", "Text only"],
-      ["off", "Off"],
-    ]),
+    h("summary", {}, icon("chevron"), "Keyboard, display and clipboard"),
+    group(
+      selectField("cmd-as", "Command key sends", p.keyboard.cmd_as ?? "super", [
+        ["super", "Super (Windows key)"],
+        ["ctrl", "Control"],
+      ]),
+      checkField("mac-layout", "Type using Mac layout", p.keyboard.type_with_mac_layout ?? false,
+        "Sends typed characters instead of key positions, so the Mac keyboard layout applies."),
+      checkField("adaptive", "Resize the remote desktop to fit the window", sharing ? false : (p.display.adaptive ?? true),
+        sharing ? "Desktop Sharing can’t resize the remote screen; Drift scales it to fit." : null, sharing),
+      checkField("retina", "Use Retina resolution", p.display.retina ?? true,
+        "Renders GNOME at 2× on Retina displays for sharp text."),
+      selectField("clipboard", "Clipboard", p.clipboard ?? "text-and-images", [
+        ["text-and-images", "Text and images"],
+        ["text", "Text only"],
+        ["off", "Off"],
+      ]),
+    ),
   );
 
+  // Floating glass bar: Delete is always there for a saved profile; Cancel and Save appear
+  // once something was edited (`.dirty`).
   const actions = h(
     "div",
-    { class: "actions" },
+    { class: "actions actionbar" },
+    h("span", { class: "pending note" }, "Unsaved changes"),
     !model.isNew && h("button", { type: "button", class: "destructive", onclick: () => on.remove() }, "Delete"),
+    !model.isNew && h("span", { class: "pending sep", "aria-hidden": "true" }),
+    h("button", { type: "button", class: "pending", onclick: () => on.cancel() }, "Cancel"),
+    h("button", { type: "submit", class: "primary pending", disabled: model.busy, "aria-busy": model.busy ? "true" : null }, "Save"),
+  );
+
+  const meta = model.isNew
+    ? h("p", { class: "meta" }, MODES.find((m) => m.mode === p.mode)?.label ?? "")
+    : h(
+        "p",
+        { class: "meta" },
+        h("span", {}, `${p.host}:${p.port}`),
+        h("span", {}, MODES.find((m) => m.mode === p.mode)?.label ?? ""),
+        p.cert_pin ? h("span", { class: "trusted" }, icon("shield"), "Certificate trusted") : "",
+      );
+  const hero = h(
+    "header",
+    { class: "hero" },
+    modeGlyph(p.mode, "large"),
+    h("div", { class: "hero-text" }, h("h1", { id: "form-title" }, model.isNew ? "New Connection" : p.name || "Connection"), meta),
     h("span", { class: "spacer" }),
-    h("button", { type: "button", onclick: () => on.cancel() }, "Cancel"),
-    h("button", { type: "submit", class: "primary", disabled: model.busy, "aria-busy": model.busy ? "true" : null }, "Save"),
+    !model.isNew && on.connect
+      ? h("button", { type: "button", class: "primary large connect-now", onclick: () => on.connect?.() }, icon("play"), "Connect")
+      : "",
   );
 
   form.append(
-    h("h1", { id: "form-title" }, model.isNew ? "New Connection" : p.name || "Connection"),
+    hero,
     model.error ? h("p", { class: "form-error", role: "alert" }, model.error) : "",
-    textField("profile-name", "Name", p.name, issueFor("name"), { autocomplete: "off", placeholder: "Homelab" }),
-    modeGroup,
-    h(
-      "div",
-      { class: "row" },
-      textField("host", "Host", p.host, issueFor("host"), {
-        autocomplete: "off",
-        placeholder: "gnome.local or 192.168.1.20",
-        spellcheck: "false",
-        class: "grow",
-      }),
-      textField("port", "Port", String(p.port), issueFor("port"), { type: "number", min: "1", max: "65535", class: "port" }),
+    group(
+      textField("profile-name", "Name", p.name, issueFor("name"), { autocomplete: "off", placeholder: "Homelab" }),
+      h(
+        "div",
+        { class: "row" },
+        textField("host", "Host", p.host, issueFor("host"), {
+          autocomplete: "off",
+          placeholder: "gnome.local or 192.168.1.20",
+          spellcheck: "false",
+          class: "grow",
+        }),
+        textField("port", "Port", String(p.port), issueFor("port"), { type: "number", min: "1", max: "65535", class: "port" }),
+      ),
+      modeGroup,
     ),
     credentials,
     greeter ?? "",
@@ -292,6 +347,11 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
     actions,
   );
   mount(root, form);
+}
+
+/** A rounded glass group of form rows. */
+function group(...rows: (Node | string | false | null)[]): HTMLElement {
+  return h("div", { class: "group" }, rows);
 }
 
 interface FieldOpts {
@@ -338,7 +398,7 @@ function checkField(id: string, label: string, checked: boolean, hint: string | 
     h(
       "label",
       { class: "check" },
-      h("input", { type: "checkbox", id, checked, disabled, "aria-describedby": hint ? `${id}-hint` : null }),
+      h("input", { type: "checkbox", role: "switch", id, checked, disabled, "aria-describedby": hint ? `${id}-hint` : null }),
       label,
     ),
     hint ? h("p", { class: "hint", id: `${id}-hint` }, hint) : "",

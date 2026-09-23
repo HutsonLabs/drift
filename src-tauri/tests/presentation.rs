@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use drift_app::present::{
-    Hud, NEW_SESSION_TITLE, Surface, accessibility_label, cursor_shape, find_autoconnect, hud_frame,
+    Hud, NEW_SESSION_TITLE, Surface, accessibility_label, chrome, cursor_shape, find_autoconnect, hud_frame,
     surface_for, window_subtitle, window_title,
 };
 use drift_app::view::{Screen, SessionView};
@@ -208,4 +208,23 @@ fn autoconnect_finds_the_named_profile() {
     assert_eq!(find_autoconnect(&all, "  Homelab ").map(|p| p.id), Some(a.id), "trimmed");
     assert_eq!(find_autoconnect(&all, "nope"), None);
     assert_eq!(find_autoconnect(&all, ""), None);
+}
+
+#[test]
+fn a_single_tab_floats_the_traffic_lights_over_the_page() {
+    let c = chrome(32.0, 32.0, 31.0, false);
+    assert_eq!((c.titlebar, c.lights, c.offset, c.picture_top), (37.0, 31.0, 0.0, 37.0));
+}
+
+#[test]
+fn the_tab_bar_pushes_the_page_below_both_bars() {
+    let c = chrome(60.0, 32.0, 31.0, true);
+    assert_eq!((c.titlebar, c.lights, c.offset, c.picture_top), (32.0, 0.0, 60.0, 60.0));
+}
+
+#[test]
+fn full_screen_hides_the_title_bar() {
+    let c = chrome(0.0, 32.0, 31.0, false);
+    assert_eq!((c.titlebar, c.lights, c.offset, c.picture_top), (0.0, 0.0, 0.0, 0.0));
+    assert!(chrome(32.0, 32.0, 31.0, false).css_script().contains("'--lights','31px'"));
 }

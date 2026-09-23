@@ -248,3 +248,17 @@ describe("saving", () => {
     expect(h.events).toEqual(["cancel"]);
   });
 });
+
+describe("action bar", () => {
+  test("a saved profile shows Cancel and Save only after an edit", () => {
+    const h = mount(formModel(profile("headless"), { isNew: false, hasRdpPassword: true, hasLinuxPassword: false }));
+    const form = h.root.querySelector("form") as HTMLFormElement;
+    expect(form.classList.contains("dirty")).toBe(false);
+    type(field(h.root, "Name"), "Renamed");
+    expect(form.classList.contains("dirty")).toBe(true);
+  });
+
+  test("a new profile starts unsaved", () => {
+    expect(mount(newModel("headless")).root.querySelector("form")?.classList.contains("dirty")).toBe(true);
+  });
+});

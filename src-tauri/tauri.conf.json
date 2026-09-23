@@ -10,7 +10,21 @@
   },
   "app": {
     "withGlobalTauri": false,
-    "windows": [],
+    "windows": [
+      {
+        "label": "session",
+        "create": false,
+        "title": "New Session",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 480,
+        "minHeight": 320,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 20, "y": 28 },
+        "windowEffects": { "effects": ["sidebar"], "state": "active" }
+      }
+    ],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     },
@@ -32,7 +46,7 @@
       "icons/icon.png"
     ],
     "macOS": {
-      "minimumSystemVersion": "14.0",
+      "minimumSystemVersion": "27.0",
       "entitlements": "entitlements.plist",
       "hardenedRuntime": true,
       "signingIdentity": "FE9B9ADD91CB67176BFE80FF725F77539D75BD96"

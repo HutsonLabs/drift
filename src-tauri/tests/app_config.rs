@@ -46,11 +46,13 @@ fn info_plist_declares_local_network_usage() {
 
 #[test]
 fn session_windows_are_created_by_the_app_not_the_config() {
-    // Every tab is created hidden, joined to the group and then shown (M6-2), so no window is
-    // declared statically; capabilities cover the generated labels.
+    // Every tab is created hidden, joined to the group and then shown (M6-2), so the config only
+    // holds the `session` template (never created on its own); capabilities cover the labels.
     let conf: serde_json::Value = serde_json::from_str(&read("tauri.conf.json")).unwrap();
-    let windows = conf["app"]["windows"].as_array().map_or(0, Vec::len);
-    assert_eq!(windows, 0, "no static windows");
+    let windows = conf["app"]["windows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(windows.len(), 1, "only the session template");
+    assert_eq!(windows[0]["label"], drift_app::windows::SESSION_TEMPLATE);
+    assert_eq!(windows[0]["create"], false, "the app creates session windows itself");
     assert_eq!(conf["bundle"]["macOS"]["minimumSystemVersion"], "14.0");
     let caps: serde_json::Value = serde_json::from_str(&read("capabilities/default.json")).unwrap();
     let labels: Vec<_> = caps["windows"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();

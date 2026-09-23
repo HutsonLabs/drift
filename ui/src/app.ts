@@ -79,6 +79,7 @@ export class DriftApp {
   private session: SessionView_Serialize | null = null;
   private sessionAt = 0;
   private activeProfileId: string | null = null;
+  private query = "";
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -138,7 +139,7 @@ export class DriftApp {
   private async save(draft: FormDraft): Promise<void> {
     const form = this.form;
     if (!form) return;
-    this.form = { ...form, ...draftFields(draft), busy: true, error: null };
+    this.form = { ...form, ...draftFields(draft), busy: true, error: null, dirty: true };
     this.render();
     const r = (await this.api.saveProfile(draft.profile, toSecretsUpdate(draft, form.hasLinuxPassword))) as Result<ProfileEntry_Serialize>;
     if (r.status === "ok") {
@@ -147,7 +148,7 @@ export class DriftApp {
       this.notice = null;
     } else {
       const issues = r.error.kind === "invalid" ? r.error.issues : [];
-      this.form = { ...form, ...draftFields(draft), busy: false, issues, error: r.error.kind === "invalid" ? null : describeError(r.error) };
+      this.form = { ...form, ...draftFields(draft), busy: false, dirty: true, issues, error: r.error.kind === "invalid" ? null : describeError(r.error) };
     }
     this.render();
   }
@@ -288,7 +289,7 @@ export class DriftApp {
     if (form) {
       renderProfileForm(detail, form, {
         change: (d) => {
-          this.form = { ...form, ...draftFields(d), issues: [] };
+          this.form = { ...form, ...draftFields(d), issues: [], dirty: true };
           this.render();
         },
         save: (d) => void this.save(d),
@@ -300,6 +301,7 @@ export class DriftApp {
         },
         remove: () => void this.remove(),
         forgetCertificate: () => void this.forgetCertificate(),
+        connect: () => void this.connect(form.profile.id),
       });
     }
     const empty = this.entries.length === 0;
@@ -321,7 +323,10 @@ export class DriftApp {
             },
             connect: (id) => void this.connect(id),
             create: () => void this.createProfile(form?.profile.mode ?? DEFAULT_MODE).then(() => this.render()),
-          }),
+            search: (q) => {
+              this.query = q;
+            },
+          }, this.query),
       h(
         "div",
         { class: "content" },

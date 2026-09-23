@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160" viewBox="0 0 3840 2160">
+  <!-- Drift dark wallpaper: the mockup's dark desk gradient (docs/design/mockup-glass.html). -->
+  <defs>
+    <radialGradient id="g0" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(460.8 388.8) scale(2304 1728)">
+      <stop offset="0" stop-color="#005a7a"/>
+      <stop offset="0.6" stop-color="#005a7a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="g1" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(3379.2 259.2) scale(1920 1512)">
+      <stop offset="0" stop-color="#5f246c"/>
+      <stop offset="0.62" stop-color="#5f246c" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="g2" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(2688 2052) scale(2688 1512)">
+      <stop offset="0" stop-color="#233285"/>
+      <stop offset="0.6" stop-color="#233285" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="g3" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(768 2160) scale(2304 1296)">
+      <stop offset="0" stop-color="#00574e"/>
+      <stop offset="0.6" stop-color="#00574e" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="3840" height="2160" fill="#111f37"/>
+  <rect width="3840" height="2160" fill="url(#g3)"/>
+  <rect width="3840" height="2160" fill="url(#g2)"/>
+  <rect width="3840" height="2160" fill="url(#g1)"/>
+  <rect width="3840" height="2160" fill="url(#g0)"/>
+</svg>

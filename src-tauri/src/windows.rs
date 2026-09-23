@@ -27,10 +27,12 @@ use drift_render::{Compositor, Gpu, LayerTarget, RenderThread};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{MainThreadMarker, Message as _, msg_send};
-use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindow};
+use objc2_app_kit::{
+    NSAutoresizingMaskOptions, NSView, NSWindow, NSWindowButton, NSWindowStyleMask, NSWindowTitleVisibility,
+};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID};
-use tauri::{AppHandle, EventTarget, Manager as _, Runtime, Webview, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, EventTarget, Manager as _, Runtime, Webview, WebviewWindowBuilder};
 use uuid::Uuid;
 
 use crate::commands::AppState;
@@ -137,24 +139,30 @@ pub(crate) fn open_tab_with<R: Runtime>(app: &AppHandle<R>, autoconnect: Option<
             let state = app.state::<AppState>();
             window_label(state.next_window())
         };
-        let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
-            .title(present::NEW_SESSION_TITLE)
-            .inner_size(1280.0, 800.0)
-            .min_inner_size(480.0, 320.0)
-            .tabbing_identifier(TABBING_IDENTIFIER)
-            // The webview must be able to paint over the live picture: the reconnect overlay
-            // dims the last frame and the greeter/statistics HUDs float on top of it (M7-3,
-            // M1). Needs Tauri's `macos-private-api`; see
-            // docs/adr/M7-3-overlays-over-the-live-picture.md.
-            .transparent(true)
-            .visible(false)
-            .build();
+        // Size, title bar, traffic lights and window material come from the `session` window
+        // template in tauri.conf.json (`create: false`), so they can be tuned without a rebuild.
+        let built = session_template(&app, &label).and_then(|config| {
+            WebviewWindowBuilder::from_config(&app, &config)?
+                .tabbing_identifier(TABBING_IDENTIFIER)
+                // The webview must be able to paint over the live picture: the reconnect overlay
+                // dims the last frame and the greeter/statistics HUDs float on top of it (M7-3,
+                // M1). Needs Tauri's `macos-private-api`; see
+                // docs/adr/M7-3-overlays-over-the-live-picture.md.
+                .transparent(true)
+                .visible(false)
+                .build()
+        });
         match built {
             Ok(_) => {
                 if let Err(e) = finish_window(&app, label.clone()) {
                     tracing::error!(%label, error = %e, "could not finish the session window");
                     return;
                 }
+                // tao moves the traffic lights when the window first draws, and a new tab shows
+                // the tab bar in every window of the group: measure again once that happened.
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                let handle = app.clone();
+                let _ = on_main(&app, move |_| sync_all_chrome(&handle));
                 if let Some(profile) = autoconnect
                     && let Err(e) = connect_profile(&app, &label, profile)
                 {
@@ -164,6 +172,29 @@ pub(crate) fn open_tab_with<R: Runtime>(app: &AppHandle<R>, autoconnect: Option<
             Err(e) => tracing::error!(%label, error = %e, "could not create the session window"),
         }
     });
+}
+
+/// Label of the session window template in tauri.conf.json.
+pub const SESSION_TEMPLATE: &str = "session";
+
+/// The `session` window template, relabelled for one tab. With one tab the traffic lights sit on
+/// the glass sidebar and the title shows only over the live picture (`apply_view`); the
+/// vibrancy sits below the RemoteView, which is hidden on the page-only screens.
+fn session_template<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+) -> tauri::Result<tauri::utils::config::WindowConfig> {
+    let mut config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == SESSION_TEMPLATE)
+        .cloned()
+        .ok_or_else(|| tauri::Error::WindowNotFound)?;
+    config.label = label.to_owned();
+    config.create = true;
+    Ok(config)
 }
 
 /// Attaches the RemoteView, joins the tab group and shows the window (main thread).
@@ -181,9 +212,17 @@ fn finish_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), Co
         tabs::prepare_for_tabs(&ns);
         let observer = {
             let link = link.clone();
-            WindowObserver::new(&ns, move |event| match event {
-                MacWindowEvent::Occlusion { visible } => link.send(SessionCommand::SetVisible(visible)),
-                MacWindowEvent::Key(focused) => link.send(SessionCommand::Focus(focused)),
+            let app = app2.clone();
+            let label = label.clone();
+            // Tab switches, new or closed tabs and full screen all change the title and tab bars;
+            // each of them also changes occlusion, key state or full screen.
+            WindowObserver::new(&ns, move |event| {
+                match event {
+                    MacWindowEvent::Occlusion { visible } => link.send(SessionCommand::SetVisible(visible)),
+                    MacWindowEvent::Key(focused) => link.send(SessionCommand::Focus(focused)),
+                    MacWindowEvent::FullScreen(_) | MacWindowEvent::Resized => {}
+                }
+                sync_chrome(&app, &label);
             })
         };
         // The tab bar's "+" (process-wide; the first installation wins).
@@ -307,6 +346,13 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
         let Some(window) = app2.get_webview_window(&label) else { return };
         let _ = window.set_title(&title);
         with_platform(&label, |plat| {
+            // The title shows in the bar over the live picture; on the form, prompts and errors
+            // the traffic lights float over the page on their own.
+            plat.window.setTitleVisibility(if surface == Surface::Webview {
+                NSWindowTitleVisibility::Hidden
+            } else {
+                NSWindowTitleVisibility::Visible
+            });
             plat.window.setSubtitle(&NSString::from_str(&subtitle));
             plat.view.set_accessibility_label(&accessibility_label);
             match desktop {
@@ -314,17 +360,26 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
                 None => plat.view.clear_desktop(),
             }
         });
+        sync_chrome(&app2, &label);
         let glue = |e: drift_macos::tauri_glue::GlueError| CommandError::Platform { message: e.to_string() };
         let switched: Result<Option<()>, CommandError> = match surface {
-            Surface::Remote => {
-                with_platform(&label, |plat| tauri_glue::show_remote(&window, &plat.view).map_err(glue))
-                    .transpose()
-            }
+            Surface::Remote => with_platform(&label, |plat| {
+                plat.view.setHidden(false);
+                tauri_glue::show_remote(&window, &plat.view).map_err(glue)
+            })
+            .transpose(),
             Surface::Webview | Surface::Overlay => {
+                // With no picture to show, the opaque Metal view would cover the window's
+                // vibrancy; the overlay keeps it for the dimmed last frame.
+                with_platform(&label, |plat| plat.view.setHidden(surface == Surface::Webview));
                 fill_window_with_webview(&window);
                 tauri_glue::show_webview(&window).map_err(glue).map(Some)
             }
-            Surface::Hud(hud) => with_platform(&label, |plat| show_hud(&window, &plat.view, hud)).transpose(),
+            Surface::Hud(hud) => with_platform(&label, |plat| {
+                plat.view.setHidden(false);
+                show_hud(&window, &plat.view, hud)
+            })
+            .transpose(),
         };
         if let Err(e) = switched {
             tracing::warn!(error = %e, "could not switch the window surface");
@@ -349,6 +404,66 @@ fn webview_view<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Option<Retained
     // SAFETY: tao returns its live content `NSView*`; we are on the main thread and retain it.
     let content = unsafe { ptr.as_ref() }?.retain();
     drift_macos::webview::find_webview(&content)
+}
+
+/// Lays the window out around its title and tab bars ([`present::chrome`], main thread): the
+/// live picture starts below them and the page learns how much room to leave via CSS
+/// variables. A no-op while the window's platform state is being set up or borrowed.
+fn sync_chrome<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let Some(window) = app.get_webview_window(label) else { return };
+    let Some(chrome) = PLATFORM.with(|p| {
+        let map = p.try_borrow().ok()?;
+        let plat = map.get(label)?;
+        // SAFETY: `superview` returns the (retained) parent or nil; we are on the main thread.
+        let parent = unsafe { plat.view.superview() }?;
+        let bounds = parent.bounds();
+        let layout = plat.window.contentLayoutRect();
+        let covered = bounds.size.height - layout.size.height;
+        let titlebar = title_bar_height(&plat.window, mtm);
+        let lights_bottom = traffic_lights_bottom(&plat.window, bounds.size.height);
+        let tabbed = plat.window.tabGroup().is_some_and(|g| g.isTabBarVisible());
+        let chrome = present::chrome(covered, titlebar, lights_bottom, tabbed);
+        tracing::debug!(covered, titlebar, lights_bottom, tabbed, ?chrome, "window chrome");
+        let height = (bounds.size.height - chrome.picture_top).max(1.0);
+        let y = if parent.isFlipped() { bounds.origin.y + chrome.picture_top } else { bounds.origin.y };
+        plat.view.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+        );
+        plat.view
+            .setFrame(NSRect::new(NSPoint::new(bounds.origin.x, y), NSSize::new(bounds.size.width, height)));
+        Some(chrome)
+    }) else {
+        return;
+    };
+    let _ = window
+        .eval(chrome.css_script())
+        .inspect_err(|e| tracing::debug!(error = %e, "could not pass the insets"));
+}
+
+/// [`sync_chrome`] for every session window (main thread).
+fn sync_all_chrome<R: Runtime>(app: &AppHandle<R>) {
+    let labels: Vec<String> =
+        PLATFORM.with(|p| p.try_borrow().map(|m| m.keys().cloned().collect()).unwrap_or_default());
+    for label in labels {
+        sync_chrome(app, &label);
+    }
+}
+
+/// Where the traffic lights end, in points from the top of a `height`-high content view.
+fn traffic_lights_bottom(window: &NSWindow, height: f64) -> f64 {
+    let Some(close) = window.standardWindowButton(NSWindowButton::CloseButton) else { return 0.0 };
+    // In window coordinates (origin bottom-left), which match the full-size content view.
+    let rect = close.convertRect_toView(close.bounds(), None);
+    height - rect.origin.y
+}
+
+/// Height of a standard title bar row for `window` (without the tab bar).
+fn title_bar_height(window: &NSWindow, mtm: MainThreadMarker) -> f64 {
+    let style = window.styleMask() & !NSWindowStyleMask::FullSizeContentView;
+    let content = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(100.0, 100.0));
+    let frame = NSWindow::frameRectForContentRect_styleMask(content, style, mtm);
+    frame.size.height - content.size.height
 }
 
 /// Gives the web view its superview's bounds back (a HUD shrinks it to a corner panel).
@@ -377,7 +492,8 @@ fn show_hud<R: Runtime>(
     // SAFETY: `superview` returns the (retained) parent or nil; we are on the main thread.
     let parent =
         unsafe { web.superview() }.ok_or_else(|| platform("the WKWebView has no superview".into()))?;
-    let bounds = parent.bounds();
+    // Relative to the picture, which starts below the title bar (`sync_chrome`).
+    let bounds = view.frame();
     let frame = present::hud_frame(Size::new(bounds.size.width, bounds.size.height), hud, parent.isFlipped());
     let wv: &Webview<R> = window.as_ref();
     wv.show().map_err(|e| platform(e.to_string()))?;

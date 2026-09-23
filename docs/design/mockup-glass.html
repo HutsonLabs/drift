@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drift — Glass redesign mockup</title>
+<style>
+/* ============================================================================================
+   Drift glass mockup. Everything here is static; it shows layout, material and type only.
+   Interface font: Avenir Next (ships with macOS). Code/fingerprints: SF Mono.
+   ============================================================================================ */
+:root {
+  --font: "Avenir Next", "Avenir", -apple-system, system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --accent: oklch(0.6 0.15 245);
+  --accent-strong: oklch(0.54 0.16 248);
+  --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+  --good: oklch(0.68 0.16 150);
+  --warn: oklch(0.74 0.15 70);
+  --danger: oklch(0.58 0.2 25);
+  --r-window: 22px;
+  --r-panel: 16px;
+  --r-group: 14px;
+  --r-control: 9px;
+}
+[data-theme="light"] {
+  color-scheme: light;
+  --text: oklch(0.22 0.02 255);
+  --secondary: oklch(0.47 0.02 255);
+  --tertiary: oklch(0.6 0.015 255);
+  --window: oklch(0.985 0.004 250 / 0.72);
+  --sidebar: oklch(1 0 0 / 0.42);
+  --group: oklch(1 0 0 / 0.62);
+  --field: oklch(1 0 0 / 0.78);
+  --hairline: oklch(0.3 0.02 255 / 0.1);
+  --rim: oklch(1 0 0 / 0.75);
+  --rim-soft: oklch(1 0 0 / 0.45);
+  --hover: oklch(0.3 0.02 255 / 0.05);
+  --selected: oklch(1 0 0 / 0.7);
+  --shadow-window: 0 40px 80px -24px oklch(0.25 0.05 260 / 0.38), 0 12px 28px -12px oklch(0.25 0.05 260 / 0.25);
+  --shadow-panel: 0 10px 30px -14px oklch(0.25 0.05 260 / 0.3);
+  --shadow-control: 0 1px 2px oklch(0.25 0.05 260 / 0.14);
+  --scrim: oklch(0.2 0.02 260 / 0.1);
+  --sheet: oklch(0.99 0.003 250 / 0.82);
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --text: oklch(0.96 0.005 250);
+  --secondary: oklch(0.76 0.012 250);
+  --tertiary: oklch(0.62 0.012 250);
+  --window: oklch(0.2 0.012 260 / 0.7);
+  --sidebar: oklch(0.3 0.015 260 / 0.38);
+  --group: oklch(0.32 0.012 260 / 0.5);
+  --field: oklch(0.16 0.01 260 / 0.6);
+  --hairline: oklch(1 0 0 / 0.1);
+  --rim: oklch(1 0 0 / 0.2);
+  --rim-soft: oklch(1 0 0 / 0.09);
+  --hover: oklch(1 0 0 / 0.05);
+  --selected: oklch(1 0 0 / 0.12);
+  --accent: oklch(0.68 0.15 245);
+  --accent-soft: color-mix(in oklab, var(--accent) 24%, transparent);
+  --danger: oklch(0.68 0.19 25);
+  --shadow-window: 0 40px 90px -20px oklch(0 0 0 / 0.7), 0 12px 30px -10px oklch(0 0 0 / 0.5);
+  --shadow-panel: 0 14px 34px -14px oklch(0 0 0 / 0.6);
+  --shadow-control: 0 1px 2px oklch(0 0 0 / 0.4);
+  --scrim: oklch(0 0 0 / 0.3);
+  --sheet: oklch(0.25 0.012 260 / 0.72);
+}
+
+* { box-sizing: border-box; }
+html { background: oklch(0.95 0.005 250); }
+[data-theme="dark"] { background: oklch(0.15 0.01 260); }
+body {
+  margin: 0;
+  font: 500 13px/1.45 var(--font);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "kern", "liga";
+}
+::selection { background: var(--accent-soft); }
+button, input, select { font: inherit; color: inherit; }
+code { font: 12px/1.55 var(--mono); }
+svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- presentation chrome (not part of the app) ---------- */
+.deck { max-width: 1320px; margin: 0 auto; padding: 48px 40px 96px; }
+.deck-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 36px; }
+.deck-head h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; }
+.deck-head p { margin: 0; color: var(--secondary); max-width: 62ch; font-size: 15px; }
+.theme-switch { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--hover); border: 0.5px solid var(--hairline); }
+.theme-switch button { border: 0; background: none; padding: 6px 16px; border-radius: 999px; font-weight: 600; cursor: pointer; color: var(--secondary); }
+.theme-switch button[aria-pressed="true"] { background: var(--field); color: var(--text); box-shadow: var(--shadow-control); }
+.board { margin: 0 0 72px; }
+.board-head { display: grid; grid-template-columns: 280px 1fr; gap: 32px; margin-bottom: 18px; align-items: start; }
+.board-head h2 { font-size: 20px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.board-head ul { margin: 0; padding-left: 18px; color: var(--secondary); font-size: 14px; columns: 2; column-gap: 40px; }
+.board-head li { margin-bottom: 4px; break-inside: avoid; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+
+/* ---------- desktop wallpaper (stands in for whatever is behind the vibrant window) ---------- */
+.desk {
+  position: relative;
+  border-radius: 28px;
+  padding: 44px;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(60% 80% at 12% 18%, oklch(0.78 0.13 210) 0%, transparent 60%),
+    radial-gradient(50% 70% at 88% 12%, oklch(0.8 0.12 320) 0%, transparent 62%),
+    radial-gradient(70% 70% at 70% 95%, oklch(0.74 0.14 265) 0%, transparent 60%),
+    radial-gradient(60% 60% at 20% 100%, oklch(0.86 0.1 180) 0%, transparent 60%),
+    oklch(0.84 0.07 250);
+}
+[data-theme="dark"] .desk {
+  background:
+    radial-gradient(60% 80% at 12% 18%, oklch(0.42 0.12 220) 0%, transparent 60%),
+    radial-gradient(50% 70% at 88% 12%, oklch(0.38 0.13 320) 0%, transparent 62%),
+    radial-gradient(70% 70% at 70% 95%, oklch(0.36 0.14 270) 0%, transparent 60%),
+    radial-gradient(60% 60% at 20% 100%, oklch(0.4 0.09 185) 0%, transparent 60%),
+    oklch(0.24 0.05 260);
+}
+
+/* ---------- the window ---------- */
+.window {
+  position: relative;
+  border-radius: var(--r-window);
+  background: var(--window);
+  -webkit-backdrop-filter: blur(40px) saturate(170%);
+  backdrop-filter: blur(40px) saturate(170%);
+  box-shadow: var(--shadow-window), inset 0 0 0 0.5px var(--rim);
+  display: grid;
+  grid-template-columns: 272px 1fr;
+  overflow: hidden;
+}
+.window.small { height: 560px; grid-template-columns: 1fr; }
+.lights { position: absolute; top: 19px; left: 20px; display: flex; gap: 8px; z-index: 5; }
+.lights span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px oklch(0 0 0 / 0.15); }
+.lights span:nth-child(1) { background: #ff5f57; }
+.lights span:nth-child(2) { background: #febc2e; }
+.lights span:nth-child(3) { background: #28c840; }
+
+/* Floating glass sidebar, inset from the window edge (macOS 26 style). */
+.sidebar {
+  margin: 8px 0 8px 8px;
+  border-radius: var(--r-panel);
+  background: var(--sidebar);
+  box-shadow: var(--shadow-panel), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  display: flex;
+  flex-direction: column;
+  padding: 50px 10px 10px;
+  min-height: 0;
+}
+.search {
+  display: flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 10px; margin: 0 2px 16px;
+  border-radius: 999px;
+  background: var(--hover);
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+  color: var(--tertiary);
+}
+.search svg.i { width: 14px; height: 14px; }
+.sidebar h3 { font-size: 11px; font-weight: 600; color: var(--tertiary); margin: 0 10px 6px; letter-spacing: 0.02em; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.row-item {
+  display: grid; grid-template-columns: 32px 1fr auto; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: 11px;
+}
+.row-item:hover { background: var(--hover); }
+.row-item.selected { background: var(--selected); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--rim-soft); }
+.glyph {
+  width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: #fff;
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.35), 0 1px 2px oklch(0 0 0 / 0.15);
+}
+.glyph svg.i { width: 17px; height: 17px; stroke-width: 1.8; }
+.glyph.login { background: linear-gradient(160deg, oklch(0.7 0.14 240), oklch(0.56 0.16 255)); }
+.glyph.headless { background: linear-gradient(160deg, oklch(0.72 0.12 175), oklch(0.56 0.12 190)); }
+.glyph.sharing { background: linear-gradient(160deg, oklch(0.74 0.14 300), oklch(0.58 0.16 290)); }
+.item-name { font-weight: 600; font-size: 13.5px; line-height: 1.25; }
+.item-detail { color: var(--secondary); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 2px color-mix(in oklab, var(--good) 25%, transparent); }
+.play {
+  width: 26px; height: 26px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: var(--accent); color: #fff; box-shadow: 0 2px 6px -1px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+.play svg.i { width: 11px; height: 11px; fill: currentColor; stroke: none; margin-left: 1px; }
+.sidebar-foot { margin-top: auto; padding-top: 10px; }
+.new-btn {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px; border-radius: 11px; border: 0; font-weight: 600;
+  background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--hairline);
+}
+
+/* ---------- detail pane ---------- */
+.detail { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.detail-scroll { flex: 1; padding: 30px 40px 96px; }
+.hero { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; }
+.hero .glyph { width: 52px; height: 52px; border-radius: 14px; }
+.hero .glyph svg.i { width: 26px; height: 26px; }
+.hero h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; }
+.hero .meta { display: flex; gap: 10px; align-items: center; color: var(--secondary); font-size: 13px; margin-top: 3px; }
+.hero .meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--tertiary); }
+.trusted { display: inline-flex; align-items: center; gap: 4px; color: var(--good); font-weight: 600; }
+.trusted svg.i { width: 13px; height: 13px; stroke-width: 2; }
+.hero .spacer { flex: 1; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 30px; padding: 0 14px; border-radius: 999px; border: 0; font-weight: 600; font-size: 13px;
+  background: var(--field); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--hairline);
+  cursor: default; white-space: nowrap;
+}
+.btn.primary {
+  color: #fff; background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 88%, white), var(--accent-strong));
+  box-shadow: 0 4px 14px -4px color-mix(in oklab, var(--accent) 70%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.3);
+}
+.btn.large { height: 36px; padding: 0 20px; font-size: 14px; }
+.btn.large svg.i { width: 12px; height: 12px; fill: currentColor; stroke: none; }
+.btn.destructive { color: var(--danger); }
+.btn.icon { width: 30px; padding: 0; }
+.btn.ghost { background: transparent; box-shadow: none; color: var(--accent); }
+
+.group-title { font-size: 13px; font-weight: 700; margin: 24px 4px 8px; }
+.group-title + .group-hint { margin-top: -4px; }
+.group-hint { color: var(--secondary); font-size: 12px; margin: 0 4px 10px; max-width: 70ch; }
+.group-hint code, .hint code { font-size: 11px; padding: 1px 5px; border-radius: 5px; background: var(--hover); }
+.group {
+  border-radius: var(--r-group);
+  background: var(--group);
+  box-shadow: inset 0 0 0 0.5px var(--rim-soft), 0 1px 2px oklch(0 0 0 / 0.04);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.g-row { display: grid; grid-template-columns: 200px 1fr; align-items: center; gap: 16px; min-height: 48px; padding: 8px 16px; }
+.g-row + .g-row { border-top: 0.5px solid var(--hairline); }
+.g-row > label, .g-row .label { font-weight: 600; }
+.g-row .sub { display: block; color: var(--secondary); font-weight: 500; font-size: 12px; margin-top: 1px; }
+.g-row.tall { align-items: start; padding-top: 12px; padding-bottom: 14px; }
+.inline { display: flex; gap: 10px; align-items: center; }
+.field {
+  width: 100%; height: 30px; padding: 0 11px; border-radius: var(--r-control); border: 0;
+  background: var(--field); box-shadow: inset 0 0 0 0.5px var(--hairline), inset 0 1px 2px oklch(0 0 0 / 0.04);
+  font-weight: 500;
+}
+.field::placeholder { color: var(--tertiary); }
+.field.port { width: 84px; text-align: center; font-variant-numeric: tabular-nums; }
+.field.focus { box-shadow: 0 0 0 3.5px var(--accent-soft), inset 0 0 0 1px var(--accent); }
+.port-label { color: var(--secondary); font-weight: 600; }
+select.field { appearance: none; padding-right: 30px; background-image: linear-gradient(45deg, transparent 50%, var(--secondary) 50%), linear-gradient(135deg, var(--secondary) 50%, transparent 50%); background-position: calc(100% - 15px) 13px, calc(100% - 11px) 13px; background-size: 4px 4px; background-repeat: no-repeat; }
+
+/* Connection type: three glass tiles instead of a plain segmented control. */
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mode {
+  position: relative; display: grid; gap: 6px; padding: 12px; border-radius: 12px;
+  background: var(--field); box-shadow: inset 0 0 0 0.5px var(--hairline);
+}
+.mode .glyph { width: 26px; height: 26px; border-radius: 7px; }
+.mode .glyph svg.i { width: 14px; height: 14px; }
+.mode strong { font-weight: 600; font-size: 13px; }
+.mode.on { box-shadow: inset 0 0 0 1.5px var(--accent), 0 4px 14px -6px color-mix(in oklab, var(--accent) 60%, transparent); background: color-mix(in oklab, var(--accent) 7%, var(--field)); }
+.mode.on::after {
+  content: ""; position: absolute; top: 10px; right: 10px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.3l2.3 2.2 4.7-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/16px no-repeat;
+}
+.hint { color: var(--secondary); font-size: 12px; margin: 8px 0 0; }
+
+/* Switch */
+.switch { justify-self: end; width: 38px; height: 22px; border-radius: 999px; background: oklch(0.5 0.01 260 / 0.25); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px oklch(0 0 0 / 0.3); }
+.switch.on { background: var(--accent); }
+.switch.on::after { left: 18px; }
+.switch.off-disabled { opacity: 0.45; }
+.g-row.toggle { grid-template-columns: 1fr auto; }
+
+.fp { font: 11.5px/1.6 var(--mono); color: var(--secondary); word-break: break-all; letter-spacing: 0.01em; }
+.disclosure { display: flex; align-items: center; gap: 6px; font-weight: 700; margin: 24px 4px 8px; }
+.disclosure svg.i { width: 12px; height: 12px; stroke-width: 2.2; transform: rotate(90deg); color: var(--secondary); }
+
+/* Floating action bar at the bottom of the detail pane. */
+.actionbar {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+  display: flex; gap: 8px; align-items: center; padding: 7px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--group) 70%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(22px) saturate(180%);
+  box-shadow: var(--shadow-panel), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+}
+.actionbar .sep { width: 0.5px; height: 18px; background: var(--hairline); margin: 0 2px; }
+.actionbar .note { color: var(--secondary); font-size: 12px; padding: 0 8px 0 10px; }
+.fade { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; pointer-events: none; background: linear-gradient(transparent, color-mix(in oklab, var(--window) 90%, transparent)); }
+
+/* ---------- sheets and dialogs ---------- */
+.scrim { position: absolute; inset: 0; background: var(--scrim); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); z-index: 3; display: grid; place-items: center; }
+.sheet {
+  width: 440px; padding: 28px; border-radius: 24px; text-align: center;
+  background: var(--sheet);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: var(--shadow-window), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+}
+.sheet h2 { font-size: 19px; font-weight: 700; margin: 14px 0 6px; letter-spacing: -0.01em; line-height: 1.25; }
+.sheet p { margin: 0 0 8px; color: var(--secondary); font-size: 13px; }
+.sheet .actions { display: flex; gap: 8px; justify-content: center; margin-top: 20px; }
+.sheet .actions.split .btn { flex: 1; }
+.badge-icon { width: 56px; height: 56px; margin: 0 auto; border-radius: 16px; display: grid; place-items: center; color: #fff; }
+.badge-icon svg.i { width: 28px; height: 28px; stroke-width: 1.7; }
+.badge-icon.shield { background: linear-gradient(160deg, oklch(0.72 0.13 240), oklch(0.55 0.16 258)); box-shadow: 0 8px 20px -8px oklch(0.55 0.16 258 / 0.8), inset 0 1px 0 oklch(1 0 0 / 0.35); }
+.badge-icon.warn { background: linear-gradient(160deg, oklch(0.8 0.14 75), oklch(0.66 0.16 55)); box-shadow: 0 8px 20px -8px oklch(0.66 0.16 55 / 0.8), inset 0 1px 0 oklch(1 0 0 / 0.35); }
+.fp-card { text-align: left; margin: 16px 0 10px; padding: 12px 14px; border-radius: 12px; background: var(--field); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.fp-card .fp-label { font-size: 11px; font-weight: 700; color: var(--secondary); margin-bottom: 4px; }
+.fp-card .fp { color: var(--text); font-size: 12px; }
+.check-row { display: flex; align-items: center; justify-content: space-between; text-align: left; padding: 10px 2px 0; font-weight: 600; }
+.sheet .hint { text-align: left; }
+
+/* Connecting: stage track */
+.stages { display: grid; gap: 2px; margin: 18px 0 4px; text-align: left; }
+.stage { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 9px; color: var(--tertiary); font-weight: 500; }
+.stage .tick { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px currentColor; flex: none; }
+.stage.done { color: var(--secondary); }
+.stage.done .tick { background: var(--good); box-shadow: none; color: #fff; }
+.stage.done .tick svg.i { width: 11px; height: 11px; stroke-width: 2.4; }
+.stage.now { color: var(--text); font-weight: 600; background: var(--accent-soft); }
+.stage.now .tick { box-shadow: none; border: 2px solid color-mix(in oklab, var(--accent) 30%, transparent); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .stage.now .tick { animation: none; } }
+
+.error-steps { text-align: left; margin: 16px 0 0; padding: 14px 16px; border-radius: 12px; background: var(--field); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.error-steps h3 { margin: 0 0 6px; font-size: 12px; font-weight: 700; }
+.error-steps ol { margin: 0; padding-left: 18px; color: var(--secondary); }
+.error-steps li { margin-bottom: 4px; }
+.error-steps li::marker { font-weight: 700; color: var(--text); }
+
+/* ---------- live session window ---------- */
+.session { position: relative; height: 560px; border-radius: var(--r-window); overflow: hidden; box-shadow: var(--shadow-window), inset 0 0 0 0.5px var(--rim); }
+.tabbar {
+  position: absolute; top: 0; left: 0; right: 0; height: 44px; z-index: 4;
+  display: flex; align-items: center; gap: 6px; padding: 0 10px 0 88px;
+  background: color-mix(in oklab, var(--window) 70%, transparent);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: inset 0 -0.5px 0 var(--hairline);
+}
+.tabbar .lights { top: 16px; }
+.tab { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px; border-radius: 999px; font-weight: 600; font-size: 12.5px; color: var(--secondary); }
+.tab.on { background: var(--selected); color: var(--text); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--rim-soft); }
+.tab .status { width: 6px; height: 6px; box-shadow: none; }
+.tab .status.amber { background: var(--warn); }
+.tabbar .spacer { flex: 1; }
+.remote {
+  position: absolute; inset: 44px 0 0 0;
+  background:
+    radial-gradient(80% 90% at 30% 20%, oklch(0.45 0.12 290) 0%, transparent 60%),
+    radial-gradient(70% 80% at 85% 90%, oklch(0.4 0.14 20) 0%, transparent 60%),
+    oklch(0.22 0.04 280);
+}
+.gnome-bar { height: 26px; background: oklch(0 0 0 / 0.85); color: #eee; font: 600 11px/26px "Cantarell", var(--font); display: flex; justify-content: space-between; padding: 0 12px; }
+.gnome-win { position: absolute; left: 12%; top: 16%; width: 58%; height: 60%; border-radius: 12px; background: oklch(0.25 0.005 260); box-shadow: 0 20px 50px oklch(0 0 0 / 0.5); }
+.gnome-win::before { content: ""; display: block; height: 38px; border-radius: 12px 12px 0 0; background: oklch(0.3 0.005 260); }
+.gnome-login { position: absolute; inset: 26px 0 0 0; display: grid; place-items: center; }
+.gnome-login .who { display: grid; justify-items: center; gap: 10px; color: #fff; font: 600 14px "Cantarell", var(--font); }
+.gnome-login .avatar { width: 84px; height: 84px; border-radius: 50%; background: oklch(0.6 0.1 250); }
+.gnome-login .pw { width: 220px; height: 32px; border-radius: 8px; background: oklch(1 0 0 / 0.12); }
+
+.hud {
+  position: absolute; right: 16px; bottom: 16px; display: flex; gap: 14px; align-items: center;
+  padding: 9px 14px; border-radius: 14px; color: #fff;
+  background: oklch(0.2 0.01 260 / 0.45);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 10px 30px -10px oklch(0 0 0 / 0.6), inset 0 0.5px 0 oklch(1 0 0 / 0.25), inset 0 0 0 0.5px oklch(1 0 0 / 0.12);
+}
+.hud .m { display: grid; gap: 0; }
+.hud .v { font: 600 15px/1.2 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.hud .u { font-size: 10.5px; color: oklch(1 0 0 / 0.65); font-weight: 600; }
+.hud .sep { width: 0.5px; align-self: stretch; background: oklch(1 0 0 / 0.18); }
+
+.banner {
+  position: absolute; left: 50%; top: 84px; transform: translateX(-50%); z-index: 3;
+  display: flex; align-items: center; gap: 12px; padding: 10px 18px 10px 12px; border-radius: 999px;
+  color: #fff;
+  background: oklch(0.2 0.01 260 / 0.42);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 10px 30px -10px oklch(0 0 0 / 0.6), inset 0 0.5px 0 oklch(1 0 0 / 0.25), inset 0 0 0 0.5px oklch(1 0 0 / 0.12);
+}
+.banner .badge-icon { width: 30px; height: 30px; border-radius: 50%; margin: 0; }
+.banner .badge-icon svg.i { width: 16px; height: 16px; }
+.banner strong { display: block; font-weight: 600; font-size: 13px; }
+.banner span { font-size: 12px; color: oklch(1 0 0 / 0.72); }
+
+.reconnect-scrim { position: absolute; inset: 44px 0 0 0; background: oklch(0 0 0 / 0.35); -webkit-backdrop-filter: blur(6px) saturate(80%); backdrop-filter: blur(6px) saturate(80%); display: grid; place-items: center; }
+.ring { position: relative; width: 64px; height: 64px; margin: 0 auto 10px; }
+.ring svg { width: 64px; height: 64px; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 4; }
+.ring .track { stroke: var(--hairline); }
+.ring .fill { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 175.9; stroke-dashoffset: 70; }
+.ring b { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sheet.compact { width: 320px; padding: 24px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-login" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M9 16l4-4-4-4"/><path d="M13 12H4"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
+  <symbol id="i-display" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.4-3 8-7 9.5-4-1.5-7-5.1-7-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M6 12h.01M12 12h.01M18 12h.01" stroke-width="3"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20c1.4-3.6 4.2-5.5 7.5-5.5s6.1 1.9 7.5 5.5"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/></symbol>
+</svg>
+
+<div class="deck">
+  <header class="deck-head">
+    <div>
+      <h1>Drift — glass redesign</h1>
+      <p>Static mockup for review. Same screens, same copy, same controls as today; new layout, Liquid Glass–style materials, and Avenir Next throughout. Toggle the appearance to check both modes.</p>
+    </div>
+    <div class="theme-switch" role="group" aria-label="Appearance">
+      <button type="button" data-set="light" aria-pressed="true">Light</button>
+      <button type="button" data-set="dark" aria-pressed="false">Dark</button>
+    </div>
+  </header>
+
+  <!-- 1. Connections ================================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>1 · Connections</h2>
+      <ul>
+        <li>Window uses native vibrancy; the sidebar floats as an inset glass panel with the traffic lights sitting on it.</li>
+        <li>Each connection gets a colored mode glyph, host and live-session dot. Connect is a single play button on the selected row, not a button on every row.</li>
+        <li>The form becomes System Settings–style grouped rows: label left, control right.</li>
+        <li>Connection type is three tiles with icons; the selected mode’s explanation stays underneath.</li>
+        <li>Checkboxes become switches. Trust status moves into the header (“Certificate trusted”).</li>
+        <li>Save / Cancel / Delete float in a glass action bar that only appears when there are unsaved edits.</li>
+      </ul>
+    </div>
+    <div class="desk">
+      <div class="window">
+        <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+
+        <nav class="sidebar" aria-label="Saved connections">
+          <div class="search"><svg class="i"><use href="#i-search"/></svg>Search</div>
+          <h3>Connections</h3>
+          <ul class="list">
+            <li class="row-item selected">
+              <span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span>
+              <span><div class="item-name">Homelab</div><div class="item-detail">gnome.local · Remote Login</div></span>
+              <button class="play" aria-label="Connect to Homelab"><svg class="i"><use href="#i-play"/></svg></button>
+            </li>
+            <li class="row-item">
+              <span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>
+              <span><div class="item-name">Studio Workstation</div><div class="item-detail">192.168.1.20 · Headless</div></span>
+              <span class="status" title="Connected in another tab"></span>
+            </li>
+            <li class="row-item">
+              <span class="glyph sharing"><svg class="i"><use href="#i-display"/></svg></span>
+              <span><div class="item-name">Kitchen Laptop</div><div class="item-detail">kitchen.lan · Desktop Sharing</div></span>
+              <span></span>
+            </li>
+            <li class="row-item">
+              <span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>
+              <span><div class="item-name">Build Server</div><div class="item-detail">build-01.lan · Headless</div></span>
+              <span></span>
+            </li>
+          </ul>
+          <div class="sidebar-foot">
+            <button class="new-btn"><svg class="i"><use href="#i-plus"/></svg>New Connection</button>
+          </div>
+        </nav>
+
+        <div class="detail">
+          <div class="detail-scroll">
+            <div class="hero">
+              <span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span>
+              <div>
+                <h1>Homelab</h1>
+                <div class="meta">gnome.local:3389 <span class="dot"></span> Remote Login <span class="dot"></span>
+                  <span class="trusted"><svg class="i"><use href="#i-shield"/></svg>Certificate trusted</span></div>
+              </div>
+              <span class="spacer"></span>
+              <button class="btn icon" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button>
+              <button class="btn primary large"><svg class="i"><use href="#i-play"/></svg>Connect</button>
+            </div>
+
+            <div class="group">
+              <div class="g-row"><label>Name</label><input class="field" value="Homelab" /></div>
+              <div class="g-row">
+                <label>Host</label>
+                <div class="inline"><input class="field focus" value="gnome.local" /><span class="port-label">Port</span><input class="field port" value="3389" /></div>
+              </div>
+              <div class="g-row tall">
+                <span class="label">Connection type</span>
+                <div>
+                  <div class="modes">
+                    <div class="mode on"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><strong>Remote Login</strong></div>
+                    <div class="mode"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><strong>Headless session</strong></div>
+                    <div class="mode"><span class="glyph sharing"><svg class="i"><use href="#i-display"/></svg></span><strong>Desktop Sharing</strong></div>
+                  </div>
+                  <p class="hint">Log in at the GNOME login screen, as if you were at the computer. After a reconnect you log in again and return to your running session.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="group-title">System RDP credentials</div>
+            <p class="group-hint">The Remote Login credentials set on the host with <code>sudo grdctl --system rdp set-credentials</code>. They open the GNOME login screen; you then log in with your own account.</p>
+            <div class="group">
+              <div class="g-row"><label>System RDP user</label><input class="field" value="drift-login" /></div>
+              <div class="g-row"><label>System RDP password</label><input class="field" type="password" placeholder="Saved — leave blank to keep" /></div>
+            </div>
+
+            <div class="group-title">GNOME login screen</div>
+            <div class="group">
+              <div class="g-row"><label>Linux user<span class="sub">Optional. Shown as a reminder while the login screen is open.</span></label><input class="field" value="hutson" /></div>
+              <div class="g-row toggle">
+                <span class="label">Type my Linux password at the login screen<span class="sub">Off by default. When on, the password is kept in your Keychain and Drift types it into the GNOME password field for you.</span></span>
+                <span class="switch"></span>
+              </div>
+            </div>
+
+            <div class="group-title">Security</div>
+            <div class="group">
+              <div class="g-row tall">
+                <span class="label">Trusted certificate<span class="sub">SHA-256</span></span>
+                <div class="inline" style="align-items:start">
+                  <span class="fp">f3:e7:a2:9c:41:0b:d8:5e:77:c1:2a:90:6f:3d:b4:e8:15:c9:02:7a:ee:61:4f:d3:98:0c:b7:25:a6:1e:4d:83</span>
+                  <button class="btn">Forget</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="disclosure"><svg class="i"><use href="#i-chev"/></svg>Keyboard, display and clipboard</div>
+            <div class="group">
+              <div class="g-row"><label>Command key sends</label><select class="field"><option>Super (Windows key)</option></select></div>
+              <div class="g-row toggle"><span class="label">Type using Mac layout<span class="sub">Sends typed characters instead of key positions, so the Mac keyboard layout applies.</span></span><span class="switch"></span></div>
+              <div class="g-row toggle"><span class="label">Resize the remote desktop to fit the window</span><span class="switch on"></span></div>
+              <div class="g-row toggle"><span class="label">Use Retina resolution<span class="sub">Renders GNOME at 2× on Retina displays for sharp text.</span></span><span class="switch on"></span></div>
+              <div class="g-row"><label>Clipboard</label><select class="field"><option>Text and images</option></select></div>
+            </div>
+          </div>
+          <div class="fade"></div>
+          <div class="actionbar">
+            <span class="note">Unsaved changes</span>
+            <button class="btn destructive">Delete</button>
+            <span class="sep"></span>
+            <button class="btn">Cancel</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Connecting + certificate ======================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>2 · Connecting &amp; trust</h2>
+      <ul>
+        <li>Connecting shows every stage as a checklist instead of one line of status text, so a stall is obvious.</li>
+        <li>The certificate prompt is a glass sheet: shield badge, fingerprint in a card, “Remember” as a switch.</li>
+        <li>Both sheets blur and dim the window behind them instead of replacing it.</li>
+      </ul>
+    </div>
+    <div class="pair">
+      <div class="desk" style="padding:32px">
+        <div class="window small">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="scrim">
+            <section class="sheet">
+              <h2 style="margin-top:0">Connecting to Homelab…</h2>
+              <p>gnome.local:3389</p>
+              <div class="stages" role="status">
+                <div class="stage done"><span class="tick"><svg class="i"><use href="#i-check"/></svg></span>Contacting the host</div>
+                <div class="stage done"><span class="tick"><svg class="i"><use href="#i-check"/></svg></span>Securing the connection</div>
+                <div class="stage now"><span class="tick"></span>Signing in…</div>
+                <div class="stage"><span class="tick"></span>Opening the GNOME login screen</div>
+                <div class="stage"><span class="tick"></span>Starting the remote desktop</div>
+              </div>
+              <div class="actions"><button class="btn">Cancel</button></div>
+            </section>
+          </div>
+        </div>
+      </div>
+      <div class="desk" style="padding:32px">
+        <div class="window small">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="scrim">
+            <section class="sheet">
+              <div class="badge-icon shield"><svg class="i"><use href="#i-shield"/></svg></div>
+              <h2>Verify the identity of gnome.local:3389</h2>
+              <p>Drift hasn’t connected to gnome.local:3389 (“Homelab”) before. Make sure the fingerprint below matches the one on the host before you continue.</p>
+              <div class="fp-card">
+                <div class="fp-label">SHA-256 fingerprint</div>
+                <div class="fp">f3:e7:a2:9c:41:0b:d8:5e:77:c1:2a:90:6f:3d:b4:e8:15:c9:02:7a:ee:61:4f:d3:98:0c:b7:25:a6:1e:4d:83</div>
+              </div>
+              <p class="hint">On the host, run <code>sudo grdctl --system status</code> and compare the line “TLS fingerprint”.</p>
+              <div class="check-row">Remember this certificate <span class="switch on"></span></div>
+              <div class="actions split"><button class="btn">Cancel</button><button class="btn primary">Connect</button></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. In session =================================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>3 · In session</h2>
+      <ul>
+        <li>Session tabs live in a thin glass title bar; the dot shows each tab’s state (green live, amber reconnecting).</li>
+        <li>The greeter hint becomes a floating glass capsule over the login screen.</li>
+        <li>Statistics split into labelled readouts in Avenir Next with tabular figures, instead of one monospace line.</li>
+        <li>Reconnecting blurs the last frame and counts down in a ring.</li>
+      </ul>
+    </div>
+    <div class="pair">
+      <div class="session">
+        <div class="tabbar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="tab on"><span class="status"></span>Homelab</div>
+          <div class="tab"><span class="status"></span>Studio Workstation</div>
+          <span class="spacer"></span>
+          <button class="btn icon" aria-label="Statistics"><svg class="i"><use href="#i-gauge"/></svg></button>
+        </div>
+        <div class="remote">
+          <div class="gnome-bar"><span>Activities</span><span>Tue 22 Sep 14:08</span><span>⏻</span></div>
+          <div class="gnome-login"><div class="who"><div class="avatar"></div>Hutson<div class="pw"></div></div></div>
+        </div>
+        <div class="banner" role="status">
+          <span class="badge-icon shield"><svg class="i"><use href="#i-user"/></svg></span>
+          <div><strong>Log in to start your session</strong><span>Log in as “hutson” on the GNOME login screen.</span></div>
+        </div>
+        <aside class="hud" aria-label="Session statistics">
+          <div class="m"><span class="v">59.8</span><span class="u">fps</span></div><span class="sep"></span>
+          <div class="m"><span class="v">24.6</span><span class="u">Mbit/s</span></div><span class="sep"></span>
+          <div class="m"><span class="v">11.2</span><span class="u">ms p95</span></div><span class="sep"></span>
+          <div class="m"><span class="v">0</span><span class="u">unacked</span></div>
+        </aside>
+      </div>
+
+      <div class="session">
+        <div class="tabbar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="tab"><span class="status"></span>Homelab</div>
+          <div class="tab on"><span class="status amber"></span>Studio Workstation</div>
+          <span class="spacer"></span>
+        </div>
+        <div class="remote">
+          <div class="gnome-bar"><span>Activities</span><span>Tue 22 Sep 14:08</span><span>⏻</span></div>
+          <div class="gnome-win"></div>
+        </div>
+        <div class="reconnect-scrim">
+          <section class="sheet compact">
+            <div class="ring"><svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="28"/><circle class="fill" cx="32" cy="32" r="28"/></svg><b>3</b></div>
+            <h2 style="margin-top:4px">Reconnecting in 3 s…</h2>
+            <p>Studio Workstation · Attempt 2 of 8</p>
+            <div class="actions split"><button class="btn">Cancel</button><button class="btn primary">Now</button></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Error ======================================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>4 · Errors</h2>
+      <ul>
+        <li>Same glass sheet; amber badge instead of the ⚠︎ glyph.</li>
+        <li>“What to do” steps sit in a numbered card so they read as a checklist.</li>
+        <li>The first action stays primary and focused.</li>
+      </ul>
+    </div>
+    <div class="desk" style="padding:32px">
+      <div class="window small" style="height:600px">
+        <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="scrim">
+          <section class="sheet" style="width:480px">
+            <div class="badge-icon warn"><svg class="i"><use href="#i-warn"/></svg></div>
+            <h2>Drift can’t access your local network</h2>
+            <p><strong style="color:var(--text)">Homelab</strong></p>
+            <p>macOS blocked Drift from connecting to computers on your local network.</p>
+            <div class="error-steps">
+              <h3>What to do</h3>
+              <ol>
+                <li>Open System Settings › Privacy &amp; Security › Local Network and turn on Drift.</li>
+                <li>Then reconnect.</li>
+              </ol>
+            </div>
+            <div class="actions"><button class="btn">Reconnect</button><button class="btn primary">Open Local Network Settings</button></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  document.querySelectorAll("[data-set]").forEach((b) =>
+    b.addEventListener("click", () => {
+      document.documentElement.dataset.theme = b.dataset.set;
+      document.querySelectorAll("[data-set]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    }),
+  );
+  if (location.hash === "#dark") document.querySelector('[data-set="dark"]').click();
+</script>
+</body>
+</html>
