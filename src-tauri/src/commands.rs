@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use crate::manager::SessionManager;
 use crate::profiles::{CommandError, ProfileEntry, ProfileService, SecretsUpdate};
+use crate::strip::TabStrip;
 
 /// Shared state managed by Tauri.
 #[derive(Debug)]
@@ -205,6 +206,61 @@ pub fn disconnect(state: State<'_, AppState>, window: tauri::Window) -> Result<(
 pub fn close_session(app: tauri::AppHandle, window: tauri::Window) -> Result<(), CommandError> {
     crate::windows::close_tab(&app, window.label());
     Ok(())
+}
+
+// ---- the tab strip (UI-tabs) -------------------------------------------------------------------
+
+/// The tab strip of the calling window: its group's tabs in order, its own tab active.
+#[tauri::command]
+#[specta::specta]
+pub fn tab_strip(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    webview: tauri::Webview,
+) -> Result<TabStrip, CommandError> {
+    let label = window.label().to_owned();
+    tracing::debug!(window = %label, webview = %webview.label(), "tab strip requested");
+    let handle = app.clone();
+    crate::windows::on_main(&app, move |_| crate::windows::tab_strip(&handle, &label))?
+        .ok_or(CommandError::Platform { message: "this window is not a session tab".into() })
+}
+
+/// Selects tab `tab` (a click on it in the strip).
+#[tauri::command]
+#[specta::specta]
+pub fn select_tab(app: tauri::AppHandle, tab: String) -> Result<(), CommandError> {
+    crate::windows::select_tab(&app, &tab)
+}
+
+/// Closes tab `tab` (its × in the strip): the session closes gracefully, then the window.
+#[tauri::command]
+#[specta::specta]
+pub fn close_tab(app: tauri::AppHandle, tab: String) -> Result<(), CommandError> {
+    let known = {
+        let (handle, tab) = (app.clone(), tab.clone());
+        crate::windows::on_main(&app, move |_| crate::windows::tab_count(&handle, &tab).is_some())?
+    };
+    if !known {
+        return Err(CommandError::Platform { message: format!("there is no tab {tab}") });
+    }
+    crate::windows::close_tab(&app, &tab);
+    Ok(())
+}
+
+/// Opens a new Connection Manager tab (the strip's +, like File ▸ New Tab).
+#[tauri::command]
+#[specta::specta]
+pub fn new_tab(app: tauri::AppHandle) -> Result<(), CommandError> {
+    crate::windows::open_tab(&app);
+    Ok(())
+}
+
+/// Gives the keyboard back to the calling window's page or live picture (the strip never keeps
+/// it).
+#[tauri::command]
+#[specta::specta]
+pub fn focus_content(app: tauri::AppHandle, window: tauri::Window) -> Result<(), CommandError> {
+    crate::windows::focus_content(&app, window.label())
 }
 
 #[cfg(test)]

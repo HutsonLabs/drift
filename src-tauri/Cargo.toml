@@ -46,7 +46,7 @@ serde.workspace = true
 serde_json.workspace = true
 specta.workspace = true
 specta-typescript.workspace = true
-tauri = { workspace = true, features = ["macos-private-api"] }
+tauri = { workspace = true, features = ["macos-private-api", "unstable"] }
 tauri-specta.workspace = true
 thiserror.workspace = true
 uuid.workspace = true

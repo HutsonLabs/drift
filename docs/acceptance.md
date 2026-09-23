@@ -92,7 +92,7 @@ overlays_ui` (window not opaque, overlay fills the window, HUD is a corner panel
 - [ ] **Greeter banner, M3-2/M7-3:** in Remote Login mode at the GDM greeter, the hint banner
       ("Log in as “drifttest” …") floats over the greeter picture near the top, the greeter is
       visible around it, and the password can still be typed into GDM's field.
-- [ ] **Transparency did not break the chrome:** with three tabs in one group, the tab bar,
+- [ ] **Transparency did not break the chrome:** with three tabs in one group, the tab strip,
       window shadow, rounded corners, light/dark appearance and full-screen all look normal, and
       the connections screen is fully opaque (no desktop showing through).
 
@@ -154,8 +154,9 @@ These need a person, a real keyboard/IME, physical network changes or sleep
       "com.hutsonlabs.drift", account `<profile uuid>/rdp-user` (or `rdp-system`); deleting the
       profile removes it; no password prompt appears on relaunch of the same signed build.
 - [ ] **Tabs:** three sessions open as tabs of one window even with System Settings › Desktop &
-      Dock › "Prefer tabs when opening documents" = "In Full Screen"; the tab bar's "+" opens
-      the connect form in a new tab; tab titles show the state glyph (● ◐ ◌ ↻ ○ ⚠).
+      Dock › "Prefer tabs when opening documents" = "In Full Screen"; the tab strip's "+" opens
+      a Connection Manager in a new tab; the Window menu lists the tabs with their state glyph
+      (● ◐ ◌ ↻ ○ ⚠) — see "UI-tabs" below for the strip itself.
 - [ ] **Network trigger:** with a live Headless session, Wi-Fi off pauses reconnecting (no
       attempts counted); Wi-Fi on reconnects within ~1 s without waiting for the backoff.
 - [ ] **Wake trigger:** sleep the Mac for > 1 min with a live session; after wake it reconnects
@@ -175,7 +176,8 @@ These need a person, a real keyboard/IME, physical network changes or sleep
 
 Automated: `cargo nextest run -p drift-app` (fake-actor lifecycle, menu model, presentation) and
 `cargo test -p drift-app --features macos-ui-tests --test tabs_ui` (three real windows in one tab
-group, `newWindowForTab:`).
+group, AppKit's tab bar hidden, one strip per window in group order, traffic lights in the strip,
+`newWindowForTab:`) and `--test overlays_ui` (page, picture and HUDs below the strip).
 
 - [ ] **Tab-group test (M6-2):** run `cargo test -p drift-app --features macos-ui-tests --test
       tabs_ui` from a logged-in graphical session (not over SSH, not on a locked screen: it opens
@@ -189,23 +191,58 @@ These need a person:
 - [ ] **Three live sessions:** open Remote Login, Headless and Desktop Sharing profiles in three
       tabs of one window; switching tabs shows each desktop instantly, and background tabs stay
       below ~2 % CPU (Activity Monitor).
-- [ ] **Tab bar:** the "+" button opens a new tab with the connect form; Cmd+1…9 select tabs;
-      Cmd+Shift+[ / ] move between them; the tab overview (Window ▸ Show All Tabs) shows live
-      thumbnails; dragging a tab out into its own window keeps that session running, and dragging
-      it back rejoins the group.
-- [ ] **Title and subtitle:** the tab title is the profile name with its state glyph; at the GDM
-      greeter the title bar subtitle reads "Log in as “<user>” to start your session", and after a
-      reconnect of a running session "Session is still running — log in as “<user>” to resume".
+- [ ] **Tab keys (superseded in part by UI-tabs):** Cmd+1…9 select tabs; Cmd+Shift+[ / ] move
+      between them; the tab overview (Window ▸ Show All Tabs) shows live thumbnails; Window ▸
+      Move Tab to New Window keeps that session running in its own window (with its own strip),
+      and Window ▸ Merge All Windows rejoins the group. AppKit's tab bar (and so dragging tabs)
+      is gone; the strip replaces it.
+- [ ] **Titles (superseded by UI-tabs):** the window title — only visible in the Window menu now
+      — is the profile name with its state glyph, or "Connections"; the greeter hint is the
+      floating banner and the tab's tooltip, no longer a title bar subtitle.
 - [ ] **Close and quit:** Cmd+W on a connected tab closes the session (the GNOME host shows no
       leftover session) and then the tab; Cmd+Q with three live sessions quits within about two
       seconds; the red close button behaves like Cmd+W. Closing the last tab leaves Drift running
       (Dock icon); clicking the Dock icon opens a new tab.
 - [ ] **Session menu:** Send Ctrl+Alt+Del shows GNOME's screen; Reconnect restarts a failed
-      session in the same tab; Disconnect returns the tab to the connect form without closing it.
+      session in the same tab; Disconnect returns the tab to the Connection Manager without
+      closing it.
 - [ ] **Recording (feature `recording` only):** `cargo run -p drift-app --features recording`,
       connect, then Debug ▸ Record Session (experimental); after a minute toggle it off and play
       `~/Movies/Drift <profile> <timestamp>.mp4` in QuickTime — it shows the session at the right
       size and duration.
+
+## UI-tabs — Connection Manager and Session tabs (`docs/design/mockup-glass.html`)
+
+Automated: `bun test` (strip rendering, intents, accessibility, live dots, error Close),
+`cargo nextest run -p drift-app` (strip model, chrome, manager lookups) and the two real-window
+tests above. These need eyes on a real window (ADR `UI-tabs-connection-manager`):
+
+- [ ] **Title bar = tab strip:** a new window shows no title, no title bar fill and no divider;
+      one raised "Connections" tab with a grey icon and × sits beside the traffic lights, with
+      the + right after it. The traffic lights are vertically centred in the 46-point row. Light
+      and dark both read well; the strip sits on the same window material as the sidebar.
+- [ ] **Connect in place:** pick a connection and press Connect: the *same* tab shows a spinner
+      and "Connecting to <name>…", then the connection's mode glyph, its name and a green dot;
+      no new tab or window opens. The certificate prompt keeps the spinner with the plain name.
+- [ ] **Status dots:** pulling the network turns the dot amber while the reconnect ring counts
+      down; a failed connection (e.g. wrong password) keeps the name with a red dot. The error
+      sheet's Close (and Session ▸ Disconnect) turns the tab back into "Connections".
+- [ ] **Already open:** with "Homelab" live in one tab, open a new tab (+ or Cmd+T): the list
+      shows a green dot on Homelab ("Connected in another tab"); pressing its play button
+      switches to the existing Homelab tab instead of opening a second session.
+- [ ] **Strip clicks:** clicking another tab switches to it; the active tab is the raised pill,
+      the others are flat and show their × on hover; × closes that tab (a live session closes
+      gracefully first); closing the last tab closes the window and Drift keeps running.
+      After clicking a tab or the strip, typing goes straight to the remote desktop (or the form),
+      never to the strip. Dragging the empty part of the strip moves the window; double-clicking
+      it zooms.
+- [ ] **Greeter hint:** at the GDM greeter the floating banner reads "Log in as “<user>” to start
+      your session" under the strip, and hovering the tab shows the same text as a tooltip.
+- [ ] **Full screen (board 4):** enter full screen with two sessions: the strip disappears and
+      the remote desktop fills the screen, also while the menu bar is revealed at the top edge
+      (no AppKit tab bar appears either). The Window menu lists every tab with the current one
+      checked; Cmd+1/Cmd+2 switch sessions; File ▸ New Tab (Cmd+T) opens a Connection Manager
+      in full screen. Leaving full screen brings the strip back with the picture below it.
 
 ## M9-1 / M9-4 — Performance and polish
 

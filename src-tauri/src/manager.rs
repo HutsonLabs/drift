@@ -227,14 +227,58 @@ impl SessionManager {
         }
     }
 
-    /// Ends `window`'s session gracefully and returns the window to the profiles screen.
+    /// Ends `window`'s session gracefully and returns the window to the profiles screen (the tab
+    /// becomes a Connection Manager again).
+    ///
+    /// If the actor has already ended (a failed tab showing its error), the window is reset at
+    /// once (UI-tabs board 5: "Closing it, or Disconnect, turns it back into a Connection
+    /// Manager").
     pub fn disconnect(&self, window: &str) -> Result<(), CommandError> {
-        let mut state = self.shared.lock();
-        let slot = state.windows.get_mut(window).ok_or(CommandError::NoSession)?;
-        let live = slot.live.as_ref().ok_or(CommandError::NoSession)?;
-        live.handle.send(SessionCommand::Close).map_err(|_| CommandError::NoSession)?;
-        slot.back_to_profiles = true;
+        let reset = {
+            let mut state = self.shared.lock();
+            let slot = state.windows.get_mut(window).ok_or(CommandError::NoSession)?;
+            match slot.live.as_ref() {
+                Some(live) => {
+                    live.handle.send(SessionCommand::Close).map_err(|_| CommandError::NoSession)?;
+                    slot.back_to_profiles = true;
+                    None
+                }
+                None => {
+                    slot.view = SessionView::new(&slot.profile);
+                    Some(slot.view.clone())
+                }
+            }
+        };
+        if let Some(view) = reset {
+            self.shared.host.view_changed(window, &view);
+        }
         Ok(())
+    }
+
+    /// The window (other than `except`) with a live session for `profile`, if any: activating
+    /// a connection that is already open switches to its tab instead of opening a second
+    /// session (UI-tabs board 1). The first such window by label when there are several.
+    pub fn live_window_for(&self, profile: Uuid, except: &str) -> Option<String> {
+        let state = self.shared.lock();
+        let mut windows: Vec<&String> = state
+            .windows
+            .iter()
+            .filter(|(window, slot)| {
+                window.as_str() != except && slot.live.is_some() && slot.profile.id == profile
+            })
+            .map(|(window, _)| window)
+            .collect();
+        windows.sort();
+        windows.first().map(|w| (*w).clone())
+    }
+
+    /// Profiles with a live session in some window (sorted, no duplicates).
+    pub fn live_profiles(&self) -> Vec<Uuid> {
+        let mut ids: Vec<Uuid> =
+            self.shared.lock().windows.values().filter(|s| s.live.is_some()).map(|s| s.profile.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
     }
 
     /// Closes `window`'s session (if any) and forgets the window. Resolves when the actor has

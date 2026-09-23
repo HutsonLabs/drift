@@ -1,6 +1,7 @@
 # M6-1 / M6-2 / M1-6 / M3-2 / M8-3 — SessionManager, session windows, tabs and menus
 
-- Status: accepted
+- Status: accepted; decisions 6, 7 (manager title) and 8 (error-screen Close) superseded in part
+  by `UI-tabs-connection-manager`
 - Date: 2026-09-22
 - Code: `src-tauri/src/{manager,host,windows,menu,present,options,recording}.rs`,
   `src-tauri/tauri.conf.json`, `ui/src/app.ts`
@@ -42,7 +43,9 @@ decisions.
    `app.exit(0)`. `RunEvent::Exit` still runs a blocking shutdown as a last resort (Dock ▸ Quit),
    and `ExitRequested` with no exit code is prevented, so closing the last tab leaves Drift
    running like other Mac apps (`Reopen` opens a new tab).
-6. **Greeter hint is the window subtitle.** Plan §2 decision 6 shows the webview whenever there is
+6. *(Superseded by UI-tabs decision 10: the title bar is hidden, so the hint is the floating
+   banner plus the session tab's tooltip; the subtitle is gone.)* **Greeter hint is the window
+   subtitle.** Plan §2 decision 6 shows the webview whenever there is
    no live picture. The GDM greeter *is* a live picture the user must type into, so hiding it
    behind the webview would break Remote Login. `present::surface_for` keeps the RemoteView in
    front for `Live` **and** `GreeterHint`, and `present::window_subtitle` puts
@@ -50,9 +53,11 @@ decisions.
    resume" into the title bar. The webview's greeter banner stays for the (rare) case where the
    picture is not up yet.
 7. **Titles.** `present::window_title` = `drift_macos::tabs::tab_title` (state glyph + profile
-   name); a window showing the connect form is "New Session".
+   name); a window showing the connect form is "New Session" *(UI-tabs: "Connections"; titles
+   only appear in the Window menu, the tab strip draws its own labels)*.
 8. **`disconnect` vs `close_session`.** `close_session` ends the session *and* the tab (the error
-   screen's "Close"); the new `disconnect` command ends the session and returns the tab to the
+   screen's "Close" — *superseded by UI-tabs decision 9: that Close now calls `disconnect`, which
+   also resets a tab whose actor already ended*); the new `disconnect` command ends the session and returns the tab to the
    connect form — that is what "Cancel" during connecting and Session ▸ Disconnect do. A new
    `CommandError::NoSession` reports intents sent to a tab whose session has ended.
 9. **Reconnect after the actor exited.** `SessionManager::reconnect_now` answers `Reopen(profile)`

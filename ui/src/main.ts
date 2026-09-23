@@ -10,4 +10,6 @@ if (root) {
   void app.start();
   // Session views are emitted to this window only (SessionManager → emit_to(window)).
   void events.sessionViewChanged(getCurrentWebviewWindow()).listen((e) => app.onSessionView(e.payload));
+  // The tab strip model: which connections are open in other tabs (UI-tabs).
+  void events.tabStripChanged(getCurrentWebviewWindow()).listen((e) => app.onTabs(e.payload));
 }

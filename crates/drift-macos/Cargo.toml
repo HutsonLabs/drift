@@ -9,7 +9,7 @@ publish.workspace = true
 
 [features]
 default = []
-## Thin helpers taking `tauri::WebviewWindow` (attach the RemoteView below the WKWebView,
+## Thin helpers taking a `tauri::Window` and its page `tauri::Webview` (attach the RemoteView below the WKWebView,
 ## hide/show the webview). Enabled by drift-app.
 tauri = ["dep:tauri"]
 ## AppKit window-group tests that need a real window server session with tabbing

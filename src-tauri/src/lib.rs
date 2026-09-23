@@ -1,7 +1,8 @@
 //! # drift-app
 //!
 //! The Tauri shell: IPC commands (typed with tauri-specta), saved profiles, the per-window
-//! [`view::SessionView`] model, and later the `SessionManager`, windows/tabs and menus (M6-*).
+//! [`view::SessionView`] model, the `SessionManager`, windows, the tab strip ([`strip`]) and
+//! menus.
 //!
 //! The TypeScript bindings in `ui/src/bindings.ts` are generated from [`specta_builder`]
 //! by `cargo xtask bindings`; CI fails when they are stale.
@@ -18,6 +19,7 @@ pub mod profiles;
 pub mod recording;
 pub mod secrets;
 pub mod services;
+pub mod strip;
 pub mod view;
 pub mod windows;
 
@@ -48,8 +50,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::cancel_reconnect,
             commands::close_session,
             commands::disconnect,
+            commands::tab_strip,
+            commands::select_tab,
+            commands::close_tab,
+            commands::new_tab,
+            commands::focus_content,
         ])
-        .events(tauri_specta::collect_events![view::SessionViewChanged])
+        .events(tauri_specta::collect_events![view::SessionViewChanged, strip::TabStripChanged])
         .typ::<drift_core::ConnectionProfile>()
         .typ::<drift_core::SessionState>()
         .typ::<view::SessionView>()

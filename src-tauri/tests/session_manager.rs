@@ -423,6 +423,50 @@ async fn disconnect_returns_the_window_to_profiles() {
     assert_eq!(manager.windows(), ["w1"], "the tab stays open");
 }
 
+/// UI-tabs board 5: "Closing it, or Disconnect, turns [a failed tab] back into a Connection
+/// Manager" — also once the actor has already ended.
+#[tokio::test]
+async fn disconnect_after_the_session_ended_returns_the_window_to_profiles() {
+    let (host, manager) = setup();
+    open_session(&host, &manager, "w1", profile("Alpha")).await;
+    host.emit("w1", 0, SessionEvent::State(SessionState::Failed { reason: DisconnectReason::AuthFailed }));
+    host.with_actor("w1", 0, |a| a.kill.take().unwrap().send(()).unwrap());
+    eventually("ended", || host.ended() == ["w1"]).await;
+    assert_eq!(manager.view("w1").unwrap().screen, Screen::Error);
+
+    manager.disconnect("w1").unwrap();
+    assert_eq!(host.views_for("w1").last().unwrap().screen, Screen::Profiles, "reset at once");
+    assert_eq!(manager.view("w1").unwrap().state, SessionState::Idle);
+    assert_eq!(manager.windows(), ["w1"], "the tab stays open");
+    assert_eq!(host.ended(), ["w1"], "session_ended still once per session");
+}
+
+/// UI-tabs board 1: activating a connection that is already open in another tab switches to
+/// that tab instead of opening a second session.
+#[tokio::test]
+async fn the_window_holding_a_live_profile_can_be_found() {
+    let (host, manager) = setup();
+    let alpha = profile("Alpha");
+    let bravo = profile("Bravo");
+    open_session(&host, &manager, "w1", alpha.clone()).await;
+    open_session(&host, &manager, "w2", bravo.clone()).await;
+
+    assert_eq!(manager.live_window_for(alpha.id, "w3").as_deref(), Some("w1"));
+    assert_eq!(manager.live_window_for(bravo.id, "w3").as_deref(), Some("w2"));
+    assert_eq!(manager.live_window_for(alpha.id, "w1"), None, "not the asking window itself");
+    assert_eq!(manager.live_window_for(Uuid::new_v4(), "w3"), None);
+    let mut live = vec![alpha.id, bravo.id];
+    live.sort();
+    assert_eq!(manager.live_profiles(), live);
+
+    // Once the actor has ended the profile is no longer live anywhere.
+    host.emit("w1", 0, SessionEvent::State(SessionState::Failed { reason: DisconnectReason::AuthFailed }));
+    host.with_actor("w1", 0, |a| a.kill.take().unwrap().send(()).unwrap());
+    eventually("ended", || host.ended() == ["w1"]).await;
+    assert_eq!(manager.live_window_for(alpha.id, "w3"), None);
+    assert_eq!(manager.live_profiles(), [bravo.id]);
+}
+
 #[tokio::test(start_paused = true)]
 async fn closing_a_stuck_actor_is_capped() {
     let (host, manager) = setup();

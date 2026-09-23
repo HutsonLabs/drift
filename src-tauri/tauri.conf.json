@@ -14,14 +14,14 @@
       {
         "label": "session",
         "create": false,
-        "title": "New Session",
+        "title": "Connections",
         "width": 1280,
         "height": 800,
         "minWidth": 480,
         "minHeight": 320,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 20, "y": 28 },
+        "trafficLightPosition": { "x": 18, "y": 28 },
         "windowEffects": { "effects": ["sidebar"], "state": "active" }
       }
     ],

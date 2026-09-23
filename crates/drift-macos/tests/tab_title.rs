@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use drift_core::{ConnectStage, DisconnectReason, SessionState, Size};
-use drift_macos::tabs::tab_title;
+use drift_macos::tabs::{display_name, tab_title};
 
 #[test]
 fn title_per_state() {
@@ -40,4 +40,12 @@ fn blank_or_padded_names_fall_back_and_trim() {
 #[test]
 fn control_characters_are_stripped() {
     assert_eq!(tab_title("a\nb\tc", &SessionState::Idle), "○ a b c");
+}
+
+/// UI-tabs: the HTML tab strip shows the same cleaned name as the window title.
+#[test]
+fn display_names_are_cleaned_like_titles() {
+    assert_eq!(display_name("  Work box  "), "Work box");
+    assert_eq!(display_name(" \t "), "Untitled");
+    assert_eq!(display_name("a\nb\tc"), "a b c");
 }

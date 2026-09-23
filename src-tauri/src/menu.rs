@@ -11,7 +11,7 @@ use drift_input::MenuShortcut;
 /// A Drift menu command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MenuAction {
-    /// File ▸ New Tab (Cmd+T; also the tab bar's "+").
+    /// File ▸ New Tab (Cmd+T; also the tab strip's "+"): a new Connection Manager tab.
     NewTab,
     /// File ▸ Close Tab (Cmd+W): graceful session close, then the tab closes.
     CloseTab,

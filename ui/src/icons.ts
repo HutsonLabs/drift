@@ -13,6 +13,8 @@ const PATHS = {
   warn: ["M12 4l9 16H3z", "M12 10v4M12 17h.01"],
   user: ["M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8z", "M4.5 20c1.4-3.6 4.2-5.5 7.5-5.5s6.1 1.9 7.5 5.5"],
   chevron: ["M9 5l7 7-7 7"],
+  manager: ["M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z", "M9 4v16M12.5 9h4M12.5 12.5h4"],
+  close: ["M6 6l12 12M18 6L6 18"],
 } as const;
 
 /** Filled glyphs (no stroke). */

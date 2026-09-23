@@ -41,6 +41,7 @@ Any decision not already fixed by `plan.md` gets an ADR in `docs/adr/<TASKID>-<s
 | `M1-1-connect-and-redirect` | TLS pin/TOFU, error classification, redirect loop, GFX wiring, FakeServer, e2e redaction |
 | `M6-1-session-manager-and-windows` | SessionManager/SessionHost seam, tab windows, menus, quit cap, greeter subtitle, launch options |
 | `M4-2-session-actor-channels` | resize debounce, CLIPRDR glue, suppress/ack policy, reconnect resume, greeter typing, FakeServer channels, real-host e2e findings |
+| `UI-tabs-connection-manager` | Connection Manager / Session tabs: hidden AppKit tab bar, HTML strip webview per window, full screen, focus, main-queue dispatch |
 
 ## Commands
 

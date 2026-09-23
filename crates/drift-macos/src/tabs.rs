@@ -7,10 +7,18 @@
 //! responder chain; tao's window class does not implement it, so
 //! [`install_new_window_for_tab`] adds it to the **real** window class (`TaoWindow`), not to the
 //! `NSKVONotifying_` subclass that key-value observing installs.
+//!
+//! Drift draws its own tab strip (task UI-tabs), so AppKit's tab bar is hidden with
+//! [`hide_native_tab_bar`] while the windows stay one native group: the Window menu listing,
+//! Cmd+1…9 and full screen keep working. `toggleTabBar:` cannot hide the bar once a group has
+//! more than one tab, but the bar is an ordinary titlebar accessory view controller, and hiding
+//! that (public `NSTitlebarAccessoryViewController.hidden`) collapses it to the title bar row.
 
 use std::sync::{Mutex, OnceLock};
 
 use drift_core::SessionState;
+use objc2::Message as _;
+use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
 use objc2::sel;
 use objc2_app_kit::{NSWindow, NSWindowOrderingMode, NSWindowTabbingMode};
@@ -38,10 +46,15 @@ pub fn tab_title(profile_name: &str, state: &SessionState) -> String {
         SessionState::Idle | SessionState::Disconnected { .. } => '○',
         SessionState::Failed { .. } => '⚠',
     };
+    format!("{glyph} {}", display_name(profile_name))
+}
+
+/// A profile name as tabs show it: control characters become spaces, surrounding whitespace is
+/// trimmed and a blank name reads "Untitled".
+pub fn display_name(profile_name: &str) -> String {
     let cleaned: String = profile_name.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
     let name = cleaned.trim();
-    let name = if name.is_empty() { "Untitled" } else { name };
-    format!("{glyph} {name}")
+    if name.is_empty() { "Untitled".to_owned() } else { name.to_owned() }
 }
 
 /// Makes `window` a tab-group member candidate: sets [`TABBING_IDENTIFIER`] and
@@ -71,6 +84,38 @@ pub fn select_tab(window: &NSWindow, index: usize) -> bool {
     }
     group.setSelectedWindow(Some(&windows.objectAtIndex(index)));
     true
+}
+
+/// The windows of `window`'s tab group, leading to trailing (just `window` without a group).
+pub fn tab_windows(window: &NSWindow) -> Vec<Retained<NSWindow>> {
+    match window.tabGroup() {
+        Some(group) => group.windows().iter().collect(),
+        None => vec![window.retain()],
+    }
+}
+
+/// Selects `window`'s tab in its group and makes it the key window.
+pub fn select_window(window: &NSWindow) {
+    if let Some(group) = window.tabGroup() {
+        group.setSelectedWindow(Some(window));
+    }
+    window.makeKeyAndOrderFront(None);
+}
+
+/// Hides AppKit's tab bar in `window` (idempotent); returns `true` if it was showing.
+///
+/// Drift adds no titlebar accessories of its own, so every accessory is the tab bar. A window
+/// gets a fresh, visible one whenever it joins a group, so call this after every change to the
+/// group (Drift does it whenever it lays a window out).
+pub fn hide_native_tab_bar(window: &NSWindow) -> bool {
+    let mut was_visible = false;
+    for accessory in window.titlebarAccessoryViewControllers().iter() {
+        if !accessory.isHidden() {
+            accessory.setHidden(true);
+            was_visible = true;
+        }
+    }
+    was_visible
 }
 
 /// `newWindowForTab:` could not be installed.
