@@ -5,8 +5,8 @@
   "identifier": "com.hutsonlabs.drift",
   "build": {
     "frontendDist": "../ui/dist",
-    "beforeDevCommand": "bun run build",
-    "beforeBuildCommand": "bun run build"
+    "beforeDevCommand": { "script": "bun run build", "cwd": "../ui" },
+    "beforeBuildCommand": { "script": "bun run build", "cwd": "../ui" }
   },
   "app": {
     "withGlobalTauri": false,
