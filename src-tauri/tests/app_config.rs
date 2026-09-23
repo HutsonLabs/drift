@@ -53,7 +53,7 @@ fn session_windows_are_created_by_the_app_not_the_config() {
     assert_eq!(windows.len(), 1, "only the session template");
     assert_eq!(windows[0]["label"], drift_app::windows::SESSION_TEMPLATE);
     assert_eq!(windows[0]["create"], false, "the app creates session windows itself");
-    assert_eq!(conf["bundle"]["macOS"]["minimumSystemVersion"], "14.0");
+    assert_eq!(conf["bundle"]["macOS"]["minimumSystemVersion"], "27.0");
     let caps: serde_json::Value = serde_json::from_str(&read("capabilities/default.json")).unwrap();
     let labels: Vec<_> = caps["windows"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
     assert!(labels.contains(&"session-*"), "{labels:?}");
