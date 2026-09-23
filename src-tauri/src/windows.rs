@@ -30,6 +30,7 @@ use objc2::{MainThreadMarker, Message as _, msg_send};
 use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindow};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID};
+use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{AppHandle, EventTarget, Manager as _, Runtime, Webview, WebviewUrl, WebviewWindowBuilder};
 use uuid::Uuid;
 
@@ -147,6 +148,15 @@ pub(crate) fn open_tab_with<R: Runtime>(app: &AppHandle<R>, autoconnect: Option<
             // M1). Needs Tauri's `macos-private-api`; see
             // docs/adr/M7-3-overlays-over-the-live-picture.md.
             .transparent(true)
+            // Native vibrancy behind the (transparent) page: the form, prompts and errors are
+            // glass panels over it. It sits below the RemoteView, which is hidden on those
+            // screens (see `apply_view`).
+            .effects(
+                EffectsBuilder::new()
+                    .effect(Effect::UnderWindowBackground)
+                    .state(EffectState::FollowsWindowActiveState)
+                    .build(),
+            )
             .visible(false)
             .build();
         match built {
@@ -316,15 +326,23 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
         });
         let glue = |e: drift_macos::tauri_glue::GlueError| CommandError::Platform { message: e.to_string() };
         let switched: Result<Option<()>, CommandError> = match surface {
-            Surface::Remote => {
-                with_platform(&label, |plat| tauri_glue::show_remote(&window, &plat.view).map_err(glue))
-                    .transpose()
-            }
+            Surface::Remote => with_platform(&label, |plat| {
+                plat.view.setHidden(false);
+                tauri_glue::show_remote(&window, &plat.view).map_err(glue)
+            })
+            .transpose(),
             Surface::Webview | Surface::Overlay => {
+                // With no picture to show, the opaque Metal view would cover the window's
+                // vibrancy; the overlay keeps it for the dimmed last frame.
+                with_platform(&label, |plat| plat.view.setHidden(surface == Surface::Webview));
                 fill_window_with_webview(&window);
                 tauri_glue::show_webview(&window).map_err(glue).map(Some)
             }
-            Surface::Hud(hud) => with_platform(&label, |plat| show_hud(&window, &plat.view, hud)).transpose(),
+            Surface::Hud(hud) => with_platform(&label, |plat| {
+                plat.view.setHidden(false);
+                show_hud(&window, &plat.view, hud)
+            })
+            .transpose(),
         };
         if let Err(e) = switched {
             tracing::warn!(error = %e, "could not switch the window surface");

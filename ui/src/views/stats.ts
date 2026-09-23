@@ -11,14 +11,21 @@ function decimal(tenths: number): string {
   return (tenths / 10).toFixed(1);
 }
 
-/** The one-line summary, frame rate first — the number the M1 acceptance step reads. */
-export function statsLine(stats: StatsView): string {
+/** The readouts, frame rate first — the number the M1 acceptance step reads. */
+function readouts(stats: StatsView): [string, string][] {
   return [
-    `${decimal(stats.fps_tenths)} fps`,
-    `${decimal(stats.mbit_tenths)} Mbit/s`,
-    `${decimal(stats.latency_p95_tenths_ms)} ms`,
-    `${stats.unacked_frames} unacked`,
-  ].join(" · ");
+    [decimal(stats.fps_tenths), "fps"],
+    [decimal(stats.mbit_tenths), "Mbit/s"],
+    [decimal(stats.latency_p95_tenths_ms), "ms"],
+    [String(stats.unacked_frames), "unacked"],
+  ];
+}
+
+/** The one-line summary ("58.9 fps · 1.2 Mbit/s · 4.3 ms · 2 unacked"). */
+export function statsLine(stats: StatsView): string {
+  return readouts(stats)
+    .map(([v, u]) => `${v} ${u}`)
+    .join(" · ");
 }
 
 /** Renders the HUD. It has no controls: the picture underneath keeps the keyboard and mouse. */
@@ -28,7 +35,7 @@ export function renderStatsHud(root: HTMLElement, stats: StatsView): void {
     h(
       "aside",
       { class: "hud stats", role: "status", "aria-live": "polite", "aria-label": "Session statistics" },
-      statsLine(stats),
+      readouts(stats).map(([v, u]) => h("span", { class: "readout" }, h("span", { class: "value" }, v), " ", h("span", { class: "unit" }, u))),
     ),
   );
 }

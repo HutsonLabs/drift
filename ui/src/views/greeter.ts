@@ -1,6 +1,7 @@
 // Greeter-wait hint (M3-2, M7-3): a non-modal banner while the GNOME login screen is live.
 import type { SessionView_Serialize } from "../bindings";
 import { h, mount } from "../dom";
+import { icon } from "../icons";
 
 /** Renders the hint banner. */
 export function renderGreeterHint(root: HTMLElement, view: SessionView_Serialize): void {
@@ -13,8 +14,8 @@ export function renderGreeterHint(root: HTMLElement, view: SessionView_Serialize
     h(
       "section",
       { class: "banner greeter", role: "status", "aria-live": "polite" },
-      h("strong", {}, headline),
-      h("span", {}, who),
+      h("span", { class: "banner-icon", "aria-hidden": "true" }, icon("user")),
+      h("span", { class: "banner-text" }, h("strong", {}, headline), h("span", {}, who)),
     ),
   );
 }

@@ -24,23 +24,27 @@ export function renderReconnectOverlay(
   const nextIn = state.state === "reconnecting" ? state.next_in : 0;
   const budget = view.max_attempts === null ? `Attempt ${attempt}` : `Attempt ${attempt} of ${view.max_attempts}`;
   const now = h("button", { type: "button", class: "primary", onclick: () => on.now() }, "Now");
+  const seconds = secondsLeft(nextIn, elapsedMs);
+  // Countdown ring: the share of the backoff still to wait (drawn by a conic gradient).
+  const left = nextIn > 0 ? Math.min(1, Math.max(0, (nextIn - elapsedMs) / nextIn)) : 0;
   mount(
     root,
     h(
       "section",
-      { class: "overlay-card reconnecting", "aria-labelledby": "reconnect-title" },
+      { class: "overlay-card sheet reconnecting", "aria-labelledby": "reconnect-title" },
       h("h1", { id: "reconnect-title", class: "visually-hidden" }, `${view.profile_name} disconnected`),
+      h("div", { class: "ring", style: `--left: ${left.toFixed(3)}`, "aria-hidden": "true" }),
       // The countdown is the live region; the profile and attempt budget are its description,
       // so VoiceOver announces which connection is retrying and how often (M9-4).
       h(
         "p",
         { class: "headline", role: "status", "aria-live": "polite", "aria-describedby": "reconnect-detail" },
-        reconnectMessage(secondsLeft(nextIn, elapsedMs)),
+        reconnectMessage(seconds),
       ),
       h("p", { class: "hint", id: "reconnect-detail" }, `${view.profile_name} · ${budget}`),
       h(
         "div",
-        { class: "actions center" },
+        { class: "actions split" },
         h("button", { type: "button", onclick: () => on.cancel() }, "Cancel"),
         now,
       ),

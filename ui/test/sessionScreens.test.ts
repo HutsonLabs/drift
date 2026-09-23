@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ErrorAction, ErrorExplanation } from "../src/bindings";
 import { renderCertificatePrompt } from "../src/views/certificate";
-import { renderConnecting } from "../src/views/connecting";
+import { currentStep, renderConnecting, stepsFor } from "../src/views/connecting";
 import { renderError } from "../src/views/error";
 import { renderGreeterHint } from "../src/views/greeter";
 import { reconnectMessage, renderReconnectOverlay, secondsLeft } from "../src/views/reconnect";
@@ -204,5 +204,30 @@ describe("statistics HUD", () => {
     expect(hud?.getAttribute("aria-live")).toBe("polite");
     expect(text(hud)).toContain("58.9 fps");
     expect(r.querySelectorAll("button").length).toBe(0);
+  });
+});
+
+describe("connecting checklist", () => {
+  test("Remote Login maps both legs onto five steps", () => {
+    expect(stepsFor("remote-login").length).toBe(5);
+    expect(currentStep("remote-login", "tcp", 1)).toBe(0);
+    expect(currentStep("remote-login", "nla", 1)).toBe(2);
+    expect(currentStep("remote-login", "tls", 2)).toBe(3);
+    expect(currentStep("remote-login", "rdstls", 2)).toBe(3);
+    expect(currentStep("remote-login", "activation", 2)).toBe(4);
+  });
+
+  test("Headless and Desktop Sharing skip the login screen step", () => {
+    expect(stepsFor("headless")).toEqual(["tcp", "tls", "nla", "activation"]);
+    expect(currentStep("desktop-sharing", "activation", 1)).toBe(3);
+  });
+
+  test("steps before the current one are ticked; the list is hidden from VoiceOver", () => {
+    const r = root();
+    renderConnecting(r, sessionView("connecting", { state: "connecting", stage: "nla", leg: 1 }), { cancel: () => {} });
+    const list = r.querySelector(".stages");
+    expect(list?.getAttribute("aria-hidden")).toBe("true");
+    expect(r.querySelectorAll(".stage.done").length).toBe(2);
+    expect(text(r.querySelector(".stage.now"))).toBe("Signing in…");
   });
 });

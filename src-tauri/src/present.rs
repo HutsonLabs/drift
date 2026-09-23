@@ -21,7 +21,8 @@ pub const NEW_SESSION_TITLE: &str = "New Session";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
     /// The webview fills the window and there is nothing to see behind it (form, certificate
-    /// prompt, progress, error). The page paints its own opaque background.
+    /// prompt, progress, error). The RemoteView is hidden, so the page's glass panels sit on
+    /// the window's native vibrancy.
     Webview,
     /// The RemoteView with the live picture; the webview is hidden and the view is first
     /// responder.
@@ -41,7 +42,7 @@ pub enum Surface {
 pub enum Hud {
     /// The greeter-wait hint, centred under the title bar (M3-2, M7-3).
     Banner,
-    /// The statistics line in the bottom-right corner (M1 "Done (manual M1)", M9-1).
+    /// The statistics readouts in the bottom-right corner (M1 "Done (manual M1)", M9-1).
     Stats,
 }
 
@@ -107,10 +108,10 @@ const HUD_INSET: f64 = 16.0;
 const BANNER_WIDTH: f64 = 560.0;
 /// Height of the greeter banner (two lines plus its top margin).
 const BANNER_HEIGHT: f64 = 76.0;
-/// Width of the statistics panel.
-const STATS_WIDTH: f64 = 260.0;
-/// Height of the statistics panel.
-const STATS_HEIGHT: f64 = 44.0;
+/// Width of the statistics panel (four labelled readouts).
+const STATS_WIDTH: f64 = 300.0;
+/// Height of the statistics panel (value over unit).
+const STATS_HEIGHT: f64 = 56.0;
 
 /// The rectangle a HUD panel occupies over a `parent`-sized picture.
 ///
