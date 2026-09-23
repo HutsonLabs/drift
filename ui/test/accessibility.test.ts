@@ -11,6 +11,7 @@ import { formModel, renderProfileForm } from "../src/views/profileForm";
 import { profileList } from "../src/views/profileList";
 import { renderReconnectOverlay } from "../src/views/reconnect";
 import { renderStatsHud } from "../src/views/stats";
+import { renderTabStrip } from "../src/views/tabStrip";
 import { certPrompt, entry, LNP_EXPLANATION, profile, sessionView, stats, text } from "./helpers";
 
 const FOCUSABLE = "button, input, select, textarea, summary, a[href]";
@@ -181,5 +182,31 @@ describe("accessible names", () => {
     const hud = r.querySelector(".hud") as Element;
     expect(hud.getAttribute("role")).toBe("status");
     expect(accessibleName(hud)).toBe("Session statistics");
+  });
+
+  test("the tab strip is a named tab list whose tabs announce their state (UI-tabs)", () => {
+    const r = root();
+    renderTabStrip(
+      r,
+      {
+        tabs: [
+          { id: "session-0", kind: "session", title: "Homelab", mode: "remote-login", status: "reconnecting", profile_id: null, hint: null },
+          { id: "session-1", kind: "manager", title: "Connections", mode: null, status: "idle", profile_id: null, hint: null },
+        ],
+        active: "session-1",
+        live_profiles: [],
+      },
+      { select: () => {}, close: () => {}, newTab: () => {}, focus: () => {} },
+    );
+    expect(auditAccessibility(r)).toEqual([]);
+    expect(accessibleName(r.querySelector("nav") as Element)).toBe("Tabs");
+    expect(accessibleName(r.querySelector("[role=tablist]") as Element)).toBe("Open tabs");
+    // The dot is colour only; VoiceOver hears the state in the tab's description.
+    const tab = r.querySelector("[role=tab]") as Element;
+    const described = text(r.querySelector(`[id="${tab.getAttribute("aria-describedby")}"]`));
+    expect(described).toBe("Reconnecting");
+    for (const glyph of Array.from(r.querySelectorAll(".glyph, .spin, .status"))) {
+      expect(glyph.getAttribute("aria-hidden")).toBe("true");
+    }
   });
 });

@@ -9,7 +9,9 @@
 //! * the statistics HUD shrinks the web view to `present::hud_frame` and hands first responder
 //!   back to the `RemoteView`, so everything outside that corner still goes to the remote
 //!   desktop,
-//! * the live screen hides the web view again.
+//! * the live screen hides the web view again,
+//! * (UI-tabs) all of that happens below the 46-point HTML tab strip, which stays visible over
+//!   every surface.
 //!
 //! Like `tabs_ui` this needs the process main thread and a logged-in window server:
 //! `cargo test -p drift-app --features macos-ui-tests --test overlays_ui`.
@@ -20,6 +22,7 @@ use std::time::{Duration, Instant};
 
 use drift_app::RunOptions;
 use drift_app::present::{self, Hud};
+use drift_app::strip::STRIP_HEIGHT;
 use drift_app::view::{Screen, SessionView, StatsView};
 use drift_app::windows::{apply_view_for_tests, tab_count, window_label};
 use drift_core::{ConnectMode, ConnectionProfile, DesktopSize, SessionState, Size};
@@ -27,6 +30,7 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{Message as _, msg_send};
 use objc2_app_kit::{NSView, NSWindow};
+use objc2_foundation::NSRect;
 use tauri::{AppHandle, Manager};
 
 const NAME: &str = "overlays_are_drawn_over_the_live_picture";
@@ -44,7 +48,8 @@ fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(&AppHandle) -> T +
 /// `(content view, WKWebView, NSWindow)` of the first session window, or `None` while the
 /// window is still being built (`open_tab` runs off the main thread). Main thread only.
 fn try_views(app: &AppHandle) -> Option<(Retained<NSView>, Retained<NSView>, Retained<NSWindow>)> {
-    let w = app.get_webview_window(&window_label(0))?;
+    // A window with a strip webview is no longer a single-webview "WebviewWindow".
+    let w = app.get_webview(&window_label(0))?.window();
     let ptr = w.ns_view().ok()?.cast::<NSView>();
     // SAFETY: tao's live content `NSView*`; we are on the main thread and retain it.
     let content = unsafe { ptr.as_ref() }?.retain();
@@ -67,10 +72,24 @@ fn views(app: &AppHandle) -> (Retained<NSView>, Retained<NSView>, Retained<NSWin
 /// what [`apply_view_for_tests`] needs.
 fn wait_for_window(app: &AppHandle) {
     let deadline = Instant::now() + Duration::from_secs(20);
-    while !on_main(app, |a| try_views(a).is_some() && tab_count(a, &window_label(0)).is_some()) {
+    while !on_main(app, |a| {
+        try_views(a).is_some_and(|(content, _, _)| drift_macos::webview::find_webviews(&content).len() == 2)
+            && tab_count(a, &window_label(0)).is_some()
+    }) {
         assert!(Instant::now() < deadline, "the first session window never appeared");
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// `(RemoteView frame, strip WKWebView)` of the first session window (main thread).
+fn picture_and_strip(app: &AppHandle) -> (NSRect, Retained<NSView>) {
+    let (content, web, _) = views(app);
+    let picture = drift_macos::webview::find_subview_of_class(&content, "DriftRemoteView").expect("a RemoteView");
+    let strip = drift_macos::webview::find_webviews(&content)
+        .into_iter()
+        .find(|v| !std::ptr::eq(Retained::as_ptr(v), Retained::as_ptr(&web)))
+        .expect("a second WKWebView: the tab strip");
+    (picture.frame(), strip)
 }
 
 /// The class name of the window's first responder ("" when there is none).
@@ -113,8 +132,19 @@ fn scenario(app: AppHandle) {
             assert!(!hidden, "the overlay is the web view; it must be visible");
             assert_eq!(
                 (frame.size.width, frame.size.height),
-                (bounds.size.width, bounds.size.height),
-                "the overlay fills the window"
+                (bounds.size.width, bounds.size.height - STRIP_HEIGHT),
+                "the overlay fills the window below the tab strip"
+            );
+            let (picture, strip) = on_main(&app, |a| {
+                let (picture, strip) = picture_and_strip(a);
+                (picture, (strip.isHidden(), strip.frame()))
+            });
+            assert!(!strip.0, "the tab strip stays visible over the overlay");
+            assert!((strip.1.size.height - STRIP_HEIGHT).abs() < 0.5, "strip {:?}", strip.1);
+            assert!((strip.1.size.width - bounds.size.width).abs() < 0.5, "strip {:?}", strip.1);
+            assert!(
+                (picture.size.height - (bounds.size.height - STRIP_HEIGHT)).abs() < 0.5,
+                "the picture starts below the strip: {picture:?}"
             );
             assert!(responder.contains("WebView"), "the overlay owns the keyboard, got {responder}");
 
@@ -130,22 +160,28 @@ fn scenario(app: AppHandle) {
                 let (content, web, window) = views(a);
                 (web.isHidden(), web.frame(), content.bounds(), first_responder(&window))
             });
+            let picture = on_main(&app, |a| picture_and_strip(a).0);
             let want = present::hud_frame(
-                Size::new(bounds.size.width, bounds.size.height),
+                Size::new(picture.size.width, picture.size.height),
                 Hud::Stats,
                 content_is_flipped(&app),
             );
             assert!(!hidden, "the HUD is the web view; it must be visible");
             assert_eq!((frame.size.width, frame.size.height), (want.width, want.height), "HUD size");
-            assert!((frame.origin.x - want.x).abs() < 0.5, "HUD x: {frame:?} want {want:?}");
-            assert!((frame.origin.y - want.y).abs() < 0.5, "HUD y: {frame:?} want {want:?}");
+            assert!((frame.origin.x - (picture.origin.x + want.x)).abs() < 0.5, "HUD x: {frame:?} want {want:?}");
+            assert!((frame.origin.y - (picture.origin.y + want.y)).abs() < 0.5, "HUD y: {frame:?} want {want:?}");
             assert!(frame.size.width < bounds.size.width / 2.0, "the HUD is a corner panel");
             assert_eq!(responder, "DriftRemoteView", "the picture keeps the keyboard under a HUD");
 
             // 4. Plain live picture: the web view is hidden again.
             on_main(&app, move |a| apply_view_for_tests(a, &window_label(0), &view_for(Screen::Live)));
-            let hidden = on_main(&app, |a| views(a).1.isHidden());
+            let (hidden, strip_hidden, responder) = on_main(&app, |a| {
+                let (_, web, window) = views(a);
+                (web.isHidden(), picture_and_strip(a).1.isHidden(), first_responder(&window))
+            });
             assert!(hidden, "no overlay: the web view is hidden");
+            assert!(!strip_hidden, "the tab strip stays above the live picture");
+            assert_eq!(responder, "DriftRemoteView", "the live picture has the keyboard");
         }));
         let ok = result.is_ok();
         println!("test {NAME} ... {}", if ok { "ok" } else { "FAILED" });

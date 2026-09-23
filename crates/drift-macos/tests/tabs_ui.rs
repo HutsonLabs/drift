@@ -20,6 +20,7 @@ fn main() -> ExitCode {
             "new_window_for_tab_is_installed_on_the_real_class",
             ui::new_window_for_tab_is_installed_on_the_real_class,
         ),
+        ("the_native_tab_bar_is_hidden_in_a_tab_group", ui::the_native_tab_bar_is_hidden_in_a_tab_group),
     ])
 }
 
@@ -44,7 +45,8 @@ mod ui {
     };
 
     use drift_macos::tabs::{
-        TABBING_IDENTIFIER, add_tab, install_new_window_for_tab, prepare_for_tabs, select_tab, tab_count,
+        TABBING_IDENTIFIER, add_tab, hide_native_tab_bar, install_new_window_for_tab, prepare_for_tabs,
+        select_tab, select_window, tab_count, tab_windows,
     };
 
     define_class!(
@@ -63,13 +65,17 @@ mod ui {
     }
 
     fn tao_window(mtm: MainThreadMarker, title: &str) -> Retained<NSWindow> {
+        styled_window(mtm, title, NSWindowStyleMask::Titled | NSWindowStyleMask::Closable)
+    }
+
+    fn styled_window(mtm: MainThreadMarker, title: &str, style: NSWindowStyleMask) -> Retained<NSWindow> {
         let rect = NSRect::new(NSPoint::new(100.0, 100.0), NSSize::new(320.0, 200.0));
         // SAFETY: NSWindow's designated initializer on our subclass.
         let win: Retained<TestTaoWindow> = unsafe {
             msg_send![
                 TestTaoWindow::alloc(mtm),
                 initWithContentRect: rect,
-                styleMask: NSWindowStyleMask::Titled | NSWindowStyleMask::Closable,
+                styleMask: style,
                 backing: NSBackingStoreType::Buffered,
                 defer: false
             ]
@@ -150,5 +156,49 @@ mod ui {
         // SAFETY: as above.
         assert!(unsafe { other.tryToPerform_with(sel!(newWindowForTab:), None::<&AnyObject>) });
         assert_eq!(NEW_TAB_CALLS.load(Ordering::SeqCst), 2);
+    }
+
+    /// Points the title and tab bars cover at the top of `window`'s full-size content view.
+    fn covered(window: &NSWindow) -> f64 {
+        let content = window.contentView().unwrap();
+        content.bounds().size.height - window.contentLayoutRect().size.height
+    }
+
+    /// UI-tabs: Drift draws its own tab strip, so AppKit's tab bar must go — also for tabs
+    /// added later — while the windows stay one native group (Window menu, Cmd+1…9, full
+    /// screen).
+    pub fn the_native_tab_bar_is_hidden_in_a_tab_group() {
+        let mtm = mtm();
+        let style = NSWindowStyleMask::Titled
+            | NSWindowStyleMask::Closable
+            | NSWindowStyleMask::Resizable
+            | NSWindowStyleMask::FullSizeContentView;
+        let windows: Vec<_> = (0..3).map(|i| styled_window(mtm, &format!("Drift strip tab {i}"), style)).collect();
+        for w in &windows {
+            prepare_for_tabs(w);
+            w.setTitlebarAppearsTransparent(true);
+        }
+        windows[0].orderFront(None);
+        add_tab(&windows[0], &windows[1]);
+        let single_bar = 40.0;
+        assert!(covered(&windows[1]) > single_bar, "AppKit shows its tab bar for two tabs");
+        for w in &windows[..2] {
+            hide_native_tab_bar(w);
+        }
+        add_tab(&windows[1], &windows[2]);
+        hide_native_tab_bar(&windows[2]);
+        for (i, w) in windows.iter().enumerate() {
+            assert!(covered(w) < single_bar, "window {i}: only the title bar row is left ({})", covered(w));
+            assert_eq!(tab_count(w), 3, "window {i} is still in the group");
+        }
+        let order: Vec<_> = tab_windows(&windows[0]).iter().map(|w| Retained::as_ptr(w)).collect();
+        let want: Vec<_> = windows.iter().map(|w| Retained::as_ptr(w)).collect();
+        assert_eq!(order, want, "leading to trailing");
+        select_window(&windows[2]);
+        let selected = windows[0].tabGroup().unwrap().selectedWindow().unwrap();
+        assert_eq!(Retained::as_ptr(&selected), Retained::as_ptr(&windows[2]));
+        for w in &windows {
+            w.close();
+        }
     }
 }

@@ -36,6 +36,7 @@ class FakeApi {
   entries: ProfileEntry_Serialize[] = [];
   saveIssues: ProfileIssue[] | null = null;
   connectError: CommandError | null = null;
+  liveProfiles: string[] = [];
 
   api(): Api {
     const log = (...c: unknown[]) => this.calls.push(c);
@@ -67,6 +68,7 @@ class FakeApi {
       cancelReconnect: () => (log("cancelReconnect"), ok(null)),
       closeSession: () => (log("closeSession"), ok(null)),
       disconnect: () => (log("disconnect"), ok(null)),
+      tabStrip: () => (log("tabStrip"), ok({ tabs: [], active: "session-0", live_profiles: this.liveProfiles })),
     } as Api;
   }
 
@@ -232,7 +234,10 @@ describe("session screens", () => {
     button(root, "Reconnect").click();
     button(root, "Close").click();
     await flush();
-    expect(fake.names()).toEqual(expect.arrayContaining(["reconnectNow", "closeSession"]));
+    // UI-tabs board 5: closing the error turns the tab back into a Connection Manager; the tab
+    // itself stays open (its × in the strip closes it).
+    expect(fake.names()).toEqual(expect.arrayContaining(["reconnectNow", "disconnect"]));
+    expect(fake.names()).not.toContain("closeSession");
   });
 
   test("Edit Connection goes back to the form of the profile being connected", async () => {
@@ -292,5 +297,25 @@ describe("session screens", () => {
     app.onSessionView(sessionView("profiles", { state: "idle" }));
     expect(document.body.dataset.screen).toBe("profiles");
     expect(labels(root)).toContain("Name");
+  });
+});
+
+describe("connections open in other tabs (UI-tabs)", () => {
+  test("a live dot marks a connection that is open in another tab", async () => {
+    const fake = new FakeApi();
+    const live = profile("headless", { name: "Studio Workstation" });
+    const idle = profile("remote-login", { name: "Homelab" });
+    fake.entries = [entry(idle), entry(live)];
+    fake.liveProfiles = [live.id];
+    const { root, app } = await start(fake);
+    expect(fake.names()).toContain("tabStrip");
+    const row = (name: string) => button(root, name).closest("li");
+    expect(row("Studio Workstation")?.querySelector(".status")?.getAttribute("title")).toBe("Connected in another tab");
+    expect(row("Homelab")?.querySelector(".status")).toBeNull();
+
+    // The strip model is pushed again whenever tabs change.
+    app.onTabs({ tabs: [], active: "session-0", live_profiles: [idle.id] });
+    expect(row("Homelab")?.querySelector(".status")).not.toBeNull();
+    expect(row("Studio Workstation")?.querySelector(".status")).toBeNull();
   });
 });

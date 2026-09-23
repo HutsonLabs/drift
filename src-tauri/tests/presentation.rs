@@ -5,9 +5,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use drift_app::present::{
-    Hud, NEW_SESSION_TITLE, Surface, accessibility_label, chrome, cursor_shape, find_autoconnect, hud_frame,
-    surface_for, window_subtitle, window_title,
+    Focus, Hud, Surface, accessibility_label, band_y, chrome, cursor_shape, find_autoconnect, focus_for,
+    greeter_hint, hud_frame, surface_for, window_title,
 };
+use drift_app::strip::{CONNECTIONS_TITLE, STRIP_HEIGHT};
 use drift_app::view::{Screen, SessionView};
 use drift_core::{
     ConnectMode, ConnectStage, ConnectionProfile, DesktopSize, DisconnectReason, Point, SessionState, Size,
@@ -121,9 +122,11 @@ fn a_hud_shrinks_with_a_narrow_window() {
 
 #[test]
 fn title_is_profile_name_plus_state_glyph() {
-    assert_eq!(window_title(None), NEW_SESSION_TITLE);
+    // UI-tabs: a window on the connect form is a Connection Manager tab, titled "Connections"
+    // (the title is what AppKit lists in the Window menu).
+    assert_eq!(window_title(None), CONNECTIONS_TITLE);
     let idle = SessionView::new(&ConnectionProfile::new("Homelab", "h", ConnectMode::Headless));
-    assert_eq!(window_title(Some(&idle)), NEW_SESSION_TITLE, "the connect form is a new session");
+    assert_eq!(window_title(Some(&idle)), CONNECTIONS_TITLE, "the connect form is the Connection Manager");
     #[rustfmt::skip]
     let table = [
         (SessionState::Connecting { leg: 2, stage: ConnectStage::Tls }, "◌ Homelab"),
@@ -139,29 +142,31 @@ fn title_is_profile_name_plus_state_glyph() {
     }
 }
 
+/// UI-tabs: the title bar is hidden, so the greeter hint no longer lives in the window
+/// subtitle; the same text is the floating banner's and the session tab's tooltip.
 #[test]
-fn subtitle_carries_the_greeter_hint() {
-    assert_eq!(window_subtitle(None), "");
+fn the_greeter_hint_names_the_linux_user() {
+    assert_eq!(greeter_hint(None), None);
     let live = view_in(
         ConnectMode::RemoteLogin,
         SessionState::Connected { desktop: DesktopSize::new(1280, 800), scale: 100 },
     );
-    assert_eq!(window_subtitle(Some(&live)), "");
+    assert_eq!(greeter_hint(Some(&live)), None);
     let greeter = view_in(ConnectMode::RemoteLogin, SessionState::AwaitingGreeterLogin);
-    assert_eq!(window_subtitle(Some(&greeter)), "Log in as “drifttest” to start your session");
+    assert_eq!(greeter_hint(Some(&greeter)).as_deref(), Some("Log in as “drifttest” to start your session"));
     let mut resuming = live.clone();
     resuming.apply(&SessionEvent::State(SessionState::AwaitingGreeterLogin));
     assert!(resuming.resuming);
     assert_eq!(
-        window_subtitle(Some(&resuming)),
-        "Session is still running — log in as “drifttest” to resume"
+        greeter_hint(Some(&resuming)).as_deref(),
+        Some("Session is still running — log in as “drifttest” to resume")
     );
     let mut anon = ConnectionProfile::new("Homelab", "h", ConnectMode::RemoteLogin);
     anon.linux_username = None;
     let mut v = SessionView::new(&anon);
     v.apply(&SessionEvent::State(SessionState::Connecting { leg: 1, stage: ConnectStage::Tcp }));
     v.apply(&SessionEvent::State(SessionState::AwaitingGreeterLogin));
-    assert_eq!(window_subtitle(Some(&v)), "Log in to start your session");
+    assert_eq!(greeter_hint(Some(&v)).as_deref(), Some("Log in to start your session"));
 }
 
 /// M9-4: VoiceOver names the picture after the connection and the desktop it shows.
@@ -210,21 +215,38 @@ fn autoconnect_finds_the_named_profile() {
     assert_eq!(find_autoconnect(&all, ""), None);
 }
 
+/// UI-tabs: the HTML tab strip is the title bar row; the picture and the page start below it.
 #[test]
-fn a_single_tab_floats_the_traffic_lights_over_the_page() {
-    let c = chrome(32.0, 32.0, 31.0, false);
-    assert_eq!((c.titlebar, c.lights, c.offset, c.picture_top), (37.0, 31.0, 0.0, 37.0));
+fn the_tab_strip_sits_above_the_picture_and_the_page() {
+    let c = chrome(false);
+    assert!((c.strip - STRIP_HEIGHT).abs() < f64::EPSILON, "{c:?}");
+    assert!((c.content_top - STRIP_HEIGHT).abs() < f64::EPSILON, "{c:?}");
+}
+
+/// UI-tabs board 4: in full screen the strip is hidden and the remote desktop fills the screen.
+#[test]
+fn full_screen_hides_the_strip_and_the_picture_fills_the_screen() {
+    let c = chrome(true);
+    assert_eq!((c.strip, c.content_top), (0.0, 0.0));
 }
 
 #[test]
-fn the_tab_bar_pushes_the_page_below_both_bars() {
-    let c = chrome(60.0, 32.0, 31.0, true);
-    assert_eq!((c.titlebar, c.lights, c.offset, c.picture_top), (32.0, 0.0, 60.0, 60.0));
+fn bands_are_measured_from_the_top_edge_in_either_coordinate_space() {
+    // A 46-point strip at the top of an 800-point view.
+    assert!((band_y(800.0, 0.0, 46.0, true) - 0.0).abs() < f64::EPSILON);
+    assert!((band_y(800.0, 0.0, 46.0, false) - 754.0).abs() < f64::EPSILON);
+    // The content below it.
+    assert!((band_y(800.0, 46.0, 754.0, true) - 46.0).abs() < f64::EPSILON);
+    assert!((band_y(800.0, 46.0, 754.0, false) - 0.0).abs() < f64::EPSILON);
 }
 
+/// Clicking the strip must not leave the keyboard in the strip: focus goes back to whatever
+/// the tab's surface says owns it.
 #[test]
-fn full_screen_hides_the_title_bar() {
-    let c = chrome(0.0, 32.0, 31.0, false);
-    assert_eq!((c.titlebar, c.lights, c.offset, c.picture_top), (0.0, 0.0, 0.0, 0.0));
-    assert!(chrome(32.0, 32.0, 31.0, false).css_script().contains("'--lights','31px'"));
+fn keyboard_focus_follows_the_surface() {
+    assert_eq!(focus_for(Surface::Remote), Focus::Remote);
+    assert_eq!(focus_for(Surface::Hud(Hud::Banner)), Focus::Remote);
+    assert_eq!(focus_for(Surface::Hud(Hud::Stats)), Focus::Remote);
+    assert_eq!(focus_for(Surface::Webview), Focus::Page);
+    assert_eq!(focus_for(Surface::Overlay), Focus::Page);
 }
