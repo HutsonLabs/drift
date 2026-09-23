@@ -31,7 +31,8 @@
 6. **UI.** `ui/` is bun + TypeScript, no framework. `bun run build` (`ui/build.ts`,
    `Bun.build`) writes `ui/dist` (tauri `frontendDist`); `bun test` uses happy-dom via
    `bunfig.toml` preload; `bun run typecheck` runs `tsc --noEmit`. Tauri's
-   `beforeDevCommand`/`beforeBuildCommand` call `bun run --cwd ui build`. `ui/dist` must exist
+   `beforeDevCommand`/`beforeBuildCommand` call `bun run build`; tauri runs them with `ui/`
+   as the working directory, so they must not `cd` into it again. `ui/dist` must exist
    before `drift-app` compiles (`tauri::generate_context!`); `cargo xtask check` builds it when
    missing.
 7. **npm ban.** `cargo xtask npm-ban` (also in `ci`) fails on npm/yarn/pnpm lockfiles and on
