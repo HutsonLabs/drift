@@ -34,7 +34,8 @@
     "macOS": {
       "minimumSystemVersion": "14.0",
       "entitlements": "entitlements.plist",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "signingIdentity": "FE9B9ADD91CB67176BFE80FF725F77539D75BD96"
     }
   }
 }

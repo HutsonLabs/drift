@@ -70,6 +70,21 @@ fn the_bundle_is_signed_with_the_entitlements_file_and_hardened_runtime() {
 }
 
 #[test]
+fn the_bundle_is_signed_with_the_pinned_developer_id_identity() {
+    let conf = config();
+    // Pinned by SHA-1, not by name: two "Developer ID Application: Andrew Hutson (M9Z3N2R97A)"
+    // certificates exist, so the name is ambiguous and codesign refuses it. This one lives in
+    // the dedicated term-hut-signing keychain, which unlocks without a GUI prompt (SSH,
+    // launchd), so `cargo tauri build` produces a Developer ID–signed .dmg from any session.
+    // A stable identity also keeps the Local Network permission across rebuilds (plan §1.8).
+    assert_eq!(
+        conf["bundle"]["macOS"]["signingIdentity"].as_str(),
+        Some("FE9B9ADD91CB67176BFE80FF725F77539D75BD96"),
+        "the .dmg must be signed with the Developer ID identity, not ad hoc"
+    );
+}
+
+#[test]
 fn the_entitlements_enable_the_app_sandbox_and_outgoing_network_only() {
     let entries = plist_entries(&read("entitlements.plist"));
     assert_eq!(
