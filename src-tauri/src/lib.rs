@@ -1,14 +1,17 @@
 //! # drift-app
 //!
 //! The Tauri shell: IPC commands (typed with tauri-specta), saved profiles, the per-window
-//! [`view::SessionView`] model, the `SessionManager`, windows, the tab strip ([`strip`]) and
-//! menus.
+//! [`view::SessionView`] model, the `SessionManager`, the Connections window and its gallery
+//! model ([`connections`]), session windows, remembered frames ([`frames`]), menus and the Dock
+//! menu ([`dock`]).
 //!
 //! The TypeScript bindings in `ui/src/bindings.ts` are generated from [`specta_builder`]
 //! by `cargo xtask bindings`; CI fails when they are stale.
 
 pub mod commands;
 pub mod connections;
+pub mod dock;
+pub mod frames;
 mod host;
 pub mod manager;
 pub mod menu;
@@ -20,7 +23,6 @@ pub mod profiles;
 pub mod recording;
 pub mod secrets;
 pub mod services;
-pub mod strip;
 pub mod view;
 pub mod windows;
 
@@ -50,11 +52,6 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::reconnect_now,
             commands::cancel_reconnect,
             commands::close_session,
-            commands::disconnect,
-            commands::tab_strip,
-            commands::select_tab,
-            commands::close_tab,
-            commands::new_tab,
             commands::focus_content,
             commands::duplicate_profile,
             commands::connections,
@@ -67,7 +64,6 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
         .events(tauri_specta::collect_events![
             view::SessionViewChanged,
-            strip::TabStripChanged,
             connections::ConnectionsChanged,
             connections::ThumbnailUpdated,
             connections::ConnectionsIntentRequested,
@@ -122,10 +118,13 @@ pub fn run_with(options: RunOptions) {
                 manager::SessionManager::new(session_host, tauri::async_runtime::handle().inner().clone());
             // The app-lifetime platform services: the 250 ms pasteboard poll (M5-3/M5-2) and
             // the network/wake reconnect triggers (M7-2). Both fan out to every live session,
-            // so they belong to the app, not to one tab. Managed state keeps them alive.
+            // so they belong to the app, not to one window. Managed state keeps them alive.
             app.manage(services::PlatformServices::start(&handle, sessions.clone()));
-            app.manage(commands::AppState::new(profiles.clone(), sessions));
-            app.set_menu(windows::build_menu(&handle)?)?;
+            let frames = frames::FrameStore::in_dir(&dir);
+            app.manage(commands::AppState::new(profiles.clone(), sessions, frames));
+            app.set_menu(windows::build_menu(&handle, &menu::menu_spec(&[], None))?)?;
+            windows::install_dock(&handle);
+            windows::start_thumbnails(&handle);
             let first_profile = autoconnect.as_deref().and_then(|name| {
                 let all = profiles.profiles().unwrap_or_default();
                 present::find_autoconnect(&all, name).map(|p| p.id)
@@ -133,7 +132,7 @@ pub fn run_with(options: RunOptions) {
             if autoconnect.is_some() && first_profile.is_none() {
                 tracing::warn!("DRIFT_AUTOCONNECT names no saved profile");
             }
-            windows::open_tab_with(&handle, first_profile);
+            windows::open_connections_window(&handle, first_profile);
             if let Some(ready) = on_ready.lock().ok().and_then(|mut r| r.take()) {
                 ready(handle);
             }
@@ -149,9 +148,10 @@ pub fn run_with(options: RunOptions) {
                 let label = window.label().to_owned();
                 let app = window.app_handle();
                 if !app.state::<commands::AppState>().is_closing(&label) {
-                    // Close the session first (graceful, capped), then destroy the window.
+                    // Connections only hides; a session window may ask first, then closes its
+                    // session (graceful, capped) before the window is destroyed.
                     api.prevent_close();
-                    windows::close_tab(app, &label);
+                    windows::request_close(app, &label);
                 }
             }
         })
@@ -159,10 +159,11 @@ pub fn run_with(options: RunOptions) {
         .expect("error while starting Drift");
 
     app.run(|handle, event| match event {
-        // Closing the last tab leaves Drift running, like other Mac apps; Cmd+Q exits.
+        // Closing the last window leaves Drift running, like other Mac apps; Cmd+Q exits.
         tauri::RunEvent::ExitRequested { code, api, .. } if code.is_none() => api.prevent_exit(),
+        // A click on the Dock icon with nothing on screen brings Connections back.
         tauri::RunEvent::Reopen { has_visible_windows, .. } if !has_visible_windows => {
-            windows::open_tab(handle);
+            windows::show_connections(handle, None);
         }
         tauri::RunEvent::Exit => windows::shutdown_blocking(handle),
         _ => {}

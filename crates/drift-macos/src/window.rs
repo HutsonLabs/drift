@@ -1,7 +1,8 @@
-//! Window visibility, key-state and full-screen observer (task **M6-3**, platform part; plan §1.8).
+//! Window visibility, key-state and full-screen observer (task **M6-3**, platform part; plan §1.8),
+//! and the no-tabbing rule of task **UI-windows**.
 //!
-//! Only the selected tab of a group reports `occlusionState ∋ Visible`, and
-//! `NSWindowDidChangeOcclusionStateNotification` fires on every tab switch. Background tabs
+//! A hidden, minimised or fully covered window reports no `occlusionState ∋ Visible`, and
+//! `NSWindowDidChangeOcclusionStateNotification` fires whenever that changes. Covered windows
 //! keep rendering at 60 fps unless Drift pauses them, so the app maps
 //! [`WindowEvent::Occlusion`] to `SessionCommand::SetVisible` (Suppress Output) and
 //! [`WindowEvent::Key`] to `SessionCommand::Focus`.
@@ -16,6 +17,7 @@ use objc2_app_kit::{
     NSWindow, NSWindowDidBecomeKeyNotification, NSWindowDidChangeOcclusionStateNotification,
     NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification,
     NSWindowDidResignKeyNotification, NSWindowDidResizeNotification, NSWindowOcclusionState,
+    NSWindowTabbingMode,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNotificationName, NSObjectProtocol};
 
@@ -35,12 +37,19 @@ pub enum WindowEvent {
     Resized,
 }
 
+/// Keeps `window` out of every tab group (`tabbingMode = Disallowed`): each Drift window is an
+/// ordinary Mac window, and AppKit drops View ▸ Show Tab Bar and Window ▸ Merge All Windows
+/// (ADR UI-windows-gallery decision 1).
+pub fn disallow_tabbing(window: &NSWindow) {
+    window.setTabbingMode(NSWindowTabbingMode::Disallowed);
+}
+
 /// Runs `work` on the main thread from the main dispatch queue (returns at once).
 ///
 /// Unlike tao's `run_on_main_thread`, the block runs from the run loop and **not** inside tao's
-/// event handler. AppKit calls that draw synchronously — `addTabbedWindow:ordered:` syncs the
-/// tab sizes and redraws, selecting a tab redraws — re-enter tao's `drawRect:` handler, which
-/// takes the handler lock tao already holds while it runs user events: a deadlock (UI-tabs).
+/// event handler. AppKit calls that draw or run a modal loop synchronously re-enter tao's
+/// `drawRect:` handler, which takes the handler lock tao already holds while it runs user
+/// events: a deadlock (UI-tabs decision 12).
 pub fn dispatch_main(work: impl FnOnce() + Send + 'static) {
     dispatch2::DispatchQueue::main().exec_async(work);
 }

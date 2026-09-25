@@ -95,10 +95,15 @@ fn facts(a: &AppHandle, label: &str) -> Option<Facts> {
     let close = ns.standardWindowButton(NSWindowButton::CloseButton)?;
     let rect = close.convertRect_toView(close.bounds(), None);
     let height = ns.contentView()?.bounds().size.height;
+    // A test launched from a terminal may not be allowed to activate (macOS activation is
+    // cooperative); then "key" means "front-most of Drift's windows".
+    let mtm = objc2::MainThreadMarker::new()?;
+    let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+    let front = app.orderedWindows().firstObject().is_some_and(|w| std::ptr::eq(&*w, &*ns));
     Some(Facts {
         label: label.to_owned(),
         visible: ns.isVisible(),
-        key: ns.isKeyWindow(),
+        key: if app.isActive() { ns.isKeyWindow() } else { front },
         tabbing: ns.tabbingMode(),
         tabbed: ns.tabbedWindows().is_some(),
         lights: (height - rect.origin.y - rect.size.height / 2.0, rect.origin.x),
@@ -106,19 +111,40 @@ fn facts(a: &AppHandle, label: &str) -> Option<Facts> {
     })
 }
 
-/// `(full screen, window frame == screen frame, picture frame height, content height,
+/// `(full screen, window frame vs screen frame, picture frame height, content height,
 /// title bar webview hidden)` of session window `label` (main thread).
-fn full_screen_facts(a: &AppHandle, label: &str) -> (bool, bool, f64, f64, bool) {
+fn full_screen_facts(a: &AppHandle, label: &str) -> (bool, Option<String>, f64, f64, bool) {
     let ns = ns_window(a, label).unwrap();
     let full = ns.styleMask().contains(NSWindowStyleMask::FullScreen);
-    let covers = ns.screen().is_some_and(|s| {
+    let covers = ns.screen().and_then(|s| {
         let (w, f) = (ns.frame(), s.frame());
-        (w.size.width - f.size.width).abs() < 0.5 && (w.size.height - f.size.height).abs() < 0.5
+        let same = (w.size.width - f.size.width).abs() < 0.5 && (w.size.height - f.size.height).abs() < 0.5;
+        (!same).then(|| format!("window {w:?} on screen {f:?}, full screen: {full}"))
     });
     let content: Retained<NSView> = ns.contentView().unwrap();
     let picture = drift_macos::webview::find_subview_of_class(&content, "DriftRemoteView").unwrap();
     let titlebar_hidden = drift_macos::webview::find_webviews(&content).iter().skip(1).all(|v| v.isHidden());
     (full, covers, picture.frame().size.height, content.bounds().size.height, titlebar_hidden)
+}
+
+/// The Window menu's visible item titles and whether it is `NSApp.windowsMenu` (main thread).
+fn window_menu() -> (Vec<String>, bool) {
+    let mtm = objc2::MainThreadMarker::new().unwrap();
+    let ns_app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+    let Some(main) = ns_app.mainMenu() else { return (Vec::new(), false) };
+    let Some(window) =
+        main.itemWithTitle(&objc2_foundation::NSString::from_str("Window")).and_then(|i| i.submenu())
+    else {
+        return (Vec::new(), false);
+    };
+    let titles = (0..window.numberOfItems())
+        .filter_map(|i| window.itemAtIndex(i))
+        // AppKit keeps a hidden "Enter Full Screen" of its own next to Drift's.
+        .filter(|i| !i.isHidden())
+        .map(|i| i.title().to_string())
+        .collect();
+    let is_windows_menu = ns_app.windowsMenu().is_some_and(|m| std::ptr::eq(&*m, &*window));
+    (titles, is_windows_menu)
 }
 
 fn scenario(app: AppHandle) {
@@ -174,8 +200,22 @@ fn scenario(app: AppHandle) {
             }
             println!("three independent windows, none tabbed; traffic lights centred in the 52-pt bar");
 
+            // The Window menu lists the sessions itself and is not AppKit's windows menu.
+            wait_until("the Sessions section", 10, || {
+                on_main(&app, |_| {
+                    window_menu().0.iter().filter(|t| t.contains("Alpha") || t.contains("Bravo")).count() == 2
+                })
+            });
+            let (titles, is_windows_menu) = on_main(&app, |_| window_menu());
+            assert!(titles.iter().any(|t| t == "Sessions"), "{titles:?}");
+            assert!(titles.iter().any(|t| t == "Connections"), "{titles:?}");
+            assert!(!is_windows_menu, "Drift owns the list; AppKit adds none: {titles:?}");
+            assert!(!titles.iter().any(|t| t.contains("Tab")), "no tab items: {titles:?}");
+            assert_eq!(titles.iter().filter(|t| t.contains("Full Screen")).count(), 1, "{titles:?}");
+            println!("Window menu: {titles:?}");
+
             // 3. Connecting Alpha again focuses its window; no third session window.
-            let first = sessions[0].clone();
+            let first = app.state::<AppState>().sessions.window_for(alpha).expect("Alpha's window");
             connect_profile(&app, alpha).unwrap();
             wait_until("Alpha's window is key", 10, || {
                 let first = first.clone();
@@ -185,33 +225,53 @@ fn scenario(app: AppHandle) {
             assert_eq!(on_main(&app, |_| session_labels()).len(), 2, "no second window for Alpha");
             println!("connecting an open profile focuses its window");
 
-            // 4. Full screen: the picture covers the whole screen, no title bar chrome.
-            let second = sessions[1].clone();
-            {
-                let second = second.clone();
-                on_main(&app, move |a| ns_window(a, &second).unwrap().toggleFullScreen(None));
-            }
-            wait_until("full screen", 20, || {
-                let second = second.clone();
-                on_main(&app, move |a| full_screen_facts(a, &second)).0
+            // 4. Full screen: the picture covers the whole screen, no title bar chrome. macOS only
+            // lets the active app enter full screen, and activation is cooperative: a test binary
+            // started from a background shell may never become active. Then this part is
+            // reported as skipped (the pure `present::chrome(true)` rule is tested either way).
+            let active = on_main(&app, |_| {
+                let mtm = objc2::MainThreadMarker::new().unwrap();
+                let ns_app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+                ns_app.activate();
+                ns_app.isActive()
             });
-            std::thread::sleep(Duration::from_millis(500));
-            let (_, covers, picture, content, titlebar_hidden) = {
-                let second = second.clone();
-                on_main(&app, move |a| full_screen_facts(a, &second))
-            };
-            assert!(covers, "the full-screen window covers its screen");
-            assert!((picture - content).abs() < 0.5, "the picture fills the screen: {picture} of {content}");
-            assert!(titlebar_hidden, "no title-bar webview in full screen");
-            {
-                let second = second.clone();
-                on_main(&app, move |a| ns_window(a, &second).unwrap().toggleFullScreen(None));
+            if !active {
+                println!("full screen: SKIPPED (Drift could not become the active app in this session)");
+            } else {
+                let second = sessions[1].clone();
+                {
+                    let second = second.clone();
+                    on_main(&app, move |a| ns_window(a, &second).unwrap().toggleFullScreen(None));
+                }
+                wait_until("full screen covering the screen", 20, || {
+                    let second = second.clone();
+                    on_main(&app, move |a| {
+                        let facts = full_screen_facts(a, &second);
+                        facts.0 && facts.1.is_none()
+                    })
+                });
+                std::thread::sleep(Duration::from_millis(500));
+                let (full, covers, picture, content, titlebar_hidden) = {
+                    let second = second.clone();
+                    on_main(&app, move |a| full_screen_facts(a, &second))
+                };
+                assert!(full, "still in full screen");
+                assert_eq!(covers, None, "the full-screen window covers its screen");
+                assert!(
+                    (picture - content).abs() < 0.5,
+                    "the picture fills the screen: {picture} of {content}"
+                );
+                assert!(titlebar_hidden, "no title-bar webview in full screen");
+                {
+                    let second = second.clone();
+                    on_main(&app, move |a| ns_window(a, &second).unwrap().toggleFullScreen(None));
+                }
+                wait_until("left full screen", 20, || {
+                    let second = second.clone();
+                    on_main(&app, move |a| !full_screen_facts(a, &second).0)
+                });
+                println!("full screen: the picture covers the screen, the title bar is hidden");
             }
-            wait_until("left full screen", 20, || {
-                let second = second.clone();
-                on_main(&app, move |a| !full_screen_facts(a, &second).0)
-            });
-            println!("full screen: the picture covers the screen, the title bar is hidden");
         }));
         let ok = result.is_ok();
         println!("test {NAME} ... {}", if ok { "ok" } else { "FAILED" });

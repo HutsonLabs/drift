@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for Drift windows.",
-  "windows": ["main", "session-*"],
+  "description": "Permissions for Drift windows: Connections, and every session window with its title-bar webview (`session-<n>-titlebar` is a webview of window `session-<n>`).",
+  "windows": ["connections", "session-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

@@ -198,6 +198,7 @@ fn session_items_carry_a_glyph_and_the_name() {
         (SessionState::Connected { desktop: DesktopSize::new(1280, 800), scale: 100 }, '●', ConnectionStatus::Live),
         (reconnecting(), '↻', ConnectionStatus::Reconnecting),
         (SessionState::Failed { reason: DisconnectReason::AuthFailed }, '⚠', ConnectionStatus::Failed),
+        (SessionState::Disconnected { reason: DisconnectReason::ServerShutdown }, '⚠', ConnectionStatus::Failed),
     ];
     for (state, glyph, status) in table {
         let item = session_item("session-3", &view_in(ConnectMode::Headless, state.clone()));

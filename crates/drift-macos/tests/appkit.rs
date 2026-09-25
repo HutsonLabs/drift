@@ -242,9 +242,9 @@ fn key_down_and_up_reach_the_handler_as_scancodes() {
 
 fn perform_key_equivalent_claims_all_but_the_allow_list() {
     let r = rig();
-    // Cmd+T is Drift's "New Tab": not claimed, nothing sent.
-    let cmd_t = key_event(&r.window, true, 17, "t", NSEventModifierFlags::Command);
-    assert!(!r.view.performKeyEquivalent(&cmd_t), "Cmd+T goes to the menu");
+    // Cmd+N is Drift's "New Connection…": not claimed, nothing sent.
+    let cmd_n = key_event(&r.window, true, 45, "n", NSEventModifierFlags::Command);
+    assert!(!r.view.performKeyEquivalent(&cmd_n), "Cmd+N goes to the menu");
     assert_eq!(r.rec.take(), vec![]);
     // Cmd+K is claimed and sent as Super+K.
     let cmd_k = key_event(&r.window, true, 40, "k", NSEventModifierFlags::Command);
@@ -252,6 +252,11 @@ fn perform_key_equivalent_claims_all_but_the_allow_list() {
     let sent = r.rec.take();
     assert!(sent.contains(&key(0x25, false, true)), "{sent:?}");
     assert!(sent.contains(&key(0x5B, true, true)), "{sent:?}");
+    // UI-windows: Cmd+T is no longer a Drift shortcut; the remote gets it (Super is still down).
+    let cmd_t = key_event(&r.window, true, 17, "t", NSEventModifierFlags::Command);
+    assert!(r.view.performKeyEquivalent(&cmd_t), "Cmd+T is claimed for the remote");
+    let sent = r.rec.take();
+    assert!(sent.contains(&key(0x14, false, true)), "{sent:?}");
     // Ctrl+Tab is claimed (AppKit would otherwise use it for key-view looping).
     let ctrl_tab = key_event(&r.window, true, 48, "\t", NSEventModifierFlags::Control);
     assert!(r.view.performKeyEquivalent(&ctrl_tab));

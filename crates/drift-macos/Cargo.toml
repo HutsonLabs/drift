@@ -12,8 +12,8 @@ default = []
 ## Thin helpers taking a `tauri::Window` and its page `tauri::Webview` (attach the RemoteView below the WKWebView,
 ## hide/show the webview). Enabled by drift-app.
 tauri = ["dep:tauri"]
-## AppKit window-group tests that need a real window server session with tabbing
-## (plan M6-2: `cargo test -p drift-macos --features macos-ui-tests`).
+## AppKit window tests that need a real window server session
+## (`cargo test -p drift-macos --features macos-ui-tests --test windows_ui`).
 macos-ui-tests = []
 
 [dependencies]

@@ -1,6 +1,6 @@
 [package]
 name = "drift-app"
-description = "Drift: a macOS RDP client for GNOME Remote Desktop 50+ (Tauri shell, SessionManager, windows/tabs, menus)."
+description = "Drift: a macOS RDP client for GNOME Remote Desktop 50+ (Tauri shell, SessionManager, windows, menus)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -20,7 +20,7 @@ path = "src/main.rs"
 default = []
 ## Hidden "Debug ▸ Record Session (experimental)" menu item (M8-3 hook).
 recording = ["drift-video/recording", "dep:objc2-core-foundation"]
-## Real-window tab-group test (plan M6-2): `cargo test -p drift-app --features macos-ui-tests`.
+## Real-window tests (UI-windows, M7-3): `cargo test -p drift-app --features macos-ui-tests --test windows_ui --test overlays_ui`.
 macos-ui-tests = []
 
 [build-dependencies]
@@ -36,6 +36,7 @@ drift-render.workspace = true
 drift-video.workspace = true
 drift-macos = { workspace = true, features = ["tauri"] }
 objc2.workspace = true
+png.workspace = true
 objc2-core-foundation = { workspace = true, optional = true }
 objc2-app-kit = { workspace = true, features = ["NSWorkspace", "NSWindow", "NSApplication", "NSResponder", "NSView", "NSWindowTabGroup"] }
 objc2-foundation = { workspace = true, features = ["NSString", "NSURL", "NSArray"] }
