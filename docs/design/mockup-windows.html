@@ -1,0 +1,1235 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drift — Windows redesign mockup</title>
+<style>
+/* ============================================================================================
+   Drift glass mockup. Everything here is static; it shows layout, material and type only.
+   Interface font: Avenir Next (ships with macOS). Code/fingerprints: SF Mono.
+   ============================================================================================ */
+:root {
+  --font: "Avenir Next", "Avenir", -apple-system, system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --accent: oklch(0.6 0.15 245);
+  --accent-strong: oklch(0.54 0.16 248);
+  --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+  --good: oklch(0.68 0.16 150);
+  --warn: oklch(0.74 0.15 70);
+  --danger: oklch(0.58 0.2 25);
+  --r-window: 22px;
+  --r-panel: 16px;
+  --r-group: 14px;
+  --r-control: 9px;
+}
+[data-theme="light"] {
+  color-scheme: light;
+  --text: oklch(0.22 0.02 255);
+  --secondary: oklch(0.47 0.02 255);
+  --tertiary: oklch(0.6 0.015 255);
+  --window: oklch(0.985 0.004 250 / 0.72);
+  --sidebar: oklch(1 0 0 / 0.42);
+  --group: oklch(1 0 0 / 0.62);
+  --field: oklch(1 0 0 / 0.78);
+  --hairline: oklch(0.3 0.02 255 / 0.1);
+  --rim: oklch(1 0 0 / 0.75);
+  --rim-soft: oklch(1 0 0 / 0.45);
+  --hover: oklch(0.3 0.02 255 / 0.05);
+  --selected: oklch(1 0 0 / 0.7);
+  --shadow-window: 0 40px 80px -24px oklch(0.25 0.05 260 / 0.38), 0 12px 28px -12px oklch(0.25 0.05 260 / 0.25);
+  --shadow-panel: 0 10px 30px -14px oklch(0.25 0.05 260 / 0.3);
+  --shadow-control: 0 1px 2px oklch(0.25 0.05 260 / 0.14);
+  --scrim: oklch(0.2 0.02 260 / 0.1);
+  --sheet: oklch(0.99 0.003 250 / 0.82);
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --text: oklch(0.96 0.005 250);
+  --secondary: oklch(0.76 0.012 250);
+  --tertiary: oklch(0.62 0.012 250);
+  --window: oklch(0.2 0.012 260 / 0.7);
+  --sidebar: oklch(0.3 0.015 260 / 0.38);
+  --group: oklch(0.32 0.012 260 / 0.5);
+  --field: oklch(0.16 0.01 260 / 0.6);
+  --hairline: oklch(1 0 0 / 0.1);
+  --rim: oklch(1 0 0 / 0.2);
+  --rim-soft: oklch(1 0 0 / 0.09);
+  --hover: oklch(1 0 0 / 0.05);
+  --selected: oklch(1 0 0 / 0.12);
+  --accent: oklch(0.68 0.15 245);
+  --accent-soft: color-mix(in oklab, var(--accent) 24%, transparent);
+  --danger: oklch(0.68 0.19 25);
+  --shadow-window: 0 40px 90px -20px oklch(0 0 0 / 0.7), 0 12px 30px -10px oklch(0 0 0 / 0.5);
+  --shadow-panel: 0 14px 34px -14px oklch(0 0 0 / 0.6);
+  --shadow-control: 0 1px 2px oklch(0 0 0 / 0.4);
+  --scrim: oklch(0 0 0 / 0.3);
+  --sheet: oklch(0.25 0.012 260 / 0.72);
+}
+
+* { box-sizing: border-box; }
+html { background: oklch(0.95 0.005 250); }
+[data-theme="dark"] { background: oklch(0.15 0.01 260); }
+body {
+  margin: 0;
+  font: 500 13px/1.45 var(--font);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "kern", "liga";
+}
+::selection { background: var(--accent-soft); }
+button, input, select { font: inherit; color: inherit; }
+code { font: 12px/1.55 var(--mono); }
+svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- presentation chrome (not part of the app) ---------- */
+.deck { max-width: 1320px; margin: 0 auto; padding: 48px 40px 96px; }
+.deck-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 36px; }
+.deck-head h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; }
+.deck-head p { margin: 0; color: var(--secondary); max-width: 62ch; font-size: 15px; }
+.theme-switch { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--hover); border: 0.5px solid var(--hairline); }
+.theme-switch button { border: 0; background: none; padding: 6px 16px; border-radius: 999px; font-weight: 600; cursor: pointer; color: var(--secondary); }
+.theme-switch button[aria-pressed="true"] { background: var(--field); color: var(--text); box-shadow: var(--shadow-control); }
+.board { margin: 0 0 72px; }
+.board-head { display: grid; grid-template-columns: 280px 1fr; gap: 32px; margin-bottom: 18px; align-items: start; }
+.board-head h2 { font-size: 20px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.board-head ul { margin: 0; padding-left: 18px; color: var(--secondary); font-size: 14px; columns: 2; column-gap: 40px; }
+.board-head li { margin-bottom: 4px; break-inside: avoid; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+
+/* ---------- desktop wallpaper (stands in for whatever is behind the vibrant window) ---------- */
+.desk {
+  position: relative;
+  border-radius: 28px;
+  padding: 44px;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(60% 80% at 12% 18%, oklch(0.78 0.13 210) 0%, transparent 60%),
+    radial-gradient(50% 70% at 88% 12%, oklch(0.8 0.12 320) 0%, transparent 62%),
+    radial-gradient(70% 70% at 70% 95%, oklch(0.74 0.14 265) 0%, transparent 60%),
+    radial-gradient(60% 60% at 20% 100%, oklch(0.86 0.1 180) 0%, transparent 60%),
+    oklch(0.84 0.07 250);
+}
+[data-theme="dark"] .desk {
+  background:
+    radial-gradient(60% 80% at 12% 18%, oklch(0.42 0.12 220) 0%, transparent 60%),
+    radial-gradient(50% 70% at 88% 12%, oklch(0.38 0.13 320) 0%, transparent 62%),
+    radial-gradient(70% 70% at 70% 95%, oklch(0.36 0.14 270) 0%, transparent 60%),
+    radial-gradient(60% 60% at 20% 100%, oklch(0.4 0.09 185) 0%, transparent 60%),
+    oklch(0.24 0.05 260);
+}
+
+/* ---------- the window ---------- */
+.window {
+  position: relative;
+  border-radius: var(--r-window);
+  background: var(--window);
+  -webkit-backdrop-filter: blur(40px) saturate(170%);
+  backdrop-filter: blur(40px) saturate(170%);
+  box-shadow: var(--shadow-window), inset 0 0 0 0.5px var(--rim);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.window > .body { flex: 1; min-height: 0; display: grid; grid-template-columns: 272px 1fr; }
+.window.small { height: 560px; }
+.window > .pane { position: relative; flex: 1; min-height: 0; }
+.lights { position: absolute; top: 17px; left: 18px; display: flex; gap: 8px; z-index: 5; }
+.lights span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px oklch(0 0 0 / 0.15); }
+.lights span:nth-child(1) { background: #ff5f57; }
+.lights span:nth-child(2) { background: #febc2e; }
+.lights span:nth-child(3) { background: #28c840; }
+
+/* Floating glass sidebar, inset from the window edge (macOS 26 style). */
+.sidebar {
+  margin: 0 0 8px 8px;
+  border-radius: var(--r-panel);
+  background: var(--sidebar);
+  box-shadow: var(--shadow-panel), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 10px 10px;
+  min-height: 0;
+}
+.search {
+  display: flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 10px; margin: 0 2px 16px;
+  border-radius: 999px;
+  background: var(--hover);
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+  color: var(--tertiary);
+}
+.search svg.i { width: 14px; height: 14px; }
+.sidebar h3 { font-size: 11px; font-weight: 600; color: var(--tertiary); margin: 0 10px 6px; letter-spacing: 0.02em; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.row-item {
+  display: grid; grid-template-columns: 32px 1fr auto; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: 11px;
+}
+.row-item:hover { background: var(--hover); }
+.row-item.selected { background: var(--selected); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--rim-soft); }
+.glyph {
+  width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: #fff;
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.35), 0 1px 2px oklch(0 0 0 / 0.15);
+}
+.glyph svg.i { width: 17px; height: 17px; stroke-width: 1.8; }
+.glyph.login { background: linear-gradient(160deg, oklch(0.7 0.14 240), oklch(0.56 0.16 255)); }
+.glyph.headless { background: linear-gradient(160deg, oklch(0.72 0.12 175), oklch(0.56 0.12 190)); }
+.glyph.sharing { background: linear-gradient(160deg, oklch(0.74 0.14 300), oklch(0.58 0.16 290)); }
+.item-name { font-weight: 600; font-size: 13.5px; line-height: 1.25; }
+.item-detail { color: var(--secondary); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 2px color-mix(in oklab, var(--good) 25%, transparent); }
+.play {
+  width: 26px; height: 26px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: var(--accent); color: #fff; box-shadow: 0 2px 6px -1px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+.play svg.i { width: 11px; height: 11px; fill: currentColor; stroke: none; margin-left: 1px; }
+.sidebar-foot { margin-top: auto; padding-top: 10px; }
+.new-btn {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px; border-radius: 11px; border: 0; font-weight: 600;
+  background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--hairline);
+}
+
+/* ---------- detail pane ---------- */
+.detail { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.detail-scroll { flex: 1; padding: 12px 40px 96px; }
+.hero { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; }
+.hero .glyph { width: 52px; height: 52px; border-radius: 14px; }
+.hero .glyph svg.i { width: 26px; height: 26px; }
+.hero h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; }
+.hero .meta { display: flex; gap: 10px; align-items: center; color: var(--secondary); font-size: 13px; margin-top: 3px; }
+.hero .meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--tertiary); }
+.trusted { display: inline-flex; align-items: center; gap: 4px; color: var(--good); font-weight: 600; }
+.trusted svg.i { width: 13px; height: 13px; stroke-width: 2; }
+.hero .spacer { flex: 1; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 30px; padding: 0 14px; border-radius: 999px; border: 0; font-weight: 600; font-size: 13px;
+  background: var(--field); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--hairline);
+  cursor: default; white-space: nowrap;
+}
+.btn.primary {
+  color: #fff; background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 88%, white), var(--accent-strong));
+  box-shadow: 0 4px 14px -4px color-mix(in oklab, var(--accent) 70%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.3);
+}
+.btn.large { height: 36px; padding: 0 20px; font-size: 14px; }
+.btn.large svg.i { width: 12px; height: 12px; fill: currentColor; stroke: none; }
+.btn.destructive { color: var(--danger); }
+.btn.icon { width: 30px; padding: 0; }
+.btn.ghost { background: transparent; box-shadow: none; color: var(--accent); }
+
+.group-title { font-size: 13px; font-weight: 700; margin: 24px 4px 8px; }
+.group-title + .group-hint { margin-top: -4px; }
+.group-hint { color: var(--secondary); font-size: 12px; margin: 0 4px 10px; max-width: 70ch; }
+.group-hint code, .hint code { font-size: 11px; padding: 1px 5px; border-radius: 5px; background: var(--hover); }
+.group {
+  border-radius: var(--r-group);
+  background: var(--group);
+  box-shadow: inset 0 0 0 0.5px var(--rim-soft), 0 1px 2px oklch(0 0 0 / 0.04);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.g-row { display: grid; grid-template-columns: 200px 1fr; align-items: center; gap: 16px; min-height: 48px; padding: 8px 16px; }
+.g-row + .g-row { border-top: 0.5px solid var(--hairline); }
+.g-row > label, .g-row .label { font-weight: 600; }
+.g-row .sub { display: block; color: var(--secondary); font-weight: 500; font-size: 12px; margin-top: 1px; }
+.g-row.tall { align-items: start; padding-top: 12px; padding-bottom: 14px; }
+.inline { display: flex; gap: 10px; align-items: center; }
+.field {
+  width: 100%; height: 30px; padding: 0 11px; border-radius: var(--r-control); border: 0;
+  background: var(--field); box-shadow: inset 0 0 0 0.5px var(--hairline), inset 0 1px 2px oklch(0 0 0 / 0.04);
+  font-weight: 500;
+}
+.field::placeholder { color: var(--tertiary); }
+.field.port { width: 84px; text-align: center; font-variant-numeric: tabular-nums; }
+.field.focus { box-shadow: 0 0 0 3.5px var(--accent-soft), inset 0 0 0 1px var(--accent); }
+.port-label { color: var(--secondary); font-weight: 600; }
+select.field { appearance: none; padding-right: 30px; background-image: linear-gradient(45deg, transparent 50%, var(--secondary) 50%), linear-gradient(135deg, var(--secondary) 50%, transparent 50%); background-position: calc(100% - 15px) 13px, calc(100% - 11px) 13px; background-size: 4px 4px; background-repeat: no-repeat; }
+
+/* Connection type: three glass tiles instead of a plain segmented control. */
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mode {
+  position: relative; display: grid; gap: 6px; padding: 12px; border-radius: 12px;
+  background: var(--field); box-shadow: inset 0 0 0 0.5px var(--hairline);
+}
+.mode .glyph { width: 26px; height: 26px; border-radius: 7px; }
+.mode .glyph svg.i { width: 14px; height: 14px; }
+.mode strong { font-weight: 600; font-size: 13px; }
+.mode.on { box-shadow: inset 0 0 0 1.5px var(--accent), 0 4px 14px -6px color-mix(in oklab, var(--accent) 60%, transparent); background: color-mix(in oklab, var(--accent) 7%, var(--field)); }
+.mode.on::after {
+  content: ""; position: absolute; top: 10px; right: 10px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.3l2.3 2.2 4.7-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/16px no-repeat;
+}
+.hint { color: var(--secondary); font-size: 12px; margin: 8px 0 0; }
+
+/* Switch */
+.switch { justify-self: end; width: 38px; height: 22px; border-radius: 999px; background: oklch(0.5 0.01 260 / 0.25); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px oklch(0 0 0 / 0.3); }
+.switch.on { background: var(--accent); }
+.switch.on::after { left: 18px; }
+.switch.off-disabled { opacity: 0.45; }
+.g-row.toggle { grid-template-columns: 1fr auto; }
+
+.fp { font: 11.5px/1.6 var(--mono); color: var(--secondary); word-break: break-all; letter-spacing: 0.01em; }
+.disclosure { display: flex; align-items: center; gap: 6px; font-weight: 700; margin: 24px 4px 8px; }
+.disclosure svg.i { width: 12px; height: 12px; stroke-width: 2.2; transform: rotate(90deg); color: var(--secondary); }
+
+/* Floating action bar at the bottom of the detail pane. */
+.actionbar {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+  display: flex; gap: 8px; align-items: center; padding: 7px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--group) 70%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(22px) saturate(180%);
+  box-shadow: var(--shadow-panel), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+}
+.actionbar .sep { width: 0.5px; height: 18px; background: var(--hairline); margin: 0 2px; }
+.actionbar .note { color: var(--secondary); font-size: 12px; padding: 0 8px 0 10px; }
+.fade { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; pointer-events: none; background: linear-gradient(transparent, color-mix(in oklab, var(--window) 90%, transparent)); }
+
+/* ---------- sheets and dialogs ---------- */
+.scrim { position: absolute; inset: 0; background: var(--scrim); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); z-index: 3; display: grid; place-items: center; }
+.sheet {
+  width: 440px; padding: 28px; border-radius: 24px; text-align: center;
+  background: var(--sheet);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: var(--shadow-window), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+}
+.sheet h2 { font-size: 19px; font-weight: 700; margin: 14px 0 6px; letter-spacing: -0.01em; line-height: 1.25; }
+.sheet p { margin: 0 0 8px; color: var(--secondary); font-size: 13px; }
+.sheet .actions { display: flex; gap: 8px; justify-content: center; margin-top: 20px; }
+.sheet .actions.split .btn { flex: 1; }
+.badge-icon { width: 56px; height: 56px; margin: 0 auto; border-radius: 16px; display: grid; place-items: center; color: #fff; }
+.badge-icon svg.i { width: 28px; height: 28px; stroke-width: 1.7; }
+.badge-icon.shield { background: linear-gradient(160deg, oklch(0.72 0.13 240), oklch(0.55 0.16 258)); box-shadow: 0 8px 20px -8px oklch(0.55 0.16 258 / 0.8), inset 0 1px 0 oklch(1 0 0 / 0.35); }
+.badge-icon.warn { background: linear-gradient(160deg, oklch(0.8 0.14 75), oklch(0.66 0.16 55)); box-shadow: 0 8px 20px -8px oklch(0.66 0.16 55 / 0.8), inset 0 1px 0 oklch(1 0 0 / 0.35); }
+.fp-card { text-align: left; margin: 16px 0 10px; padding: 12px 14px; border-radius: 12px; background: var(--field); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.fp-card .fp-label { font-size: 11px; font-weight: 700; color: var(--secondary); margin-bottom: 4px; }
+.fp-card .fp { color: var(--text); font-size: 12px; }
+.check-row { display: flex; align-items: center; justify-content: space-between; text-align: left; padding: 10px 2px 0; font-weight: 600; }
+.sheet .hint { text-align: left; }
+
+/* Connecting: stage track */
+.stages { display: grid; gap: 2px; margin: 18px 0 4px; text-align: left; }
+.stage { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 9px; color: var(--tertiary); font-weight: 500; }
+.stage .tick { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px currentColor; flex: none; }
+.stage.done { color: var(--secondary); }
+.stage.done .tick { background: var(--good); box-shadow: none; color: #fff; }
+.stage.done .tick svg.i { width: 11px; height: 11px; stroke-width: 2.4; }
+.stage.now { color: var(--text); font-weight: 600; background: var(--accent-soft); }
+.stage.now .tick { box-shadow: none; border: 2px solid color-mix(in oklab, var(--accent) 30%, transparent); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .stage.now .tick { animation: none; } }
+
+.error-steps { text-align: left; margin: 16px 0 0; padding: 14px 16px; border-radius: 12px; background: var(--field); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.error-steps h3 { margin: 0 0 6px; font-size: 12px; font-weight: 700; }
+.error-steps ol { margin: 0; padding-left: 18px; color: var(--secondary); }
+.error-steps li { margin-bottom: 4px; }
+.error-steps li::marker { font-weight: 700; color: var(--text); }
+
+/* ---------- live session window ---------- */
+.session {
+  position: relative; height: 560px; border-radius: var(--r-window); overflow: hidden;
+  background: var(--window);
+  -webkit-backdrop-filter: blur(40px) saturate(170%);
+  backdrop-filter: blur(40px) saturate(170%);
+  box-shadow: var(--shadow-window), inset 0 0 0 0.5px var(--rim);
+}
+.session .tab { flex-basis: 190px; }
+.remote {
+  position: absolute; inset: 46px 0 0 0;
+  background:
+    radial-gradient(80% 90% at 30% 20%, oklch(0.45 0.12 290) 0%, transparent 60%),
+    radial-gradient(70% 80% at 85% 90%, oklch(0.4 0.14 20) 0%, transparent 60%),
+    oklch(0.22 0.04 280);
+}
+.gnome-bar { height: 26px; background: oklch(0 0 0 / 0.85); color: #eee; font: 600 11px/26px "Cantarell", var(--font); display: flex; justify-content: space-between; padding: 0 12px; }
+.gnome-win { position: absolute; left: 12%; top: 16%; width: 58%; height: 60%; border-radius: 12px; background: oklch(0.25 0.005 260); box-shadow: 0 20px 50px oklch(0 0 0 / 0.5); }
+.gnome-win::before { content: ""; display: block; height: 38px; border-radius: 12px 12px 0 0; background: oklch(0.3 0.005 260); }
+.gnome-login { position: absolute; inset: 26px 0 0 0; display: grid; place-items: center; }
+.gnome-login .who { display: grid; justify-items: center; gap: 10px; color: #fff; font: 600 14px "Cantarell", var(--font); }
+.gnome-login .avatar { width: 84px; height: 84px; border-radius: 50%; background: oklch(0.6 0.1 250); }
+.gnome-login .pw { width: 220px; height: 32px; border-radius: 8px; background: oklch(1 0 0 / 0.12); }
+
+.hud {
+  position: absolute; right: 16px; bottom: 16px; display: flex; gap: 14px; align-items: center;
+  padding: 9px 14px; border-radius: 14px; color: #fff;
+  background: oklch(0.2 0.01 260 / 0.45);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 10px 30px -10px oklch(0 0 0 / 0.6), inset 0 0.5px 0 oklch(1 0 0 / 0.25), inset 0 0 0 0.5px oklch(1 0 0 / 0.12);
+}
+.hud .m { display: grid; gap: 0; }
+.hud .v { font: 600 15px/1.2 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.hud .u { font-size: 10.5px; color: oklch(1 0 0 / 0.65); font-weight: 600; }
+.hud .sep { width: 0.5px; align-self: stretch; background: oklch(1 0 0 / 0.18); }
+
+.banner {
+  position: absolute; left: 50%; top: 84px; transform: translateX(-50%); z-index: 3;
+  display: flex; align-items: center; gap: 12px; padding: 10px 18px 10px 12px; border-radius: 999px;
+  color: #fff;
+  background: oklch(0.2 0.01 260 / 0.42);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 10px 30px -10px oklch(0 0 0 / 0.6), inset 0 0.5px 0 oklch(1 0 0 / 0.25), inset 0 0 0 0.5px oklch(1 0 0 / 0.12);
+}
+.banner .badge-icon { width: 30px; height: 30px; border-radius: 50%; margin: 0; }
+.banner .badge-icon svg.i { width: 16px; height: 16px; }
+.banner strong { display: block; font-weight: 600; font-size: 13px; }
+.banner span { font-size: 12px; color: oklch(1 0 0 / 0.72); }
+
+.reconnect-scrim { position: absolute; inset: 46px 0 0 0; background: oklch(0 0 0 / 0.35); -webkit-backdrop-filter: blur(6px) saturate(80%); backdrop-filter: blur(6px) saturate(80%); display: grid; place-items: center; }
+.ring { position: relative; width: 64px; height: 64px; margin: 0 auto 10px; }
+.ring svg { width: 64px; height: 64px; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 4; }
+.ring .track { stroke: var(--hairline); }
+.ring .fill { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 175.9; stroke-dashoffset: 70; }
+.ring b { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sheet.compact { width: 320px; padding: 24px; }
+
+.pointer { position: absolute; width: 14px; height: 20px; z-index: 6; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 20'%3E%3Cpath d='M1 1v15l4-3.5 2.6 5.8 2.4-1-2.6-5.7H13z' fill='black' stroke='white' stroke-width='1.2' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat; }
+
+/* ---------- full screen: no tab strip; the menu bar is the only way between tabs ---------- */
+.fs { position: relative; aspect-ratio: 16 / 10; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-window); }
+.fs .remote { inset: 0; }
+.fs .gnome-bar { height: 22px; line-height: 22px; }
+.menubar {
+  position: absolute; top: 0; left: 0; right: 0; height: 26px; z-index: 5;
+  display: flex; align-items: center; gap: 1px; padding: 0 8px;
+  font: 500 12.5px var(--font); color: var(--text);
+  background: color-mix(in oklab, var(--window) 82%, transparent);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: 0 6px 20px -10px oklch(0 0 0 / 0.5);
+}
+.menubar > span { padding: 2px 9px; border-radius: 6px; }
+.menubar .app { font-weight: 700; }
+.menubar .open { background: var(--selected); box-shadow: inset 0 0 0 0.5px var(--rim-soft); }
+.menubar .right { margin-left: auto; color: var(--secondary); }
+.menu {
+  position: absolute; top: 29px; z-index: 6; min-width: 268px; padding: 5px;
+  border-radius: 12px; font-size: 13px;
+  background: var(--sheet);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: var(--shadow-window), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+}
+.mi { display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px 0 6px; border-radius: 7px; white-space: nowrap; }
+.mi .ck { width: 14px; display: grid; place-items: center; }
+.mi .ck svg.i { width: 11px; height: 11px; stroke-width: 2.4; }
+.mi kbd { margin-left: auto; padding-left: 24px; font: inherit; color: var(--tertiary); letter-spacing: 0.04em; }
+.mi .glyph { width: 16px; height: 16px; border-radius: 4px; }
+.mi .glyph svg.i { width: 10px; height: 10px; stroke-width: 2; }
+.mi .status { width: 6px; height: 6px; box-shadow: none; margin-left: 2px; }
+.mi.dim { color: var(--tertiary); }
+.mi.hl { background: var(--accent); color: #fff; }
+.mi.hl kbd { color: oklch(1 0 0 / 0.78); }
+.menu hr { border: 0; height: 0.5px; background: var(--hairline); margin: 5px 8px; }
+.menu .sec { padding: 4px 10px 2px 27px; font-size: 11px; font-weight: 700; color: var(--tertiary); }
+.fs-cap { color: var(--secondary); font-size: 13px; margin: 12px 4px 0; }
+.fs-cap strong { color: var(--text); }
+
+/* ============================================================================================
+   Window model: one Connections window (gallery + configuration sheet) and one window per
+   live connection. Everything below is new for this revision; the rules above are shared with
+   mockup-glass.html.
+   ============================================================================================ */
+.status.amber { background: var(--warn); box-shadow: 0 0 0 2px color-mix(in oklab, var(--warn) 25%, transparent); }
+.status.red { background: var(--danger); box-shadow: 0 0 0 2px color-mix(in oklab, var(--danger) 25%, transparent); }
+.spin { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 1.6px solid color-mix(in oklab, var(--accent) 28%, transparent); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+/* ---------- title bar / toolbar ----------
+   Transparent, no divider (titlebarAppearsTransparent + fullSizeContentView), as before. The
+   Connections window carries its title and toolbar items; a session window carries only an
+   identity capsule and two controls. */
+.titlebar {
+  position: relative; flex: none; height: 52px; z-index: 4;
+  display: flex; align-items: center; gap: 8px; padding: 0 12px 0 88px;
+}
+.titlebar .spacer { flex: 1; }
+.titlebar .lights { top: 20px; }
+.titlebar h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.titlebar .count { color: var(--tertiary); font-weight: 600; font-size: 12.5px; margin-left: 2px; }
+.titlebar .search { margin: 0; width: 220px; }
+.tb-btn {
+  height: 30px; min-width: 30px; padding: 0 9px; border-radius: 999px; border: 0; display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+  background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--hairline); color: var(--text); font-weight: 600; font-size: 12.5px;
+}
+.tb-btn svg.i { width: 15px; height: 15px; stroke-width: 1.8; }
+.tb-btn.hl { background: var(--selected); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--rim-soft); }
+.seg { display: inline-flex; padding: 2px; border-radius: 999px; background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.seg span { height: 26px; display: grid; place-items: center; padding: 0 12px; border-radius: 999px; font-weight: 600; font-size: 12px; color: var(--secondary); }
+.seg span.on { background: var(--selected); color: var(--text); box-shadow: var(--shadow-control); }
+
+/* Session window identity: glyph, name, live dot, host. Centered like a document title. */
+.ident {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 5px; border-radius: 999px;
+  background: var(--selected); box-shadow: var(--shadow-control), inset 0 0 0 0.5px var(--rim-soft);
+  font-weight: 600; font-size: 13px; white-space: nowrap;
+}
+.ident .glyph { width: 22px; height: 22px; border-radius: 6px; }
+.ident .glyph svg.i { width: 12px; height: 12px; stroke-width: 2; }
+.ident .host { color: var(--secondary); font-weight: 500; font-size: 12px; }
+.ident .status { width: 6px; height: 6px; box-shadow: none; }
+
+/* ---------- gallery ---------- */
+.gallery-scroll { position: relative; flex: 1; min-height: 0; padding: 6px 26px 30px; }
+.gallery-head { display: flex; align-items: baseline; gap: 10px; margin: 8px 4px 12px; }
+.gallery-head h2 { margin: 0; font-size: 13px; font-weight: 700; }
+.gallery-head span { color: var(--tertiary); font-size: 12px; font-weight: 600; }
+.gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.gallery + .gallery-head { margin-top: 26px; }
+.card {
+  position: relative; display: flex; flex-direction: column; border-radius: 20px; overflow: hidden;
+  background: var(--group);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  backdrop-filter: blur(16px) saturate(170%);
+  box-shadow: var(--shadow-panel), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+}
+.card.hover { transform: translateY(-2px); box-shadow: 0 22px 44px -18px oklch(0 0 0 / 0.55), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft); }
+.card.focus { box-shadow: 0 0 0 3px var(--accent-soft), inset 0 0 0 1.5px var(--accent), var(--shadow-panel); }
+.thumb { position: relative; aspect-ratio: 16 / 9; margin: 7px 7px 0; border-radius: 14px; overflow: hidden; display: grid; place-items: center; }
+.thumb.headless { background: radial-gradient(90% 120% at 20% 10%, oklch(0.72 0.12 175 / 0.55), transparent 65%), radial-gradient(80% 100% at 90% 100%, oklch(0.56 0.12 200 / 0.5), transparent 60%), oklch(0.32 0.04 200 / 0.55); }
+.thumb.sharing  { background: radial-gradient(90% 120% at 20% 10%, oklch(0.74 0.14 300 / 0.55), transparent 65%), radial-gradient(80% 100% at 90% 100%, oklch(0.58 0.16 280 / 0.5), transparent 60%), oklch(0.32 0.05 290 / 0.55); }
+.thumb.login    { background: radial-gradient(90% 120% at 20% 10%, oklch(0.7 0.14 240 / 0.55), transparent 65%), radial-gradient(80% 100% at 90% 100%, oklch(0.56 0.16 260 / 0.5), transparent 60%), oklch(0.3 0.05 255 / 0.55); }
+[data-theme="light"] .thumb.headless { background-color: oklch(0.86 0.05 190 / 0.6); }
+[data-theme="light"] .thumb.sharing { background-color: oklch(0.86 0.05 300 / 0.6); }
+[data-theme="light"] .thumb.login { background-color: oklch(0.86 0.05 250 / 0.6); }
+.thumb > svg.i { width: 46px; height: 46px; stroke-width: 1.3; color: oklch(1 0 0 / 0.72); filter: drop-shadow(0 4px 10px oklch(0 0 0 / 0.25)); }
+/* Live thumbnail: the session window's last frame, refreshed a few times a minute. */
+.thumb.live { display: block; background: radial-gradient(80% 90% at 30% 20%, oklch(0.45 0.12 290) 0%, transparent 60%), radial-gradient(70% 80% at 85% 90%, oklch(0.4 0.14 20) 0%, transparent 60%), oklch(0.22 0.04 280); }
+.thumb.live .bar { height: 7px; background: oklch(0 0 0 / 0.85); }
+.thumb.live .win { position: absolute; left: 12%; top: 20%; width: 56%; height: 58%; border-radius: 5px; background: oklch(0.25 0.005 260); box-shadow: 0 8px 20px oklch(0 0 0 / 0.5); }
+.thumb.live .win::before { content: ""; display: block; height: 10px; border-radius: 5px 5px 0 0; background: oklch(0.3 0.005 260); }
+.thumb.live .win.b { left: 44%; top: 34%; width: 44%; height: 50%; }
+.thumb.live .who { position: absolute; inset: 7px 0 0; display: grid; place-content: center; justify-items: center; gap: 6px; }
+.thumb.live .who i { width: 30px; height: 30px; border-radius: 50%; background: oklch(0.6 0.1 250); }
+.thumb.live .who b { width: 74px; height: 10px; border-radius: 4px; background: oklch(1 0 0 / 0.14); }
+.thumb.dim::after { content: ""; position: absolute; inset: 0; background: oklch(0 0 0 / 0.35); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.pill {
+  position: absolute; left: 10px; top: 10px; z-index: 1; display: inline-flex; align-items: center; gap: 6px;
+  height: 22px; padding: 0 9px 0 8px; border-radius: 999px; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 0.01em;
+  background: oklch(0.2 0.01 260 / 0.5);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
+  box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.25), inset 0 0 0 0.5px oklch(1 0 0 / 0.12);
+}
+.pill .status { width: 6px; height: 6px; box-shadow: none; }
+.pill .spin { width: 10px; height: 10px; border-color: oklch(1 0 0 / 0.3); border-top-color: #fff; }
+.pill.right { left: auto; right: 10px; font-variant-numeric: tabular-nums; }
+/* Hover overlay: the big Connect / Show Window affordance on the thumbnail. */
+.over { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; background: oklch(0 0 0 / 0.18); }
+.over .btn { height: 34px; padding: 0 18px; }
+.card-info { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 10px; padding: 11px 12px 12px 14px; }
+.card-info .glyph { width: 30px; height: 30px; border-radius: 8px; }
+.card-info .glyph svg.i { width: 16px; height: 16px; }
+.card-info .item-detail { font-size: 12px; }
+.card-info .acts { display: flex; gap: 6px; align-items: center; }
+.icon-btn { width: 28px; height: 28px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--hairline); color: var(--secondary); }
+.icon-btn svg.i { width: 15px; height: 15px; }
+.card-info .play { width: 28px; height: 28px; }
+.card.add { background: transparent; box-shadow: none; border: 1.5px dashed var(--hairline); -webkit-backdrop-filter: none; backdrop-filter: none; display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--secondary); font-weight: 600; min-height: 100%; }
+.card.add .plus { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--hairline); color: var(--text); }
+.card.add .plus svg.i { width: 20px; height: 20px; }
+.card.add kbd { font: 600 11px var(--font); color: var(--tertiary); }
+.ctx { position: absolute; z-index: 7; }
+.gallery { position: relative; }
+
+/* ---------- configuration sheet ----------
+   A document-modal sheet on the Connections window. Header and footer stay put; the grouped
+   rows scroll between them. */
+.window > .scrim { top: 0; }
+.scrim.top { place-items: start center; padding-top: 58px; }
+.cfg {
+  width: 680px; max-height: calc(100% - 82px); display: flex; flex-direction: column; border-radius: 26px; overflow: hidden;
+  background: var(--sheet);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: var(--shadow-window), inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--rim-soft);
+}
+.cfg.free { max-height: none; }
+.cfg-head { display: flex; align-items: center; gap: 14px; padding: 22px 24px 14px; }
+.cfg-head .glyph { width: 44px; height: 44px; border-radius: 12px; }
+.cfg-head .glyph svg.i { width: 22px; height: 22px; }
+.cfg-head h2 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.cfg-head .meta { color: var(--secondary); font-size: 12.5px; display: flex; gap: 8px; align-items: center; }
+.cfg-head .meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--tertiary); }
+.cfg-head .spacer { flex: 1; }
+.cfg-body { flex: 1; min-height: 0; overflow: hidden; padding: 2px 24px 18px; }
+.cfg-body .g-row { grid-template-columns: 168px 1fr; }
+.cfg-body .g-row.toggle { grid-template-columns: 1fr auto; }
+.pair .cfg-body .g-row:not(.toggle) { grid-template-columns: 128px 1fr; }
+.pair .cfg-head, .pair .cfg-body { padding-left: 18px; padding-right: 18px; }
+.cfg-body .group-title:first-child { margin-top: 4px; }
+.cfg-foot { display: flex; align-items: center; gap: 8px; padding: 14px 20px 18px; border-top: 0.5px solid var(--hairline); }
+.cfg-foot .spacer { flex: 1; }
+.cfg-foot .note { color: var(--secondary); font-size: 12px; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.cfg-foot .switch { width: 32px; height: 19px; }
+.cfg-foot .switch::after { width: 15px; height: 15px; }
+.cfg-foot .switch.on::after { left: 15px; }
+.mode .order { position: absolute; top: 10px; right: 10px; font-size: 10.5px; font-weight: 700; color: var(--tertiary); }
+.mode.on .order { display: none; }
+.mode .def { font-size: 10.5px; font-weight: 700; color: var(--accent); letter-spacing: 0.02em; }
+.disclosure.closed svg.i { transform: none; }
+.disclosure .sum { margin-left: auto; color: var(--tertiary); font-weight: 600; font-size: 12px; }
+.field.error { box-shadow: 0 0 0 3.5px color-mix(in oklab, var(--danger) 22%, transparent), inset 0 0 0 1px var(--danger); }
+.err { color: var(--danger); font-size: 12px; font-weight: 600; margin: 5px 0 0; }
+
+/* ---------- overview: the three windows on one desk ---------- */
+.desk.tall { height: 560px; padding: 0; }
+.mini { position: absolute; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column;
+  background: var(--window); -webkit-backdrop-filter: blur(40px) saturate(170%); backdrop-filter: blur(40px) saturate(170%);
+  box-shadow: var(--shadow-window), inset 0 0 0 0.5px var(--rim); }
+.mini .titlebar { height: 38px; padding-left: 70px; }
+.mini .titlebar .lights { top: 13px; left: 14px; gap: 6px; }
+.mini .titlebar .lights span { width: 10px; height: 10px; }
+.mini .titlebar h1 { font-size: 13px; }
+.mini .gallery { gap: 12px; padding: 4px 16px 16px; grid-template-columns: repeat(3, 1fr); }
+.mini .card { border-radius: 13px; }
+.mini .thumb { margin: 5px 5px 0; border-radius: 9px; }
+.mini .thumb > svg.i { width: 26px; height: 26px; }
+.mini .ph-row { display: flex; align-items: center; gap: 7px; padding: 7px 9px 9px; }
+.mini .ph-row .glyph { width: 18px; height: 18px; border-radius: 5px; }
+.mini .ph-row .glyph svg.i { width: 10px; height: 10px; stroke-width: 2; }
+.mini .ph { height: 7px; border-radius: 4px; background: var(--hairline); flex: 1; }
+.mini .pill { transform: scale(0.8); transform-origin: top left; }
+.mini .remote { inset: 38px 0 0 0; }
+.mini .ident { font-size: 12px; padding: 3px 10px 3px 4px; }
+.mini .ident .glyph { width: 18px; height: 18px; border-radius: 5px; }
+.mini .ident .glyph svg.i { width: 10px; height: 10px; }
+.mini.inactive { filter: saturate(0.85); }
+.mini.inactive .lights span { background: oklch(0.6 0.01 260 / 0.45) !important; }
+.callout { position: absolute; z-index: 8; display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; font-weight: 600; font-size: 12px; color: #fff; background: var(--accent-strong); box-shadow: 0 8px 20px -8px oklch(0 0 0 / 0.6); }
+.callout b { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: oklch(1 0 0 / 0.22); font-size: 11px; }
+.dock { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 8px; padding: 7px; border-radius: 20px; z-index: 9;
+  background: oklch(1 0 0 / 0.14); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 10px 30px -10px oklch(0 0 0 / 0.5), inset 0 0.5px 0 oklch(1 0 0 / 0.3), inset 0 0 0 0.5px oklch(1 0 0 / 0.15); }
+.dock span { width: 40px; height: 40px; border-radius: 11px; }
+.dock .app { position: relative; display: grid; place-items: center; color: #fff; background: linear-gradient(160deg, oklch(0.62 0.13 240), oklch(0.44 0.15 265)); box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.35); }
+.dock .app svg.i { width: 22px; height: 22px; }
+.dock .app::after { content: ""; position: absolute; bottom: -5px; width: 4px; height: 4px; border-radius: 50%; background: oklch(1 0 0 / 0.8); }
+.dock .o1 { background: linear-gradient(160deg, oklch(0.8 0.1 80), oklch(0.65 0.14 50)); }
+.dock .o2 { background: linear-gradient(160deg, oklch(0.75 0.12 150), oklch(0.55 0.13 160)); }
+.dock .o3 { background: linear-gradient(160deg, oklch(0.75 0.03 260), oklch(0.5 0.03 260)); }
+.dock-menu { position: absolute; z-index: 10; top: auto; bottom: 72px; min-width: 230px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-login" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M9 16l4-4-4-4"/><path d="M13 12H4"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
+  <symbol id="i-display" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.4-3 8-7 9.5-4-1.5-7-5.1-7-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M6 12h.01M12 12h.01M18 12h.01" stroke-width="3"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20c1.4-3.6 4.2-5.5 7.5-5.5s6.1 1.9 7.5 5.5"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.6 6.6a7.5 7.5 0 1 0 10.8 0"/></symbol>
+  <symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 9h18"/></symbol>
+  <symbol id="i-drift" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2.5"/><path d="M7 21h10"/><path d="M8 13c2-3 6-3 8 0"/></symbol>
+</svg>
+
+<div class="deck">
+  <header class="deck-head">
+    <div>
+      <h1>Drift — windows redesign</h1>
+      <p>Static mockup for review. The tab strip is gone. Drift has one <strong>Connections</strong> window, a gallery of large cards where you pick and set up connections in a modal sheet, and one <strong>session window</strong> for each live connection. New connections start as a <strong>Headless session</strong>, then Desktop Sharing, then Remote Login. Same Liquid Glass materials and Avenir Next as the previous mockup.</p>
+    </div>
+    <div class="theme-switch" role="group" aria-label="Appearance">
+      <button type="button" data-set="light" aria-pressed="false">Light</button>
+      <button type="button" data-set="dark" aria-pressed="true">Dark</button>
+    </div>
+  </header>
+
+  <!-- 0. Window model ================================================================= -->
+  <section class="board">
+    <div class="board-head">
+      <h2>0 · One window per connection</h2>
+      <ul>
+        <li><strong>Connections</strong> is a single window. <kbd>⌘0</kbd> brings it forward from anywhere; closing it doesn’t end any sessions.</li>
+        <li>Connect on a card opens a <strong>new session window</strong> for that connection. Connecting again to a live one just brings its window forward.</li>
+        <li>Session windows are ordinary Mac windows: move them to other displays or Spaces, tile them, or use Mission Control and <kbd>⌘`</kbd> to switch.</li>
+        <li>Closing a session window disconnects it (after a confirmation if it’s live). The card returns to its idle state.</li>
+        <li>Drift’s Dock menu lists every window with its live dot, so you can jump to a session without the Connections window.</li>
+        <li>Quitting with sessions open asks once for all of them.</li>
+      </ul>
+    </div>
+    <div class="desk tall">
+      <!-- Connections window, behind -->
+      <div class="mini inactive" style="left:28px;top:30px;width:540px;height:350px">
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <h1>Connections</h1>
+        </div>
+        <div class="gallery">
+          <div class="card"><div class="thumb live"><div class="bar"></div><div class="win"></div><div class="win b"></div><span class="pill"><span class="status"></span>Live</span></div><div class="ph-row"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span class="ph"></span></div></div>
+          <div class="card"><div class="thumb headless"><svg class="i"><use href="#i-server"/></svg></div><div class="ph-row"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span class="ph"></span></div></div>
+          <div class="card"><div class="thumb live"><div class="bar"></div><div class="who"><i></i><b></b></div><span class="pill"><span class="status"></span>Live</span></div><div class="ph-row"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><span class="ph"></span></div></div>
+          <div class="card"><div class="thumb sharing"><svg class="i"><use href="#i-display"/></svg></div><div class="ph-row"><span class="glyph sharing"><svg class="i"><use href="#i-display"/></svg></span><span class="ph"></span></div></div>
+          <div class="card"><div class="thumb headless"><svg class="i"><use href="#i-server"/></svg></div><div class="ph-row"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span class="ph"></span></div></div>
+        </div>
+      </div>
+      <!-- Homelab session -->
+      <div class="mini inactive" style="left:400px;top:170px;width:430px;height:300px">
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="ident"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span>Homelab<span class="status"></span></div>
+        </div>
+        <div class="remote">
+          <div class="gnome-bar" style="height:18px;line-height:18px;font-size:9px"><span>Activities</span><span>Thu 24 Sep 14:08</span><span>⏻</span></div>
+          <div class="gnome-login" style="inset:18px 0 0 0"><div class="who"><div class="avatar" style="width:54px;height:54px"></div>Hutson<div class="pw" style="width:150px;height:24px"></div></div></div>
+        </div>
+      </div>
+      <!-- Studio session, key window -->
+      <div class="mini" style="left:640px;top:40px;width:508px;height:330px">
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="ident"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>Studio Workstation<span class="status"></span></div>
+        </div>
+        <div class="remote">
+          <div class="gnome-bar" style="height:18px;line-height:18px;font-size:9px"><span>Activities</span><span>Thu 24 Sep 14:08</span><span>⏻</span></div>
+          <div class="gnome-win"></div>
+        </div>
+      </div>
+      <span class="callout" style="left:40px;top:396px"><b>1</b>Connections — one window, always there</span>
+      <span class="callout" style="left:850px;top:386px"><b>2</b>A window per live connection</span>
+
+      <div class="menu dock-menu" style="left:calc(50% + 40px)" role="menu" aria-label="Drift Dock menu">
+        <div class="sec">Sessions</div>
+        <div class="mi"><span class="ck"></span><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>Studio Workstation<span class="status"></span></div>
+        <div class="mi hl"><span class="ck"></span><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span>Homelab<span class="status"></span></div>
+        <hr />
+        <div class="mi"><span class="ck"></span>Connections<kbd>⌘0</kbd></div>
+        <div class="mi"><span class="ck"></span>New Connection…<kbd>⌘N</kbd></div>
+      </div>
+      <div class="dock"><span class="o1"></span><span class="o2"></span><span class="app"><svg class="i"><use href="#i-drift"/></svg></span><span class="o3"></span></div>
+    </div>
+  </section>
+
+  <!-- 1. Connections gallery ========================================================= -->
+  <section class="board">
+    <div class="board-head">
+      <h2>1 · Connections window</h2>
+      <ul>
+        <li>Every saved connection is a large glass card: a 16:9 preview, mode glyph, name, host and mode.</li>
+        <li>Live connections show the session window’s latest frame and a <strong>Live</strong> pill; idle ones show their mode color and glyph, so the three kinds are easy to tell apart.</li>
+        <li>Open connections sort into their own row at the top. States: Live (green), Connecting (spinner), Reconnecting (amber), Failed (red).</li>
+        <li>Hover a card for one big action on the preview: <strong>Connect</strong>, or <strong>Show Window</strong> if it’s live. Double-click or <kbd>↩</kbd> does the same.</li>
+        <li>The ⋯ button opens Edit…, Duplicate, Disconnect and Delete. Edit opens the configuration sheet.</li>
+        <li>+ in the toolbar, the dashed card, or <kbd>⌘N</kbd> starts a new connection. The toolbar also has search and an All / Open filter.</li>
+      </ul>
+    </div>
+    <div class="desk">
+      <div class="window" style="height:720px">
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <h1>Connections</h1><span class="count">5</span>
+          <span class="spacer"></span>
+          <div class="seg"><span class="on">All</span><span>Open</span></div>
+          <div class="search"><svg class="i"><use href="#i-search"/></svg>Search</div>
+          <button class="tb-btn" aria-label="New Connection"><svg class="i"><use href="#i-plus"/></svg></button>
+        </div>
+        <div class="gallery-scroll">
+          <div class="gallery-head"><h2>Open</h2><span>2 windows</span></div>
+          <div class="gallery">
+            <article class="card">
+              <div class="thumb live"><div class="bar"></div><div class="win"></div><div class="win b"></div><span class="pill"><span class="status"></span>Live</span><span class="pill right">2 h 14 m</span></div>
+              <div class="card-info">
+                <span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>
+                <span><div class="item-name">Studio Workstation</div><div class="item-detail">192.168.1.20 · Headless session</div></span>
+                <span class="acts"><button class="icon-btn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></span>
+              </div>
+            </article>
+            <article class="card hover">
+              <div class="thumb live"><div class="bar"></div><div class="who"><i></i><b></b></div><span class="pill"><span class="status"></span>Live</span>
+                <div class="over"><button class="btn primary"><svg class="i"><use href="#i-window"/></svg>Show Window</button></div></div>
+              <div class="card-info">
+                <span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span>
+                <span><div class="item-name">Homelab</div><div class="item-detail">gnome.local · Remote Login</div></span>
+                <span class="acts"><button class="icon-btn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></span>
+              </div>
+            </article>
+            <article class="card">
+              <div class="thumb headless dim"><svg class="i"><use href="#i-server"/></svg><span class="pill"><span class="status amber"></span>Reconnecting in 3 s</span></div>
+              <div class="card-info">
+                <span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>
+                <span><div class="item-name">Media PC</div><div class="item-detail">media.lan · Headless session</div></span>
+                <span class="acts"><button class="icon-btn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></span>
+              </div>
+            </article>
+          </div>
+
+          <div class="gallery-head"><h2>Saved</h2><span>2 connections</span></div>
+          <div class="gallery">
+            <article class="card focus">
+              <div class="thumb headless"><svg class="i"><use href="#i-server"/></svg>
+                <div class="over"><button class="btn primary"><svg class="i" style="width:12px;height:12px;fill:currentColor;stroke:none"><use href="#i-play"/></svg>Connect</button></div></div>
+              <div class="card-info">
+                <span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>
+                <span><div class="item-name">Build Server</div><div class="item-detail">build-01.lan · Headless session</div></span>
+                <span class="acts"><button class="icon-btn" aria-label="More" style="background:var(--selected);color:var(--text)"><svg class="i"><use href="#i-more"/></svg></button></span>
+              </div>
+            </article>
+            <article class="card">
+              <div class="thumb sharing"><svg class="i"><use href="#i-display"/></svg></div>
+              <div class="card-info">
+                <span class="glyph sharing"><svg class="i"><use href="#i-display"/></svg></span>
+                <span><div class="item-name">Kitchen Laptop</div><div class="item-detail">kitchen.lan · Desktop Sharing</div></span>
+                <span class="acts"><button class="icon-btn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></span>
+              </div>
+            </article>
+            <button class="card add"><span class="plus"><svg class="i"><use href="#i-plus"/></svg></span>New Connection<kbd>⌘N</kbd></button>
+              <div class="menu ctx" style="left:calc(33.3% - 44px);top:236px;min-width:200px" role="menu" aria-label="Build Server">
+                <div class="mi"><span class="ck"></span>Connect<kbd>↩</kbd></div>
+                <div class="mi hl"><span class="ck"></span>Edit…<kbd>⌘E</kbd></div>
+                <div class="mi"><span class="ck"></span>Duplicate<kbd>⌘D</kbd></div>
+                <hr />
+                <div class="mi" style="color:var(--danger)"><span class="ck"></span>Delete…<kbd>⌘⌫</kbd></div>
+              </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Configuration sheet: new ===================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>2 · New connection sheet</h2>
+      <ul>
+        <li>A modal sheet over the gallery. The gallery stays visible, blurred and dimmed, so you keep your place.</li>
+        <li>Connection type defaults to <strong>Headless session</strong>. The tiles run Headless, Desktop Sharing, Remote Login, left to right.</li>
+        <li>Changing the type swaps only the credential section below it; name, host and port are kept.</li>
+        <li>Rarely changed options sit in a closed disclosure with a one-line summary of the current values.</li>
+        <li>The footer stays put while the body scrolls. <strong>Add &amp; Connect</strong> is the default button (<kbd>↩</kbd>); <strong>Add</strong> just saves the card. <kbd>esc</kbd> cancels.</li>
+        <li>Errors show inline on the field, e.g. a missing host, and the default button stays disabled until they’re fixed.</li>
+      </ul>
+    </div>
+    <div class="desk">
+      <div class="window" style="height:800px">
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <h1>Connections</h1><span class="count">5</span>
+          <span class="spacer"></span>
+          <div class="seg"><span class="on">All</span><span>Open</span></div>
+          <div class="search"><svg class="i"><use href="#i-search"/></svg>Search</div>
+          <button class="tb-btn hl" aria-label="New Connection"><svg class="i"><use href="#i-plus"/></svg></button>
+        </div>
+        <div class="gallery-scroll">
+          <div class="gallery-head"><h2>Open</h2><span>2 windows</span></div>
+          <div class="gallery">
+            <article class="card"><div class="thumb live"><div class="bar"></div><div class="win"></div><div class="win b"></div><span class="pill"><span class="status"></span>Live</span></div><div class="card-info"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span><div class="item-name">Studio Workstation</div><div class="item-detail">192.168.1.20 · Headless session</div></span><span></span></div></article>
+            <article class="card"><div class="thumb live"><div class="bar"></div><div class="who"><i></i><b></b></div><span class="pill"><span class="status"></span>Live</span></div><div class="card-info"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><span><div class="item-name">Homelab</div><div class="item-detail">gnome.local · Remote Login</div></span><span></span></div></article>
+            <article class="card"><div class="thumb headless"><svg class="i"><use href="#i-server"/></svg></div><div class="card-info"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><span><div class="item-name">Media PC</div><div class="item-detail">media.lan · Headless session</div></span><span></span></div></article>
+          </div>
+        </div>
+        <div class="scrim top">
+          <section class="cfg free" role="dialog" aria-label="New Connection">
+            <div class="cfg-head">
+              <span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>
+              <div><h2>New Connection</h2><div class="meta">Headless session</div></div>
+            </div>
+            <div class="cfg-body">
+              <div class="group">
+                <div class="g-row"><label>Name</label><input class="field" placeholder="e.g. Studio Workstation" value="Office Desktop" /></div>
+                <div class="g-row tall">
+                  <label style="padding-top:5px">Host</label>
+                  <div>
+                    <div class="inline"><input class="field error" placeholder="Name or IP address" /><span class="port-label">Port</span><input class="field port" value="3389" /></div>
+                    <p class="err">Enter the host name or IP address.</p>
+                  </div>
+                </div>
+                <div class="g-row tall">
+                  <span class="label">Connection type</span>
+                  <div>
+                    <div class="modes">
+                      <div class="mode on"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><strong>Headless</strong><span class="def">DEFAULT</span></div>
+                      <div class="mode"><span class="glyph sharing"><svg class="i"><use href="#i-display"/></svg></span><strong>Desktop Sharing</strong></div>
+                      <div class="mode"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><strong>Remote Login</strong></div>
+                    </div>
+                    <p class="hint">A GNOME session that keeps running on the host without a screen. Reconnects go straight back into it.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="group-title">RDP credentials</div>
+              <p class="group-hint">The credentials set for that user on the host with <code>grdctl --headless rdp set-credentials</code>.</p>
+              <div class="group">
+                <div class="g-row"><label>RDP user</label><input class="field" value="hutson" /></div>
+                <div class="g-row"><label>RDP password</label><input class="field" type="password" placeholder="Required" /></div>
+              </div>
+
+              <div class="disclosure closed"><svg class="i"><use href="#i-chev"/></svg>Keyboard, display and clipboard<span class="sum">⌘ → Super · Resize to fit · Retina · Text and images</span></div>
+            </div>
+            <div class="cfg-foot">
+              <span class="note">Saved to your Keychain</span>
+              <span class="spacer"></span>
+              <button class="btn">Cancel</button>
+              <button class="btn">Add</button>
+              <button class="btn primary" style="opacity:.55">Add &amp; Connect</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Configuration sheet: edit ==================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>3 · Editing a connection</h2>
+      <ul>
+        <li>Edit… opens the same sheet with the connection’s name, host, mode and trust status in the header, plus a Connect button.</li>
+        <li><strong>Desktop Sharing</strong> points at GNOME Settings for its credentials and notes that it can’t resize the remote screen.</li>
+        <li><strong>Remote Login</strong> adds the system RDP credentials and the GNOME login screen section.</li>
+        <li>Delete sits on the left of the footer, away from Save. Save stays disabled until something changes.</li>
+        <li>Editing a live connection is allowed; the sheet notes that changes apply the next time it connects.</li>
+      </ul>
+    </div>
+    <div class="pair">
+      <div class="desk" style="padding:24px;display:grid;place-items:center">
+        <section class="cfg free" style="width:100%" role="dialog" aria-label="Kitchen Laptop">
+          <div class="cfg-head">
+            <span class="glyph sharing"><svg class="i"><use href="#i-display"/></svg></span>
+            <div><h2>Kitchen Laptop</h2><div class="meta">kitchen.lan:3389 <span class="dot"></span> <span class="trusted"><svg class="i"><use href="#i-shield"/></svg>Trusted</span></div></div>
+            <span class="spacer"></span>
+            <button class="btn primary"><svg class="i" style="width:11px;height:11px;fill:currentColor;stroke:none"><use href="#i-play"/></svg>Connect</button>
+          </div>
+          <div class="cfg-body">
+            <div class="group">
+              <div class="g-row"><label>Name</label><input class="field" value="Kitchen Laptop" /></div>
+              <div class="g-row"><label>Host</label><div class="inline"><input class="field" value="kitchen.lan" /><span class="port-label">Port</span><input class="field port" value="3389" /></div></div>
+              <div class="g-row tall">
+                <span class="label">Connection type</span>
+                <div>
+                  <div class="modes">
+                    <div class="mode"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><strong>Headless</strong></div>
+                    <div class="mode on"><span class="glyph sharing"><svg class="i"><use href="#i-display"/></svg></span><strong>Desktop Sharing</strong></div>
+                    <div class="mode"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><strong>Remote Login</strong></div>
+                  </div>
+                  <p class="hint">Show and control a screen that someone is already logged in to.</p>
+                </div>
+              </div>
+            </div>
+            <div class="group-title">Desktop Sharing credentials</div>
+            <p class="group-hint">Set on the host in GNOME Settings › System › Remote Desktop › Desktop Sharing.</p>
+            <div class="group">
+              <div class="g-row"><label>RDP user</label><input class="field" value="kitchen" /></div>
+              <div class="g-row"><label>RDP password</label><input class="field" type="password" placeholder="Saved — leave blank to keep" /></div>
+            </div>
+            <div class="disclosure"><svg class="i"><use href="#i-chev"/></svg>Keyboard, display and clipboard</div>
+            <div class="group">
+              <div class="g-row toggle"><span class="label">Resize the remote desktop to fit the window<span class="sub">Desktop Sharing can’t resize the remote screen; Drift scales it to fit.</span></span><span class="switch off-disabled"></span></div>
+              <div class="g-row"><label>Clipboard</label><select class="field"><option>Text and images</option></select></div>
+            </div>
+          </div>
+          <div class="cfg-foot">
+            <button class="btn destructive">Delete…</button>
+            <span class="spacer"></span>
+            <button class="btn">Cancel</button>
+            <button class="btn primary" style="opacity:.55">Save</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="desk" style="padding:24px;display:grid;place-items:center">
+        <section class="cfg free" style="width:100%" role="dialog" aria-label="Homelab">
+          <div class="cfg-head">
+            <span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span>
+            <div><h2>Homelab</h2><div class="meta">gnome.local:3389 <span class="dot"></span> <span class="trusted"><svg class="i"><use href="#i-shield"/></svg>Trusted</span></div></div>
+            <span class="spacer"></span>
+            <button class="btn"><svg class="i"><use href="#i-window"/></svg>Show Window</button>
+          </div>
+          <div class="cfg-body">
+            <div class="group">
+              <div class="g-row"><label>Name</label><input class="field" value="Homelab" /></div>
+              <div class="g-row"><label>Host</label><div class="inline"><input class="field" value="gnome.local" /><span class="port-label">Port</span><input class="field port" value="3389" /></div></div>
+              <div class="g-row tall">
+                <span class="label">Connection type</span>
+                <div>
+                  <div class="modes">
+                    <div class="mode"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span><strong>Headless</strong></div>
+                    <div class="mode"><span class="glyph sharing"><svg class="i"><use href="#i-display"/></svg></span><strong>Desktop Sharing</strong></div>
+                    <div class="mode on"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span><strong>Remote Login</strong></div>
+                  </div>
+                  <p class="hint">Log in at the GNOME login screen, as if you were at the computer. After a reconnect you log in again and return to your running session.</p>
+                </div>
+              </div>
+            </div>
+            <div class="group-title">System RDP credentials</div>
+            <p class="group-hint">Set on the host with <code>sudo grdctl --system rdp set-credentials</code>. They open the GNOME login screen; you then log in with your own account.</p>
+            <div class="group">
+              <div class="g-row"><label>System RDP user</label><input class="field" value="drift-login" /></div>
+              <div class="g-row"><label>System RDP password</label><input class="field" type="password" placeholder="Saved — leave blank to keep" /></div>
+            </div>
+            <div class="group-title">GNOME login screen</div>
+            <div class="group">
+              <div class="g-row"><label>Linux user<span class="sub">Optional reminder.</span></label><input class="field" value="hutson" /></div>
+              <div class="g-row toggle"><span class="label">Type my Linux password at the login screen<span class="sub">Kept in your Keychain. Off by default.</span></span><span class="switch"></span></div>
+            </div>
+          </div>
+          <div class="cfg-foot">
+            <button class="btn destructive">Delete…</button>
+            <span class="note" style="margin-left:6px"><span class="status"></span>Applies on next connect</span>
+            <span class="spacer"></span>
+            <button class="btn">Cancel</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Connecting + trust =========================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>4 · Connecting &amp; trust</h2>
+      <ul>
+        <li>Connect opens the session window straight away and runs the stage checklist in it. The card shows a Connecting pill at the same time.</li>
+        <li>The certificate prompt is a sheet on the session window, so the Connections window stays usable while you check the fingerprint.</li>
+        <li>Closing the window or pressing Cancel stops the attempt; the window closes and the card goes back to idle.</li>
+        <li>The window title shows a spinner in place of the live dot until the desktop appears.</li>
+      </ul>
+    </div>
+    <div class="pair">
+      <div class="desk" style="padding:32px">
+        <div class="window small">
+          <div class="titlebar">
+            <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="ident"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>Office Desktop<span class="spin" aria-hidden="true"></span></div>
+          </div>
+          <div class="pane">
+            <div class="scrim">
+              <section class="sheet">
+                <h2 style="margin-top:0">Connecting to Office Desktop…</h2>
+                <p>office.lan:3389 · Headless session</p>
+                <div class="stages" role="status">
+                  <div class="stage done"><span class="tick"><svg class="i"><use href="#i-check"/></svg></span>Contacting the host</div>
+                  <div class="stage done"><span class="tick"><svg class="i"><use href="#i-check"/></svg></span>Securing the connection</div>
+                  <div class="stage now"><span class="tick"></span>Signing in…</div>
+                  <div class="stage"><span class="tick"></span>Starting the remote desktop</div>
+                </div>
+                <div class="actions"><button class="btn">Cancel</button></div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="desk" style="padding:32px">
+        <div class="window small">
+          <div class="titlebar">
+            <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="ident"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>Office Desktop<span class="spin" aria-hidden="true"></span></div>
+          </div>
+          <div class="pane">
+            <div class="scrim">
+              <section class="sheet">
+                <div class="badge-icon shield"><svg class="i"><use href="#i-shield"/></svg></div>
+                <h2>Verify the identity of office.lan:3389</h2>
+                <p>Drift hasn’t connected to office.lan:3389 (“Office Desktop”) before. Make sure the fingerprint below matches the one on the host before you continue.</p>
+                <div class="fp-card">
+                  <div class="fp-label">SHA-256 fingerprint</div>
+                  <div class="fp">f3:e7:a2:9c:41:0b:d8:5e:77:c1:2a:90:6f:3d:b4:e8:15:c9:02:7a:ee:61:4f:d3:98:0c:b7:25:a6:1e:4d:83</div>
+                </div>
+                <p class="hint">On the host, run <code>grdctl --headless status</code> and compare the line “TLS fingerprint”.</p>
+                <div class="check-row">Remember this certificate <span class="switch on"></span></div>
+                <div class="actions split"><button class="btn">Cancel</button><button class="btn primary">Connect</button></div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Session windows ============================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>5 · Session window</h2>
+      <ul>
+        <li>No tab strip: the transparent title bar holds only the traffic lights, a centered identity capsule (mode glyph, name, live dot) and two buttons.</li>
+        <li>The grid button brings the Connections window forward (<kbd>⌘0</kbd>); the gauge toggles the statistics readout.</li>
+        <li>The window title is the connection name, so Mission Control, <kbd>⌘`</kbd> and the Window menu all show it.</li>
+        <li>Greeter hint, statistics and reconnect ring work as before, but belong to this window alone.</li>
+        <li>Each window remembers its own size and position per connection.</li>
+      </ul>
+    </div>
+    <div class="pair">
+      <div class="session">
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="ident"><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span>Homelab<span class="host">gnome.local</span><span class="status"></span></div>
+          <span class="spacer"></span>
+          <button class="tb-btn" aria-label="Show Connections"><svg class="i"><use href="#i-grid"/></svg></button>
+          <button class="tb-btn hl" aria-label="Statistics"><svg class="i"><use href="#i-gauge"/></svg></button>
+        </div>
+        <div class="remote" style="inset:52px 0 0 0">
+          <div class="gnome-bar"><span>Activities</span><span>Thu 24 Sep 14:08</span><span>⏻</span></div>
+          <div class="gnome-login"><div class="who"><div class="avatar"></div>Hutson<div class="pw"></div></div></div>
+        </div>
+        <div class="banner" role="status" style="top:92px">
+          <span class="badge-icon shield"><svg class="i"><use href="#i-user"/></svg></span>
+          <div><strong>Log in to start your session</strong><span>Log in as “hutson” on the GNOME login screen.</span></div>
+        </div>
+        <aside class="hud" aria-label="Session statistics">
+          <div class="m"><span class="v">59.8</span><span class="u">fps</span></div><span class="sep"></span>
+          <div class="m"><span class="v">24.6</span><span class="u">Mbit/s</span></div><span class="sep"></span>
+          <div class="m"><span class="v">11.2</span><span class="u">ms p95</span></div><span class="sep"></span>
+          <div class="m"><span class="v">0</span><span class="u">unacked</span></div>
+        </aside>
+      </div>
+
+      <div class="session">
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="ident"><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>Media PC<span class="host">media.lan</span><span class="status amber"></span></div>
+          <span class="spacer"></span>
+          <button class="tb-btn" aria-label="Show Connections"><svg class="i"><use href="#i-grid"/></svg></button>
+          <button class="tb-btn" aria-label="Statistics"><svg class="i"><use href="#i-gauge"/></svg></button>
+        </div>
+        <div class="remote" style="inset:52px 0 0 0">
+          <div class="gnome-bar"><span>Activities</span><span>Thu 24 Sep 14:08</span><span>⏻</span></div>
+          <div class="gnome-win"></div>
+        </div>
+        <div class="reconnect-scrim" style="inset:52px 0 0 0">
+          <section class="sheet compact">
+            <div class="ring"><svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="28"/><circle class="fill" cx="32" cy="32" r="28"/></svg><b>3</b></div>
+            <h2 style="margin-top:4px">Reconnecting in 3 s…</h2>
+            <p>Media PC · Attempt 2 of 8</p>
+            <div class="actions split"><button class="btn">Cancel</button><button class="btn primary">Now</button></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Full screen ================================================================== -->
+  <section class="board">
+    <div class="board-head">
+      <h2>6 · Full screen &amp; menus</h2>
+      <ul>
+        <li>Each session window goes full screen into its own Space, so you swipe between remote desktops like any full-screen apps.</li>
+        <li>The <strong>Window</strong> menu lists Connections and every session with its glyph and live dot; <kbd>⌘1</kbd>–<kbd>⌘9</kbd> jump to sessions.</li>
+        <li><strong>File</strong> has New Connection (<kbd>⌘N</kbd>), Show Connections (<kbd>⌘0</kbd>), Disconnect (<kbd>⇧⌘D</kbd>) and Close Window (<kbd>⌘W</kbd>, which disconnects).</li>
+        <li>When the remote desktop has the keyboard, Drift’s shortcuts still work.</li>
+      </ul>
+    </div>
+    <div class="pair">
+      <div>
+        <div class="fs">
+          <div class="remote">
+            <div class="gnome-bar" style="margin-top:26px"><span>Activities</span><span>Thu 24 Sep 14:08</span><span>⏻</span></div>
+            <div class="gnome-win"></div>
+          </div>
+          <div class="menubar">
+            <span>&#xF8FF;</span><span class="app">Drift</span><span>File</span><span>Edit</span><span>View</span><span class="open">Window</span><span>Help</span>
+            <span class="right">Thu 24 Sep 14:08</span>
+          </div>
+          <div class="menu" style="left:196px" role="menu" aria-label="Window">
+            <div class="mi dim"><span class="ck"></span>Minimize<kbd>⌘M</kbd></div>
+            <div class="mi dim"><span class="ck"></span>Zoom</div>
+            <div class="mi"><span class="ck"></span>Exit Full Screen<kbd>fn F</kbd></div>
+            <hr />
+            <div class="mi"><span class="ck"></span>Connections<kbd>⌘0</kbd></div>
+            <hr />
+            <div class="sec">Sessions</div>
+            <div class="mi"><span class="ck"><svg class="i"><use href="#i-check"/></svg></span><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>Studio Workstation<span class="status"></span><kbd>⌘1</kbd></div>
+            <div class="mi hl"><span class="ck"></span><span class="glyph login"><svg class="i"><use href="#i-login"/></svg></span>Homelab<span class="status"></span><kbd>⌘2</kbd></div>
+            <div class="mi"><span class="ck"></span><span class="glyph headless"><svg class="i"><use href="#i-server"/></svg></span>Media PC<span class="status amber"></span><kbd>⌘3</kbd></div>
+            <hr />
+            <div class="mi"><span class="ck"></span>Bring All to Front</div>
+          </div>
+        </div>
+        <p class="fs-cap"><strong>Window menu</strong> — Studio Workstation is current; Homelab is highlighted.</p>
+      </div>
+      <div>
+        <div class="fs">
+          <div class="remote">
+            <div class="gnome-bar" style="margin-top:26px"><span>Activities</span><span>Thu 24 Sep 14:08</span><span>⏻</span></div>
+            <div class="gnome-win"></div>
+          </div>
+          <div class="menubar">
+            <span>&#xF8FF;</span><span class="app">Drift</span><span class="open">File</span><span>Edit</span><span>View</span><span>Window</span><span>Help</span>
+            <span class="right">Thu 24 Sep 14:08</span>
+          </div>
+          <div class="menu" style="left:72px" role="menu" aria-label="File">
+            <div class="mi"><span class="ck"></span>New Connection…<kbd>⌘N</kbd></div>
+            <div class="mi hl"><span class="ck"></span>Show Connections<kbd>⌘0</kbd></div>
+            <div class="mi"><span class="ck"></span>Edit Studio Workstation…<kbd>⌘E</kbd></div>
+            <hr />
+            <div class="mi"><span class="ck"></span>Disconnect Studio Workstation<kbd>⇧⌘D</kbd></div>
+            <div class="mi"><span class="ck"></span>Close Window<kbd>⌘W</kbd></div>
+          </div>
+        </div>
+        <p class="fs-cap"><strong>File menu</strong> — Show Connections brings the gallery forward on top of the full-screen session.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Errors ======================================================================= -->
+  <section class="board">
+    <div class="board-head">
+      <h2>7 · Errors</h2>
+      <ul>
+        <li>A failed connection keeps its window with the error sheet, a red dot in the title and a Failed pill on its card.</li>
+        <li>Actions stay the same: the first is primary and focused. Closing the window dismisses the failure.</li>
+        <li>Edit Connection… opens the configuration sheet on the Connections window, for errors that need a change there (wrong credentials, host).</li>
+      </ul>
+    </div>
+    <div class="desk" style="padding:32px">
+      <div class="window small" style="height:600px">
+        <div class="titlebar">
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="ident"><span class="glyph sharing"><svg class="i"><use href="#i-display"/></svg></span>Kitchen Laptop<span class="host">kitchen.lan</span><span class="status red"></span></div>
+          <span class="spacer"></span>
+          <button class="tb-btn" aria-label="Show Connections"><svg class="i"><use href="#i-grid"/></svg></button>
+        </div>
+        <div class="pane">
+          <div class="scrim">
+            <section class="sheet" style="width:480px">
+              <div class="badge-icon warn"><svg class="i"><use href="#i-warn"/></svg></div>
+              <h2>Kitchen Laptop didn’t accept the sign-in</h2>
+              <p>The Desktop Sharing user name or password was refused.</p>
+              <div class="error-steps">
+                <h3>What to do</h3>
+                <ol>
+                  <li>Desktop Sharing credentials must be set in GNOME Settings on the host.</li>
+                  <li>Update the user name and password in the connection.</li>
+                </ol>
+              </div>
+              <div class="actions"><button class="btn">Reconnect</button><button class="btn primary">Edit Connection…</button></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  document.querySelectorAll("[data-set]").forEach((b) =>
+    b.addEventListener("click", () => {
+      document.documentElement.dataset.theme = b.dataset.set;
+      document.querySelectorAll("[data-set]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    }),
+  );
+  if (location.hash === "#light") document.querySelector('[data-set="light"]').click();
+</script>
+</body>
+</html>
