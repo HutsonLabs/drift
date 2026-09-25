@@ -41,7 +41,9 @@ M6-1 protected and where it goes now:
 2. **The Connections window is created at launch and only ever hidden.** Its `CloseRequested`
    is always prevented and turned into `orderOut:` (`Window::hide`). Cmd+0, File ▸ Show
    Connections, Window ▸ Connections, the Dock menu, the session title bar's grid button and
-   `RunEvent::Reopen` all call `windows::show_connections`, which shows it and makes it key.
+   `RunEvent::Reopen` (a Dock-icon click while no Drift window is visible — with windows on
+   screen the click only activates Drift, as in other Mac apps) all call
+   `windows::show_connections`, which shows it and makes it key.
    Quitting is the only way it is destroyed. `ExitRequested` without a code stays prevented.
 3. **Connecting opens a session window at once.** `connect(profile_id)` (any window, any
    caller) goes through `windows::connect_profile`:
@@ -244,6 +246,36 @@ pub enum ConnectionsIntent { New, Edit { profile_id: Uuid } }
 | `focus_content` | `() → ()` | unchanged (title bar) |
 
 Removed: `disconnect`, `tab_strip`, `select_tab`, `close_tab`, `new_tab`, `TabStripChanged`.
+
+## Implementation notes (platform)
+
+Recorded while landing the contract; none changes a command, event or type.
+
+- **Status of a window whose actor has not reported yet.** `SessionView::new` starts on
+  `Screen::Profiles`; `present::status_for` maps it to `connecting` (the window exists only to
+  connect). The menus' text glyph follows the status (`◐` for a live greeter), so a disconnect
+  with an explanation reads `⚠` like a failure.
+- **`window_identity`** answers for both webviews of a session window (it uses the calling
+  window's label) and, before the session has started, from the window's profile; it answers
+  `NoSession` for the Connections window. `show_window` and `disconnect_profile` answer
+  `NotFound` when the profile has no window. `close_session` from the Connections window is a
+  no-op.
+- **Window ▸ Sessions items** are `MenuAction::SelectSession(n)` (1-based position in opening
+  order, where opening order is the order sessions started), rebuilt with the whole menu bar
+  (`app.set_menu`) only when `menu_spec` changes. The Window menu keeps one visible
+  "Enter Full Screen" (Drift's); AppKit adds a hidden one of its own.
+- **Frames** are AppKit points converted to a top-left origin against the primary screen
+  (`NSScreen.screens[0]`), read and applied with `NSWindow.frame` / `setFrame:display:`
+  (not Tauri's physical positions, which mix scale factors across screens); the default frame is
+  centred on the screen with the key window. Frames are not saved while in full screen.
+- **Thumbnails** are read with `drift_render::RenderSink::with` from a worker thread, so the main
+  thread never waits for the GPU read-back; the downscale and PNG encoding run there too
+  (base64 is a small tested encoder in `connections`, no new dependency).
+- **Quit** counts the windows that still hold a session (failed windows do not).
+- **The Connections template** is 1100×720 with a minimum of 640×420.
+- **Full screen in `windows_ui`**: macOS lets only the active app enter full screen, and a test
+  binary started from a background shell may not be allowed to activate; the test then prints
+  "full screen: SKIPPED" and the pure `present::chrome(true)` test is the only automated check.
 
 ## Supersessions
 
