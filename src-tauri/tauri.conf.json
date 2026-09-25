@@ -12,16 +12,31 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "label": "session",
+        "label": "connections",
         "create": false,
         "title": "Connections",
+        "url": "index.html",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 640,
+        "minHeight": 420,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 20, "y": 26 },
+        "windowEffects": { "effects": ["sidebar"], "state": "active" }
+      },
+      {
+        "label": "session",
+        "create": false,
+        "title": "Drift",
+        "url": "session.html",
         "width": 1280,
         "height": 800,
         "minWidth": 480,
         "minHeight": 320,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 18, "y": 28 },
+        "trafficLightPosition": { "x": 20, "y": 26 },
         "windowEffects": { "effects": ["sidebar"], "state": "active" }
       }
     ],

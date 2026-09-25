@@ -60,13 +60,14 @@ fn key_equivalents_without_command_or_control_pass_to_key_down() {
 #[test]
 fn allow_listed_combos_go_to_the_menu_and_never_reach_the_remote() {
     let cases = [
-        (kvk::ANSI_T, "t", CMD_L, MenuShortcut::NewTab),
-        (kvk::ANSI_W, "w", CMD_L, MenuShortcut::CloseTab),
+        (kvk::ANSI_N, "n", CMD_L, MenuShortcut::NewConnection),
+        (kvk::ANSI_0, "0", CMD_L, MenuShortcut::ShowConnections),
+        (kvk::ANSI_E, "e", CMD_L, MenuShortcut::EditConnection),
+        (kvk::ANSI_D, "D", CMD_L | SHIFT_L, MenuShortcut::Disconnect),
+        (kvk::ANSI_W, "w", CMD_L, MenuShortcut::CloseWindow),
         (kvk::ANSI_Q, "q", CMD_L, MenuShortcut::Quit),
-        (kvk::ANSI_1, "1", CMD_L, MenuShortcut::SelectTab(1)),
-        (kvk::ANSI_9, "9", CMD_L, MenuShortcut::SelectTab(9)),
-        (kvk::ANSI_LEFT_BRACKET, "{", CMD_L | SHIFT_L, MenuShortcut::PreviousTab),
-        (kvk::ANSI_RIGHT_BRACKET, "}", CMD_L | SHIFT_L, MenuShortcut::NextTab),
+        (kvk::ANSI_1, "1", CMD_L, MenuShortcut::SelectSession(1)),
+        (kvk::ANSI_9, "9", CMD_L, MenuShortcut::SelectSession(9)),
         (kvk::ANSI_GRAVE, "`", CMD_L, MenuShortcut::CycleWindows),
     ];
     for (code, chars, bits, want) in cases {

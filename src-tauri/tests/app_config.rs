@@ -44,20 +44,37 @@ fn info_plist_declares_local_network_usage() {
     assert!(value.len() > 20, "a real explanation: {value}");
 }
 
+/// UI-windows decisions 1 and 5: two templates, both created by the app — Connections
+/// (1100×720, `index.html`) and the session template (1280×800, `session.html`) with the
+/// traffic lights centred in the 52-point title bar.
 #[test]
-fn session_windows_are_created_by_the_app_not_the_config() {
-    // Every tab is created hidden, joined to the group and then shown (M6-2), so the config only
-    // holds the `session` template (never created on its own); capabilities cover the labels.
+fn windows_are_built_by_the_app_from_two_templates() {
     let conf: serde_json::Value = serde_json::from_str(&read("tauri.conf.json")).unwrap();
     let windows = conf["app"]["windows"].as_array().cloned().unwrap_or_default();
-    assert_eq!(windows.len(), 1, "only the session template");
-    assert_eq!(windows[0]["label"], drift_app::windows::SESSION_TEMPLATE);
-    assert_eq!(windows[0]["create"], false, "the app creates session windows itself");
+    let labels: Vec<_> = windows.iter().filter_map(|w| w["label"].as_str()).collect();
+    assert_eq!(labels, [drift_app::windows::CONNECTIONS_TEMPLATE, drift_app::windows::SESSION_TEMPLATE]);
+    assert_eq!(drift_app::windows::CONNECTIONS_TEMPLATE, drift_app::connections::CONNECTIONS_WINDOW);
+    for w in &windows {
+        assert_eq!(w["create"], false, "{}: the app creates its windows itself", w["label"]);
+        assert_eq!(w["titleBarStyle"], "Overlay", "{}", w["label"]);
+        assert_eq!(w["hiddenTitle"], true, "{}", w["label"]);
+    }
+    let (connections, session) = (&windows[0], &windows[1]);
+    assert_eq!((connections["width"].as_f64(), connections["height"].as_f64()), (Some(1100.0), Some(720.0)));
+    assert_eq!(connections["url"], "index.html");
+    assert_eq!((session["width"].as_f64(), session["height"].as_f64()), (Some(1280.0), Some(800.0)));
+    assert_eq!(session["url"], "session.html");
+    let lights = &session["trafficLightPosition"];
+    // The standard inset; `y` is whatever centres the lights in the 52-pt bar, which the real
+    // window test `windows_ui` measures.
+    assert_eq!(lights["x"].as_f64(), Some(20.0));
+    assert!(lights["y"].as_f64().is_some_and(|y| y > 20.0 && y < 40.0), "{lights}");
     assert_eq!(conf["bundle"]["macOS"]["minimumSystemVersion"], "27.0");
     let caps: serde_json::Value = serde_json::from_str(&read("capabilities/default.json")).unwrap();
     let labels: Vec<_> = caps["windows"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
-    assert!(labels.contains(&"session-*"), "{labels:?}");
+    assert!(labels.contains(&"session-*") && labels.contains(&"connections"), "{labels:?}");
     assert_eq!(drift_app::windows::window_label(7), "session-7");
+    assert_eq!(drift_app::windows::titlebar_label("session-7"), "session-7-titlebar", "covered by session-*");
 }
 
 #[test]

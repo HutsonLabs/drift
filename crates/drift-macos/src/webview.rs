@@ -64,7 +64,7 @@ pub fn find_webview(root: &NSView) -> Option<Retained<NSView>> {
 }
 
 /// Every `WKWebView` below `root`, depth first (a session window has the page and, above it,
-/// the tab strip).
+/// the title bar).
 pub fn find_webviews(root: &NSView) -> Vec<Retained<NSView>> {
     let mut found = Vec::new();
     for sub in root.subviews().iter() {

@@ -1,11 +1,11 @@
 //! IPC commands exposed to the webview.
 //!
 //! Commands are thin: profile logic lives in [`crate::profiles::ProfileService`] and
-//! `drift-core`; session intents are forwarded to the `SessionManager` (M6-1). Intents whose
-//! backend is not wired yet return [`CommandError::NotImplemented`] so the UI can already be
-//! built and tested against the final signatures.
+//! `drift-core`; session intents are forwarded to the `SessionManager` (M6-1); window intents to
+//! `crate::windows` (UI-windows). "The calling window" is the `tauri::Window` a command came
+//! from, so a session window's page and its title bar answer alike.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -17,32 +17,61 @@ use serde::Serialize;
 use tauri::State;
 use uuid::Uuid;
 
+use crate::connections::{Connections, ConnectionsIntent, WindowIdentity};
+use crate::frames::{FrameStore, profile_key};
 use crate::manager::SessionManager;
 use crate::profiles::{CommandError, ProfileEntry, ProfileService, SecretsUpdate};
-use crate::strip::TabStrip;
 
 /// Shared state managed by Tauri.
 #[derive(Debug)]
 pub struct AppState {
     /// Saved profiles and their passwords.
     pub profiles: Arc<ProfileService>,
-    /// Live sessions, one per window (tab).
+    /// Sessions, one per session window.
     pub sessions: SessionManager,
+    /// Remembered window frames (`window-frames.json`).
+    pub frames: FrameStore,
     next_window: AtomicU64,
+    /// The profile of every session window from the moment it is built until it closes.
+    window_profiles: Mutex<HashMap<String, ConnectionProfile>>,
     closing: Mutex<HashSet<String>>,
     quitting: AtomicBool,
 }
 
 impl AppState {
     /// The state for a running app.
-    pub fn new(profiles: Arc<ProfileService>, sessions: SessionManager) -> Self {
+    pub fn new(profiles: Arc<ProfileService>, sessions: SessionManager, frames: FrameStore) -> Self {
         Self {
             profiles,
             sessions,
+            frames,
             next_window: AtomicU64::new(0),
+            window_profiles: Mutex::new(HashMap::new()),
             closing: Mutex::new(HashSet::new()),
             quitting: AtomicBool::new(false),
         }
+    }
+
+    fn window_profiles(&self) -> std::sync::MutexGuard<'_, HashMap<String, ConnectionProfile>> {
+        self.window_profiles.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Records (or, with `None`, forgets) the profile session window `window` is for.
+    pub(crate) fn set_window_profile(&self, window: &str, profile: Option<ConnectionProfile>) {
+        match profile {
+            Some(profile) => self.window_profiles().insert(window.to_owned(), profile),
+            None => self.window_profiles().remove(window),
+        };
+    }
+
+    /// The profile session window `window` was built for.
+    pub(crate) fn window_profile(&self, window: &str) -> Option<ConnectionProfile> {
+        self.window_profiles().get(window).cloned()
+    }
+
+    /// The session window built (or being built) for `profile`.
+    pub(crate) fn window_of_profile(&self, profile: Uuid) -> Option<String> {
+        self.window_profiles().iter().find(|(_, p)| p.id == profile).map(|(w, _)| w.clone())
     }
 
     /// The number of the next session window.
@@ -124,11 +153,20 @@ pub fn save_profile(
     state.profiles.save(profile, secrets)
 }
 
-/// Deletes a profile and its stored passwords.
+/// Deletes a profile, its stored passwords and its window frame; an open profile's window is
+/// closed first (without asking).
 #[tauri::command]
 #[specta::specta]
-pub fn delete_profile(state: State<'_, AppState>, id: Uuid) -> Result<(), CommandError> {
-    state.profiles.delete(id)
+pub fn delete_profile(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: Uuid,
+) -> Result<(), CommandError> {
+    if let Some(window) = state.sessions.window_for(id).or_else(|| state.window_of_profile(id)) {
+        crate::windows::close_session_window(&app, &window);
+    }
+    state.profiles.delete(id)?;
+    state.frames.remove(&profile_key(id))
 }
 
 /// Clears a profile's pinned certificate (after a legitimate certificate change).
@@ -153,11 +191,12 @@ pub fn open_local_network_settings() -> Result<(), CommandError> {
     crate::platform::open_url(drift_core::messages::LOCAL_NETWORK_SETTINGS_URL)
 }
 
-/// Connects this window's session to the saved profile `profile_id`.
+/// Connects `profile_id`: opens a session window for it, or brings its window forward if it
+/// already has one (from any window).
 #[tauri::command]
 #[specta::specta]
-pub fn connect(app: tauri::AppHandle, window: tauri::Window, profile_id: Uuid) -> Result<(), CommandError> {
-    crate::windows::connect_profile(&app, window.label(), profile_id)
+pub fn connect(app: tauri::AppHandle, profile_id: Uuid) -> Result<(), CommandError> {
+    crate::windows::connect_profile(&app, profile_id)
 }
 
 /// Trusts the prompted certificate (`pin` = remember it for this profile).
@@ -193,70 +232,92 @@ pub fn cancel_reconnect(state: State<'_, AppState>, window: tauri::Window) -> Re
     state.sessions.send(window.label(), drift_rdp::SessionCommand::Cancel)
 }
 
-/// Ends this window's session gracefully and returns it to the connect form.
-#[tauri::command]
-#[specta::specta]
-pub fn disconnect(state: State<'_, AppState>, window: tauri::Window) -> Result<(), CommandError> {
-    state.sessions.disconnect(window.label())
-}
-
-/// Closes this window's session gracefully and then the tab.
+/// Closes the calling session window without asking (the error sheet's Close, Cancel while
+/// connecting): the session closes gracefully, then the window.
 #[tauri::command]
 #[specta::specta]
 pub fn close_session(app: tauri::AppHandle, window: tauri::Window) -> Result<(), CommandError> {
-    crate::windows::close_tab(&app, window.label());
+    crate::windows::close_session_window(&app, window.label());
     Ok(())
 }
 
-// ---- the tab strip (UI-tabs) -------------------------------------------------------------------
+// ---- Connections gallery and session windows (UI-windows) ------------------------------------
 
-/// The tab strip of the calling window: its group's tabs in order, its own tab active.
+/// Copies a profile and its stored passwords under a new id, named "<name> copy", without the
+/// certificate pin.
 #[tauri::command]
 #[specta::specta]
-pub fn tab_strip(
+pub fn duplicate_profile(state: State<'_, AppState>, id: Uuid) -> Result<ProfileEntry, CommandError> {
+    state.profiles.duplicate(id)
+}
+
+/// The profiles that have a session window (pulled by the Connections page on load).
+#[tauri::command]
+#[specta::specta]
+pub fn connections(state: State<'_, AppState>) -> Result<Connections, CommandError> {
+    Ok(state.sessions.connections())
+}
+
+/// Brings `profile_id`'s session window forward; `NotFound` if it has none.
+#[tauri::command]
+#[specta::specta]
+pub fn show_window(
     app: tauri::AppHandle,
-    window: tauri::Window,
-    webview: tauri::Webview,
-) -> Result<TabStrip, CommandError> {
-    let label = window.label().to_owned();
-    tracing::debug!(window = %label, webview = %webview.label(), "tab strip requested");
-    let handle = app.clone();
-    crate::windows::on_main(&app, move |_| crate::windows::tab_strip(&handle, &label))?
-        .ok_or(CommandError::Platform { message: "this window is not a session tab".into() })
-}
-
-/// Selects tab `tab` (a click on it in the strip).
-#[tauri::command]
-#[specta::specta]
-pub fn select_tab(app: tauri::AppHandle, tab: String) -> Result<(), CommandError> {
-    crate::windows::select_tab(&app, &tab)
-}
-
-/// Closes tab `tab` (its × in the strip): the session closes gracefully, then the window.
-#[tauri::command]
-#[specta::specta]
-pub fn close_tab(app: tauri::AppHandle, tab: String) -> Result<(), CommandError> {
-    let known = {
-        let (handle, tab) = (app.clone(), tab.clone());
-        crate::windows::on_main(&app, move |_| crate::windows::tab_count(&handle, &tab).is_some())?
-    };
-    if !known {
-        return Err(CommandError::Platform { message: format!("there is no tab {tab}") });
-    }
-    crate::windows::close_tab(&app, &tab);
+    state: State<'_, AppState>,
+    profile_id: Uuid,
+) -> Result<(), CommandError> {
+    let window = state.sessions.window_for(profile_id).ok_or(CommandError::NotFound)?;
+    crate::windows::focus_window(&app, &window);
     Ok(())
 }
 
-/// Opens a new Connection Manager tab (the strip's +, like File ▸ New Tab).
+/// Closes `profile_id`'s session window without asking (the card's Disconnect); `NotFound` if
+/// it has none.
 #[tauri::command]
 #[specta::specta]
-pub fn new_tab(app: tauri::AppHandle) -> Result<(), CommandError> {
-    crate::windows::open_tab(&app);
+pub fn disconnect_profile(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    profile_id: Uuid,
+) -> Result<(), CommandError> {
+    let window = state.sessions.window_for(profile_id).ok_or(CommandError::NotFound)?;
+    crate::windows::close_session_window(&app, &window);
     Ok(())
 }
 
-/// Gives the keyboard back to the calling window's page or live picture (the strip never keeps
-/// it).
+/// Shows the Connections window and makes it key; with `edit`, opens that profile's edit sheet
+/// (the title bar's grid button, the error sheet's Edit Connection…).
+#[tauri::command]
+#[specta::specta]
+pub fn show_connections(app: tauri::AppHandle, edit: Option<Uuid>) -> Result<(), CommandError> {
+    crate::windows::show_connections(&app, edit.map(|profile_id| ConnectionsIntent::Edit { profile_id }));
+    Ok(())
+}
+
+/// Shows the Connections window with the New Connection sheet.
+#[tauri::command]
+#[specta::specta]
+pub fn new_connection(app: tauri::AppHandle) -> Result<(), CommandError> {
+    crate::windows::show_connections(&app, Some(ConnectionsIntent::New));
+    Ok(())
+}
+
+/// The calling session window's identity (pulled by its title bar and its page on load).
+#[tauri::command]
+#[specta::specta]
+pub fn window_identity(app: tauri::AppHandle, window: tauri::Window) -> Result<WindowIdentity, CommandError> {
+    crate::windows::window_identity(&app, window.label()).ok_or(CommandError::NoSession)
+}
+
+/// Turns the calling session window's statistics HUD on or off (the title bar's gauge).
+#[tauri::command]
+#[specta::specta]
+pub fn toggle_stats(state: State<'_, AppState>, window: tauri::Window) -> Result<(), CommandError> {
+    state.sessions.toggle_stats(window.label())
+}
+
+/// Gives the keyboard back to the calling window's page or live picture (the title bar never
+/// keeps it).
 #[tauri::command]
 #[specta::specta]
 pub fn focus_content(app: tauri::AppHandle, window: tauri::Window) -> Result<(), CommandError> {
@@ -305,6 +366,6 @@ mod tests {
 
     #[test]
     fn no_session_error_is_user_readable() {
-        assert_eq!(CommandError::NoSession.to_string(), "this tab has no active session");
+        assert_eq!(CommandError::NoSession.to_string(), "this window has no active session");
     }
 }

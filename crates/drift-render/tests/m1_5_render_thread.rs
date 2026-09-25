@@ -13,7 +13,10 @@ use drift_testkit::golden::compare;
 use objc2_quartz_core::CAMetalLayer;
 
 fn wait_for(log: &PresentLog, n: usize) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // Generous: the GPU is shared with every other test binary (VideoToolbox encodes, other
+    // compositors) and with other builds on the machine; a busy GPU delayed the first present
+    // past 5 s. Returns as soon as the frames are in.
+    let deadline = Instant::now() + Duration::from_secs(30);
     while log.ids().len() < n && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -92,5 +95,8 @@ fn layer_target_presents_to_a_cametallayer() {
     assert_eq!(log.ids(), (0..10).collect::<Vec<_>>(), "presented exactly once, in order");
     let presents = thread.with(|c| c.stats().presents).expect("render thread alive");
     assert_eq!(presents, 10, "every frame got a drawable and was presented");
+    // UI-windows thumbnails: a sink can query the compositor from another thread.
+    let from_sink = std::thread::spawn(move || sink.with(|c| c.stats().presents)).join().unwrap();
+    assert_eq!(from_sink, Some(10));
     thread.shutdown();
 }

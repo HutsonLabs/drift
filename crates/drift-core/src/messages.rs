@@ -26,7 +26,7 @@ pub enum ErrorAction {
     EditProfile,
     /// Open System Settings › Privacy & Security › Local Network.
     OpenLocalNetworkSettings,
-    /// Close the tab.
+    /// Close the window.
     Close,
 }
 

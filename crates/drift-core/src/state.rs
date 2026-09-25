@@ -58,7 +58,7 @@ pub enum DisconnectReason {
     ProtocolError(String),
     /// More than [`MAX_REDIRECTS`] redirections in one attempt.
     RedirectLoop,
-    /// The user closed the tab or cancelled.
+    /// The user closed the window or cancelled.
     UserClosed,
     /// The remote user logged off.
     LoggedOffRemotely,
@@ -83,7 +83,7 @@ impl DisconnectReason {
     }
 }
 
-/// Lifecycle of one session (tab), plan §3.
+/// Lifecycle of one session (window), plan §3.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "state", rename_all = "kebab-case")]

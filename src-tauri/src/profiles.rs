@@ -47,7 +47,7 @@ pub enum CommandError {
         message: String,
     },
     /// The window has no session (or it has already ended).
-    #[error("this tab has no active session")]
+    #[error("this window has no active session")]
     NoSession,
     /// The command exists for the UI but its backend is not wired yet.
     #[error("{what} is not available yet")]
@@ -283,6 +283,27 @@ impl ProfileService {
             self.secrets.delete(id, role).map_err(CommandError::storage)?;
         }
         Ok(())
+    }
+
+    /// Copies profile `id` under a new id, named "<name> copy", with its stored passwords and
+    /// without its certificate pin (the copy's trust is decided again).
+    pub fn duplicate(&self, id: Uuid) -> Result<ProfileEntry, CommandError> {
+        let mut copy = self.lock()?.get(id).cloned().ok_or(CommandError::NotFound)?;
+        copy.id = Uuid::new_v4();
+        copy.name = format!("{} copy", copy.name.trim());
+        copy.cert_pin = None;
+        let s = &self.secrets;
+        let rdp = s.get(id, SecretRole::rdp_for(copy.mode)).map_err(CommandError::storage)?;
+        let linux = match copy.mode {
+            ConnectMode::RemoteLogin => s.get(id, SecretRole::LinuxLogin).map_err(CommandError::storage)?,
+            _ => None,
+        };
+        let update = SecretsUpdate {
+            rdp_password: rdp.map(|pw| pw.to_string()),
+            linux_password: linux
+                .map_or(LinuxPasswordUpdate::Keep, |pw| LinuxPasswordUpdate::Store(pw.to_string())),
+        };
+        self.save(copy, update)
     }
 
     /// Persists (or clears) a TOFU pin (the SessionManager calls this on `CertificatePinned`).

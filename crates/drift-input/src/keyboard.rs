@@ -170,7 +170,7 @@ impl Keyboard {
         out
     }
 
-    /// The view lost key focus (window resigned key, tab switched, app deactivated): releases
+    /// The view lost key focus (window resigned key, app deactivated): releases
     /// exactly the scancodes the remote considers pressed and forgets all key state. A deferred
     /// Command press is dropped without being sent.
     pub fn focus_lost(&mut self) -> Vec<InputEvent> {

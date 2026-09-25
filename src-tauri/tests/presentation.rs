@@ -4,11 +4,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use drift_app::connections::{CONNECTIONS_WINDOW, ConnectionStatus};
 use drift_app::present::{
-    Focus, Hud, Surface, accessibility_label, band_y, chrome, cursor_shape, find_autoconnect, focus_for,
-    greeter_hint, hud_frame, surface_for, window_title,
+    CloseAction, Focus, Hud, Surface, TITLEBAR_HEIGHT, accessibility_label, band_y, chrome, close_action,
+    close_confirmation, close_needs_confirmation, cursor_shape, display_name, find_autoconnect, focus_for,
+    greeter_hint, hud_frame, identity, quit_confirmation, session_item, status_for, surface_for,
+    window_title,
 };
-use drift_app::strip::{CONNECTIONS_TITLE, STRIP_HEIGHT};
 use drift_app::view::{Screen, SessionView};
 use drift_core::{
     ConnectMode, ConnectStage, ConnectionProfile, DesktopSize, DisconnectReason, Point, SessionState, Size,
@@ -120,30 +122,140 @@ fn a_hud_shrinks_with_a_narrow_window() {
     }
 }
 
+/// UI-windows decision 5: the window title is the plain profile name, so Mission Control,
+/// Cmd+` and the Window menu show it.
 #[test]
-fn title_is_profile_name_plus_state_glyph() {
-    // UI-tabs: a window on the connect form is a Connection Manager tab, titled "Connections"
-    // (the title is what AppKit lists in the Window menu).
-    assert_eq!(window_title(None), CONNECTIONS_TITLE);
-    let idle = SessionView::new(&ConnectionProfile::new("Homelab", "h", ConnectMode::Headless));
-    assert_eq!(window_title(Some(&idle)), CONNECTIONS_TITLE, "the connect form is the Connection Manager");
-    #[rustfmt::skip]
-    let table = [
-        (SessionState::Connecting { leg: 2, stage: ConnectStage::Tls }, "◌ Homelab"),
-        (SessionState::AwaitingGreeterLogin, "◐ Homelab"),
-        (SessionState::Connected { desktop: DesktopSize::new(1280, 800), scale: 100 }, "● Homelab"),
-        (SessionState::Reconnecting { attempt: 1, next_in: Duration::from_secs(1), reason: DisconnectReason::Network }, "↻ Homelab"),
-        (SessionState::Disconnected { reason: DisconnectReason::UserClosed }, "○ Homelab"),
-        (SessionState::Failed { reason: DisconnectReason::AuthFailed }, "⚠ Homelab"),
+fn the_window_title_is_the_profile_name() {
+    let states = [
+        SessionState::Idle,
+        SessionState::Connecting { leg: 2, stage: ConnectStage::Tls },
+        SessionState::AwaitingGreeterLogin,
+        SessionState::Connected { desktop: DesktopSize::new(1280, 800), scale: 100 },
+        SessionState::Failed { reason: DisconnectReason::AuthFailed },
     ];
-    for (state, want) in table {
-        let v = view_in(ConnectMode::Headless, state.clone());
-        assert_eq!(window_title(Some(&v)), want, "{state:?}");
+    for state in states {
+        assert_eq!(window_title(&view_in(ConnectMode::Headless, state.clone())), "Homelab", "{state:?}");
+    }
+    let mut odd = SessionView::new(&ConnectionProfile::new("  Work\tbox ", "h", ConnectMode::Headless));
+    assert_eq!(window_title(&odd), "Work box");
+    odd.profile_name = "   ".into();
+    assert_eq!(window_title(&odd), "Untitled");
+    assert_eq!(display_name("a\nb"), "a b");
+}
+
+fn reconnecting() -> SessionState {
+    SessionState::Reconnecting {
+        attempt: 1,
+        next_in: Duration::from_secs(1),
+        reason: DisconnectReason::Network,
     }
 }
 
-/// UI-tabs: the title bar is hidden, so the greeter hint no longer lives in the window
-/// subtitle; the same text is the floating banner's and the session tab's tooltip.
+/// UI-windows decision 6 (UI-tabs decision 5's table): status for every screen.
+#[test]
+fn status_and_identity_follow_the_screen() {
+    #[rustfmt::skip]
+    let table = [
+        (Screen::Profiles, ConnectionStatus::Connecting),
+        (Screen::Connecting, ConnectionStatus::Connecting),
+        (Screen::Certificate, ConnectionStatus::Connecting),
+        (Screen::Live, ConnectionStatus::Live),
+        (Screen::GreeterHint, ConnectionStatus::Live),
+        (Screen::Reconnecting, ConnectionStatus::Reconnecting),
+        (Screen::Error, ConnectionStatus::Failed),
+    ];
+    for (screen, status) in table {
+        assert_eq!(status_for(&on_screen(screen)), status, "{screen:?}");
+    }
+    let mut profile = ConnectionProfile::new("Homelab", "10.1.2.40", ConnectMode::RemoteLogin);
+    profile.linux_username = Some("drifttest".into());
+    let mut greeter = SessionView::new(&profile);
+    greeter.apply(&SessionEvent::State(SessionState::AwaitingGreeterLogin));
+    greeter.show_stats = true;
+    let id = identity(&profile, &greeter);
+    assert_eq!(id.profile_id, profile.id);
+    assert_eq!(
+        (id.name.as_str(), id.host.as_str(), id.mode),
+        ("Homelab", "10.1.2.40", ConnectMode::RemoteLogin)
+    );
+    assert_eq!(id.status, ConnectionStatus::Live);
+    assert_eq!(id.hint.as_deref(), Some("Log in as “drifttest” to start your session"), "tooltip");
+    assert!(id.show_stats, "gauge pressed");
+    let live = view_in(
+        ConnectMode::RemoteLogin,
+        SessionState::Connected { desktop: DesktopSize::new(1280, 800), scale: 100 },
+    );
+    assert_eq!(identity(&profile, &live).hint, None);
+}
+
+/// The Window and Dock menus: state glyph (UI-tabs decision 11) and cleaned name.
+#[test]
+fn session_items_carry_a_glyph_and_the_name() {
+    #[rustfmt::skip]
+    let table = [
+        (SessionState::Connecting { leg: 1, stage: ConnectStage::Tcp }, '◌', ConnectionStatus::Connecting),
+        (SessionState::AwaitingGreeterLogin, '◐', ConnectionStatus::Live),
+        (SessionState::Connected { desktop: DesktopSize::new(1280, 800), scale: 100 }, '●', ConnectionStatus::Live),
+        (reconnecting(), '↻', ConnectionStatus::Reconnecting),
+        (SessionState::Failed { reason: DisconnectReason::AuthFailed }, '⚠', ConnectionStatus::Failed),
+        (SessionState::Disconnected { reason: DisconnectReason::ServerShutdown }, '⚠', ConnectionStatus::Failed),
+    ];
+    for (state, glyph, status) in table {
+        let item = session_item("session-3", &view_in(ConnectMode::Headless, state.clone()));
+        assert_eq!(item.window, "session-3");
+        assert_eq!((item.glyph, item.status, item.name.as_str()), (glyph, status, "Homelab"), "{state:?}");
+        assert_eq!(item.title(), format!("{glyph} Homelab"));
+    }
+}
+
+/// UI-windows decision 4: only a window that holds a desktop asks before closing.
+#[test]
+fn closing_asks_only_while_a_desktop_is_held() {
+    #[rustfmt::skip]
+    let table = [
+        (Screen::Profiles, false),
+        (Screen::Connecting, false),
+        (Screen::Certificate, false),
+        (Screen::Error, false),
+        (Screen::Live, true),
+        (Screen::GreeterHint, true),
+        (Screen::Reconnecting, true),
+    ];
+    for (screen, ask) in table {
+        assert_eq!(close_needs_confirmation(&on_screen(screen)), ask, "{screen:?}");
+    }
+}
+
+/// UI-windows decisions 2 and 4: the Connections window only hides; a session window asks
+/// first while live, else closes at once.
+#[test]
+fn the_close_button_hides_connections_and_confirms_live_sessions() {
+    assert_eq!(CONNECTIONS_WINDOW, "connections");
+    assert_eq!(close_action(CONNECTIONS_WINDOW, None), CloseAction::Hide);
+    assert_eq!(close_action(CONNECTIONS_WINDOW, Some(&on_screen(Screen::Live))), CloseAction::Hide);
+    assert_eq!(close_action("session-4", Some(&on_screen(Screen::Live))), CloseAction::Confirm);
+    assert_eq!(close_action("session-4", Some(&on_screen(Screen::Reconnecting))), CloseAction::Confirm);
+    assert_eq!(close_action("session-4", Some(&on_screen(Screen::Connecting))), CloseAction::CloseNow);
+    assert_eq!(close_action("session-4", Some(&on_screen(Screen::Error))), CloseAction::CloseNow);
+    assert_eq!(close_action("session-4", None), CloseAction::CloseNow, "no session any more");
+}
+
+#[test]
+fn confirmation_texts() {
+    let c = close_confirmation(" Homelab ");
+    assert_eq!(c.message, "Disconnect “Homelab”?");
+    assert_eq!(c.informative, "The remote session keeps running on the host.");
+    assert_eq!((c.confirm.as_str(), c.cancel.as_str()), ("Disconnect", "Cancel"));
+    assert_eq!(quit_confirmation(0), None, "no sessions: quit at once");
+    let one = quit_confirmation(1).unwrap();
+    assert_eq!(one.message, "Quit Drift?");
+    assert_eq!(one.informative, "1 session will be disconnected.");
+    assert_eq!((one.confirm.as_str(), one.cancel.as_str()), ("Quit", "Cancel"));
+    assert_eq!(quit_confirmation(3).unwrap().informative, "3 sessions will be disconnected.");
+}
+
+/// UI-tabs decision 10 / UI-windows: the greeter hint is the floating banner and the identity
+/// capsule's tooltip (no window subtitle).
 #[test]
 fn the_greeter_hint_names_the_linux_user() {
     assert_eq!(greeter_hint(None), None);
@@ -215,33 +327,34 @@ fn autoconnect_finds_the_named_profile() {
     assert_eq!(find_autoconnect(&all, ""), None);
 }
 
-/// UI-tabs: the HTML tab strip is the title bar row; the picture and the page start below it.
+/// UI-windows decision 5: a 52-point transparent title bar, no strip; the picture and the page
+/// start right under it.
 #[test]
-fn the_tab_strip_sits_above_the_picture_and_the_page() {
+fn the_picture_starts_under_the_52_point_title_bar() {
+    assert!((TITLEBAR_HEIGHT - 52.0).abs() < f64::EPSILON);
     let c = chrome(false);
-    assert!((c.strip - STRIP_HEIGHT).abs() < f64::EPSILON, "{c:?}");
-    assert!((c.content_top - STRIP_HEIGHT).abs() < f64::EPSILON, "{c:?}");
+    assert_eq!((c.titlebar, c.content_top), (TITLEBAR_HEIGHT, TITLEBAR_HEIGHT));
 }
 
-/// UI-tabs board 4: in full screen the strip is hidden and the remote desktop fills the screen.
+/// UI-windows decision 5 / board 6: in full screen nothing draws over the picture.
 #[test]
-fn full_screen_hides_the_strip_and_the_picture_fills_the_screen() {
+fn full_screen_has_no_chrome_and_the_picture_fills_the_screen() {
     let c = chrome(true);
-    assert_eq!((c.strip, c.content_top), (0.0, 0.0));
+    assert_eq!((c.titlebar, c.content_top), (0.0, 0.0));
 }
 
 #[test]
 fn bands_are_measured_from_the_top_edge_in_either_coordinate_space() {
-    // A 46-point strip at the top of an 800-point view.
-    assert!((band_y(800.0, 0.0, 46.0, true) - 0.0).abs() < f64::EPSILON);
-    assert!((band_y(800.0, 0.0, 46.0, false) - 754.0).abs() < f64::EPSILON);
+    // The 52-point title bar at the top of an 800-point view.
+    assert!((band_y(800.0, 0.0, 52.0, true) - 0.0).abs() < f64::EPSILON);
+    assert!((band_y(800.0, 0.0, 52.0, false) - 748.0).abs() < f64::EPSILON);
     // The content below it.
-    assert!((band_y(800.0, 46.0, 754.0, true) - 46.0).abs() < f64::EPSILON);
-    assert!((band_y(800.0, 46.0, 754.0, false) - 0.0).abs() < f64::EPSILON);
+    assert!((band_y(800.0, 52.0, 748.0, true) - 52.0).abs() < f64::EPSILON);
+    assert!((band_y(800.0, 52.0, 748.0, false) - 0.0).abs() < f64::EPSILON);
 }
 
-/// Clicking the strip must not leave the keyboard in the strip: focus goes back to whatever
-/// the tab's surface says owns it.
+/// Clicking the title bar must not leave the keyboard in its webview: focus goes back to
+/// whatever the window's surface says owns it (UI-windows decision 11).
 #[test]
 fn keyboard_focus_follows_the_surface() {
     assert_eq!(focus_for(Surface::Remote), Focus::Remote);

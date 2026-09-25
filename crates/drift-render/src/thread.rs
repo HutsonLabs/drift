@@ -107,6 +107,17 @@ impl<S: FrameSink + 'static> RenderSink<S> {
         // A stopped thread simply drops the operation.
         let _ = self.tx.send(Msg::Call(Box::new(f)));
     }
+
+    /// Like [`RenderThread::with`], from any thread holding a sink: runs `f` on the render
+    /// thread after everything queued before it and returns its result, or `None` if the thread
+    /// has stopped. (The app reads live thumbnails this way off the main thread.)
+    pub fn with<R: Send + 'static>(&self, f: impl FnOnce(&mut S) -> R + Send + 'static) -> Option<R> {
+        let (rtx, rrx) = channel();
+        self.call(move |s| {
+            let _ = rtx.send(f(s));
+        });
+        rrx.recv().ok()
+    }
 }
 
 impl<S: FrameSink + 'static> FrameSink for RenderSink<S> {
