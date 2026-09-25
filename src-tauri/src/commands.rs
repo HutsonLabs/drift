@@ -17,6 +17,7 @@ use serde::Serialize;
 use tauri::State;
 use uuid::Uuid;
 
+use crate::connections::{Connections, WindowIdentity};
 use crate::manager::SessionManager;
 use crate::profiles::{CommandError, ProfileEntry, ProfileService, SecretsUpdate};
 use crate::strip::TabStrip;
@@ -206,6 +207,77 @@ pub fn disconnect(state: State<'_, AppState>, window: tauri::Window) -> Result<(
 pub fn close_session(app: tauri::AppHandle, window: tauri::Window) -> Result<(), CommandError> {
     crate::windows::close_tab(&app, window.label());
     Ok(())
+}
+
+// ---- Connections gallery and session windows (UI-windows) ------------------------------------
+
+fn not_yet(what: &str) -> CommandError {
+    CommandError::NotImplemented { what: what.to_owned() }
+}
+
+/// Copies a profile and its stored passwords under a new id, named "<name> copy", without the
+/// certificate pin.
+#[tauri::command]
+#[specta::specta]
+pub fn duplicate_profile(state: State<'_, AppState>, id: Uuid) -> Result<ProfileEntry, CommandError> {
+    let _ = (state, id);
+    Err(not_yet("duplicate_profile"))
+}
+
+/// The profiles that have a session window (pulled by the Connections page on load).
+#[tauri::command]
+#[specta::specta]
+pub fn connections(app: tauri::AppHandle) -> Result<Connections, CommandError> {
+    let _ = app;
+    Err(not_yet("connections"))
+}
+
+/// Brings `profile_id`'s session window forward; `NotFound` if it has none.
+#[tauri::command]
+#[specta::specta]
+pub fn show_window(app: tauri::AppHandle, profile_id: Uuid) -> Result<(), CommandError> {
+    let _ = (app, profile_id);
+    Err(not_yet("show_window"))
+}
+
+/// Closes `profile_id`'s session window without asking (the card's Disconnect).
+#[tauri::command]
+#[specta::specta]
+pub fn disconnect_profile(app: tauri::AppHandle, profile_id: Uuid) -> Result<(), CommandError> {
+    let _ = (app, profile_id);
+    Err(not_yet("disconnect_profile"))
+}
+
+/// Shows the Connections window and makes it key; with `edit`, opens that profile's edit sheet.
+#[tauri::command]
+#[specta::specta]
+pub fn show_connections(app: tauri::AppHandle, edit: Option<Uuid>) -> Result<(), CommandError> {
+    let _ = (app, edit);
+    Err(not_yet("show_connections"))
+}
+
+/// Shows the Connections window with the New Connection sheet.
+#[tauri::command]
+#[specta::specta]
+pub fn new_connection(app: tauri::AppHandle) -> Result<(), CommandError> {
+    let _ = app;
+    Err(not_yet("new_connection"))
+}
+
+/// The calling session window's identity (pulled by its title bar on load).
+#[tauri::command]
+#[specta::specta]
+pub fn window_identity(app: tauri::AppHandle, window: tauri::Window) -> Result<WindowIdentity, CommandError> {
+    let _ = (app, window);
+    Err(not_yet("window_identity"))
+}
+
+/// Turns the calling session window's statistics HUD on or off (the title bar's gauge).
+#[tauri::command]
+#[specta::specta]
+pub fn toggle_stats(app: tauri::AppHandle, window: tauri::Window) -> Result<(), CommandError> {
+    let _ = (app, window);
+    Err(not_yet("toggle_stats"))
 }
 
 // ---- the tab strip (UI-tabs) -------------------------------------------------------------------

@@ -8,6 +8,7 @@
 //! by `cargo xtask bindings`; CI fails when they are stale.
 
 pub mod commands;
+pub mod connections;
 mod host;
 pub mod manager;
 pub mod menu;
@@ -55,8 +56,23 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::close_tab,
             commands::new_tab,
             commands::focus_content,
+            commands::duplicate_profile,
+            commands::connections,
+            commands::show_window,
+            commands::disconnect_profile,
+            commands::show_connections,
+            commands::new_connection,
+            commands::window_identity,
+            commands::toggle_stats,
         ])
-        .events(tauri_specta::collect_events![view::SessionViewChanged, strip::TabStripChanged])
+        .events(tauri_specta::collect_events![
+            view::SessionViewChanged,
+            strip::TabStripChanged,
+            connections::ConnectionsChanged,
+            connections::ThumbnailUpdated,
+            connections::ConnectionsIntentRequested,
+            connections::WindowIdentityChanged,
+        ])
         .typ::<drift_core::ConnectionProfile>()
         .typ::<drift_core::SessionState>()
         .typ::<view::SessionView>()
