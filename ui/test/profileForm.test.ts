@@ -1,37 +1,36 @@
-// M1-6 / M3-2 Red: the connect/profile form renders from state; the mode decides the fields.
+// M1-6 / M3-2 / UI-windows Red: the profile fields render from state inside the configuration
+// sheet; the mode decides the credential fields.
 import { describe, expect, test } from "bun:test";
 import type { ConnectMode } from "../src/bindings";
-import {
-  type FormDraft,
-  type FormModel,
-  formModel,
-  renderProfileForm,
-  toSecretsUpdate,
-} from "../src/views/profileForm";
-import { button, check, field, GRDCTL_FINGERPRINT, hasButton, labels, profile, text, type } from "./helpers";
+import { type FormDraft, type FormModel, formModel, toSecretsUpdate } from "../src/views/profileForm";
+import { renderSheet } from "../src/views/sheet";
+import { button, check, field, flush, GRDCTL_FINGERPRINT, hasButton, labels, profile, text, type } from "./helpers";
 
 interface Harness {
   root: HTMLElement;
   model: FormModel;
-  saved: FormDraft[];
+  saved: { draft: FormDraft; connect: boolean }[];
   events: string[];
 }
 
-/** Mounts the form with intents that behave like the controller: `change` re-renders. */
+/** Mounts the sheet with intents that behave like the controller: `change` re-renders. */
 function mount(model: FormModel): Harness {
   const root = document.createElement("main");
   document.body.replaceChildren(root);
   const h: Harness = { root, model, saved: [], events: [] };
   const render = () =>
-    renderProfileForm(root, h.model, {
+    renderSheet(root, h.model, {
       change: (d) => {
         h.model = { ...h.model, profile: d.profile, rdpPassword: d.rdpPassword, linuxPassword: d.linuxPassword, typeLinuxPassword: d.typeLinuxPassword };
         render();
       },
-      save: (d) => h.saved.push(d),
+      validate: () => Promise.resolve([]),
+      save: (draft, connect) => h.saved.push({ draft, connect }),
       cancel: () => h.events.push("cancel"),
       remove: () => h.events.push("remove"),
       forgetCertificate: () => h.events.push("forget-certificate"),
+      connect: () => h.events.push("connect"),
+      showWindow: () => h.events.push("show-window"),
     });
   render();
   return h;
@@ -105,14 +104,15 @@ describe("mode-dependent fields", () => {
     expect((field(h.root, "Host") as HTMLInputElement).value).toBe("gnome.local");
   });
 
-  test("the three modes are a labelled radio group", () => {
-    const { root } = mount(newModel("headless"));
+  test("the three modes are a labelled radio group, Headless first", () => {
+    const { root } = mount(newModel("remote-login"));
     const group = root.querySelector("fieldset.mode");
     expect(text(group?.querySelector("legend"))).toBe("Connection type");
     const radios = Array.from(group?.querySelectorAll("input[type=radio]") ?? []) as HTMLInputElement[];
-    expect(radios.map((r) => r.value)).toEqual(["remote-login", "headless", "desktop-sharing"]);
-    expect(radios.filter((r) => r.checked).map((r) => r.value)).toEqual(["headless"]);
-    expect(labels(root)).toEqual(expect.arrayContaining(["Remote Login", "Headless session", "Desktop Sharing"]));
+    expect(radios.map((r) => r.value)).toEqual(["headless", "desktop-sharing", "remote-login"]);
+    expect(radios.filter((r) => r.checked).map((r) => r.value)).toEqual(["remote-login"]);
+    const tiles = Array.from(group?.querySelectorAll("label") ?? []).map((l) => text(l));
+    expect(tiles).toEqual(["Headless session", "Desktop Sharing", "Remote Login"]);
   });
 });
 
@@ -143,13 +143,14 @@ describe("rendering from state", () => {
     expect((field(root, "Linux password") as HTMLInputElement).placeholder).toContain("leave blank to keep");
   });
 
-  test("validation issues mark fields invalid and describe them", () => {
+  test("validation issues mark fields invalid and describe them", async () => {
     const model = newModel("headless");
     model.issues = [
       { field: "host", problem: "port-in-host", message: "Put the port number in the Port field, not in the host." },
       { field: "rdp-username", problem: "empty", message: "RDP user name is required." },
     ];
     const { root } = mount(model);
+    await flush();
     const host = field(root, "Host");
     expect(host.getAttribute("aria-invalid")).toBe("true");
     const described = (host.getAttribute("aria-describedby") ?? "").split(" ");
@@ -175,9 +176,9 @@ describe("rendering from state", () => {
   });
 
   test("delete is offered only for saved profiles", () => {
-    expect(hasButton(mount(newModel("headless")).root, "Delete")).toBe(false);
+    expect(hasButton(mount(newModel("headless")).root, "Delete…")).toBe(false);
     const h = mount(formModel(profile("headless"), { isNew: false, hasRdpPassword: true, hasLinuxPassword: false }));
-    button(h.root, "Delete").click();
+    button(h.root, "Delete…").click();
     expect(h.events).toEqual(["remove"]);
   });
 
@@ -195,7 +196,7 @@ describe("rendering from state", () => {
 });
 
 describe("saving", () => {
-  test("submit sends the edited profile and passwords", () => {
+  test("submit sends the edited profile and passwords, and connects a new one", async () => {
     const h = mount(newModel("remote-login"));
     type(field(h.root, "Name"), "Lab");
     type(field(h.root, "Host"), "gnome.local");
@@ -206,9 +207,11 @@ describe("saving", () => {
     check(field(h.root, "Type using Mac layout") as HTMLInputElement);
     type(field(h.root, "Command key sends"), "ctrl");
     type(field(h.root, "Clipboard"), "text");
-    button(h.root, "Save").click();
+    await flush();
+    (h.root.querySelector("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     expect(h.saved.length).toBe(1);
-    const d = h.saved[0]!;
+    expect(h.saved[0]!.connect).toBe(true);
+    const d = h.saved[0]!.draft;
     expect(d.profile.name).toBe("Lab");
     expect(d.profile.host).toBe("gnome.local");
     expect(d.profile.port).toBe(3390);
@@ -249,16 +252,21 @@ describe("saving", () => {
   });
 });
 
-describe("action bar", () => {
-  test("a saved profile shows Cancel and Save only after an edit", () => {
-    const h = mount(formModel(profile("headless"), { isNew: false, hasRdpPassword: true, hasLinuxPassword: false }));
-    const form = h.root.querySelector("form") as HTMLFormElement;
-    expect(form.classList.contains("dirty")).toBe(false);
-    type(field(h.root, "Name"), "Renamed");
-    expect(form.classList.contains("dirty")).toBe(true);
+describe("header", () => {
+  test("a new profile names its mode; a saved one shows host:port and trust status", () => {
+    const fresh = mount(newModel("desktop-sharing"));
+    expect(text(fresh.root.querySelector(".cfg-head .meta"))).toBe("Desktop Sharing");
+    const p = profile("headless", { name: "Office", host: "gnome.lan", port: 3390, cert_pin: GRDCTL_FINGERPRINT });
+    const saved = mount(formModel(p, { isNew: false, hasRdpPassword: true, hasLinuxPassword: false }));
+    expect(text(saved.root.querySelector(".cfg-head h2"))).toBe("Office");
+    expect(text(saved.root.querySelector(".cfg-head .meta"))).toBe("gnome.lan:3390 · Trusted");
+    button(saved.root.querySelector(".cfg-head")!, "Connect").click();
+    expect(saved.events).toEqual(["connect"]);
   });
 
-  test("a new profile starts unsaved", () => {
-    expect(mount(newModel("headless")).root.querySelector("form")?.classList.contains("dirty")).toBe(true);
+  test("an open profile offers Show Window instead of Connect", () => {
+    const h = mount(formModel(profile("headless"), { isNew: false, hasRdpPassword: true, hasLinuxPassword: false, open: true }));
+    button(h.root.querySelector(".cfg-head")!, "Show Window").click();
+    expect(h.events).toEqual(["show-window"]);
   });
 });

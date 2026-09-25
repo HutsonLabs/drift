@@ -1,5 +1,6 @@
-// Connect / profile form (M1-6, M3-2): renders a FormModel, emits intents. The connection mode
-// decides which credential fields exist:
+// Profile fields (M1-6, M3-2), shown in the configuration sheet (views/sheet.ts): the rows of a
+// FormModel, reading them back, the validation shown inline, and the password changes to save.
+// The connection mode decides which credential fields exist:
 // - Remote Login: the *system* RDP credentials, an optional Linux user (greeter hint) and an
 //   explicit opt-in to store the Linux password so Drift types it at the GNOME login screen.
 // - Headless / Desktop Sharing: one RDP credential set.
@@ -13,8 +14,9 @@ import type {
   ProfileIssue,
   SecretsUpdate,
 } from "../bindings";
-import { actionButton, h, mount } from "../dom";
+import { actionButton, h } from "../dom";
 import { icon, modeGlyph } from "../icons";
+import { MODE_ORDER } from "../modes";
 
 /** Everything the form renders. */
 export interface FormModel {
@@ -38,8 +40,12 @@ export interface FormModel {
   error: string | null;
   /** A save is in flight. */
   busy: boolean;
-  /** Edited since it was loaded or saved (shows Cancel and Save). */
-  dirty?: boolean;
+  /** The profile as saved (or as created): Save stays disabled while the draft equals it. */
+  original: ConnectionProfile_Serialize;
+  /** The profile has a session window (header Show Window, "Applies on next connect"). */
+  open: boolean;
+  /** Fields the user has edited: only these show validation issues as they type. */
+  touched: ProfileField[];
 }
 
 /** The form's current values. */
@@ -50,22 +56,17 @@ export interface FormDraft {
   typeLinuxPassword: boolean;
 }
 
-/** What the form can ask for. */
-export interface FormIntents {
+/** What the fields can ask for. */
+export interface FieldIntents {
   /** A value that changes the form's shape changed (mode, opt-in): re-render with `draft`. */
   change(draft: FormDraft): void;
-  save(draft: FormDraft): void;
-  cancel(): void;
-  remove(): void;
   forgetCertificate(): void;
-  /** Connect to this saved profile (the header's Connect button). */
-  connect?(): void;
 }
 
 /** A fresh model for `profile`. */
 export function formModel(
   profile: ConnectionProfile_Serialize,
-  opts: { isNew: boolean; hasRdpPassword: boolean; hasLinuxPassword: boolean },
+  opts: { isNew: boolean; hasRdpPassword: boolean; hasLinuxPassword: boolean; open?: boolean },
 ): FormModel {
   return {
     profile,
@@ -78,7 +79,45 @@ export function formModel(
     issues: [],
     error: null,
     busy: false,
+    original: profile,
+    open: opts.open ?? false,
+    touched: [],
   };
+}
+
+/** `profile` with every optional preference spelled out, as the form reads it back. */
+function normalize(p: ConnectionProfile_Serialize): ConnectionProfile_Serialize {
+  return {
+    ...p,
+    linux_username: p.mode === "remote-login" && p.linux_username ? p.linux_username : null,
+    cert_pin: p.cert_pin ?? null,
+    keyboard: { cmd_as: p.keyboard.cmd_as ?? "super", type_with_mac_layout: p.keyboard.type_with_mac_layout ?? false },
+    display: { adaptive: p.display.adaptive ?? true, retina: p.display.retina ?? true },
+    clipboard: p.clipboard ?? "text-and-images",
+  };
+}
+
+/** Whether `draft` differs from what is saved (a new profile is always unsaved). */
+export function isDirty(model: FormModel, draft: FormDraft): boolean {
+  if (model.isNew) return true;
+  return (
+    JSON.stringify(normalize(draft.profile)) !== JSON.stringify(normalize(model.original)) ||
+    draft.rdpPassword !== "" ||
+    draft.linuxPassword !== "" ||
+    draft.typeLinuxPassword !== model.hasLinuxPassword
+  );
+}
+
+/** The one-line summary of the "Keyboard, display and clipboard" disclosure. */
+export function advancedSummary(p: ConnectionProfile_Serialize): string {
+  const q = normalize(p);
+  const parts = [q.keyboard.cmd_as === "ctrl" ? "⌘ → Control" : "⌘ → Super"];
+  if (q.keyboard.type_with_mac_layout) parts.push("Mac layout");
+  if (p.mode === "desktop-sharing") parts.push("Scaled to fit");
+  else parts.push(q.display.adaptive ? "Resize to fit" : "Fixed size");
+  if (q.display.retina) parts.push("Retina");
+  parts.push({ "text-and-images": "Text and images", text: "Text only", off: "Clipboard off" }[q.clipboard]);
+  return parts.join(" · ");
 }
 
 /** Password changes to send with `save_profile`. */
@@ -92,23 +131,21 @@ export function toSecretsUpdate(draft: FormDraft, hasLinuxPassword: boolean): Se
   return { rdp_password, linux_password: { action: "keep" } };
 }
 
-const MODES: { mode: ConnectMode; label: string; about: string }[] = [
-  {
-    mode: "remote-login",
-    label: "Remote Login",
-    about: "Log in at the GNOME login screen, as if you were at the computer. After a reconnect you log in again and return to your running session.",
-  },
-  {
-    mode: "headless",
+/** The mode tiles' labels and explanations. */
+export const MODES: Record<ConnectMode, { label: string; about: string }> = {
+  headless: {
     label: "Headless session",
     about: "A GNOME session that keeps running on the host without a screen. Reconnects go straight back into it.",
   },
-  {
-    mode: "desktop-sharing",
+  "desktop-sharing": {
     label: "Desktop Sharing",
     about: "Show and control a screen that someone is already logged in to.",
   },
-];
+  "remote-login": {
+    label: "Remote Login",
+    about: "Log in at the GNOME login screen, as if you were at the computer. After a reconnect you log in again and return to your running session.",
+  },
+};
 
 const CREDENTIALS: Record<ConnectMode, { legend: string; user: string; password: string; hint: string }> = {
   "remote-login": {
@@ -131,6 +168,7 @@ const CREDENTIALS: Record<ConnectMode, { legend: string; user: string; password:
   },
 };
 
+/** The input of each validated field. */
 const FIELD_IDS: Record<ProfileField, string> = {
   name: "profile-name",
   host: "host",
@@ -141,26 +179,21 @@ const FIELD_IDS: Record<ProfileField, string> = {
 
 const KEEP = "Saved — leave blank to keep";
 
-/** Renders the form into `root`, replacing its contents. */
-export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormIntents): void {
+/** The field (for validation) whose input has element id `id`. */
+export function fieldOf(id: string): ProfileField | undefined {
+  return (Object.keys(FIELD_IDS) as ProfileField[]).find((f) => FIELD_IDS[f] === id);
+}
+
+/**
+ * The sheet body's rows for `model`: name, host and port, the mode tiles, the mode's credentials,
+ * the GNOME login screen (Remote Login), the trusted certificate, and the "Keyboard, display and
+ * clipboard" disclosure. `draft` reads the whole form back (for `change`).
+ */
+export function formFields(model: FormModel, on: FieldIntents, draft: () => FormDraft): Node[] {
   const p = model.profile;
-  const issueFor = (f: ProfileField) => model.issues.find((i) => i.field === f);
   const cred = CREDENTIALS[p.mode];
   const isLogin = p.mode === "remote-login";
   const needsPassword = model.isNew || !model.hasRdpPassword;
-
-  // `dirty` shows Cancel/Save in the action bar; a new profile is unsaved from the start.
-  const form = h("form", {
-    class: ["profile-form", model.isNew || model.dirty ? "dirty" : null].filter(Boolean).join(" "),
-    novalidate: true,
-    "aria-labelledby": "form-title",
-  });
-  const draft = () => readDraft(form, p);
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    if (!model.busy) on.save(draft());
-  });
-  form.addEventListener("input", () => form.classList.add("dirty"));
 
   const modeGroup = h(
     "fieldset",
@@ -171,23 +204,17 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
     h(
       "div",
       { class: "segmented" },
-      MODES.map((m) =>
+      MODE_ORDER.map((mode) =>
         h(
           "label",
           { class: "segment" },
-          h("input", {
-            type: "radio",
-            name: "mode",
-            value: m.mode,
-            checked: m.mode === p.mode,
-            onchange: () => on.change(draft()),
-          }),
-          modeGlyph(m.mode, "small"),
-          m.label,
+          h("input", { type: "radio", name: "mode", value: mode, checked: mode === p.mode, onchange: () => on.change(draft()) }),
+          modeGlyph(mode, "small"),
+          MODES[mode].label,
         ),
       ),
     ),
-    h("p", { class: "hint", id: "mode-hint" }, MODES.find((m) => m.mode === p.mode)?.about ?? ""),
+    h("p", { class: "hint", id: "mode-hint" }, MODES[p.mode].about),
   );
 
   const credentials = h(
@@ -196,8 +223,8 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
     h("legend", {}, cred.legend),
     h("p", { class: "hint group-hint", id: "credentials-hint" }, cred.hint),
     group(
-      textField("rdp-user", cred.user, p.rdp_username, issueFor("rdp-username"), { autocomplete: "username" }),
-      textField("rdp-password", cred.password, model.rdpPassword, undefined, {
+      textField("rdp-user", cred.user, p.rdp_username, { autocomplete: "username" }),
+      textField("rdp-password", cred.password, model.rdpPassword, {
         type: "password",
         autocomplete: "current-password",
         required: needsPassword,
@@ -212,7 +239,7 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
         { class: "greeter" },
         h("legend", {}, "GNOME login screen"),
         group(
-          textField("linux-user", "Linux user (optional)", p.linux_username ?? "", issueFor("linux-username"), {
+          textField("linux-user", "Linux user (optional)", p.linux_username ?? "", {
             autocomplete: "off",
             hint: "Shown as a reminder while the login screen is open.",
           }),
@@ -239,7 +266,7 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
             ),
           ),
           model.typeLinuxPassword &&
-            textField("linux-password", "Linux password", model.linuxPassword, undefined, {
+            textField("linux-password", "Linux password", model.linuxPassword, {
               type: "password",
               autocomplete: "off",
               required: !model.hasLinuxPassword,
@@ -253,7 +280,7 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
     ? h(
         "section",
         { class: "security", "aria-labelledby": "security-title" },
-        h("h2", { class: "group-title", id: "security-title" }, "Security"),
+        h("h3", { class: "group-title", id: "security-title" }, "Security"),
         group(
           h(
             "div",
@@ -270,7 +297,13 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
   const advanced = h(
     "details",
     { class: "advanced" },
-    h("summary", {}, icon("chevron"), "Keyboard, display and clipboard"),
+    h(
+      "summary",
+      {},
+      icon("chevron"),
+      h("span", { class: "summary-title" }, "Keyboard, display and clipboard"),
+      h("span", { class: "sum" }, advancedSummary(p)),
+    ),
     group(
       selectField("cmd-as", "Command key sends", p.keyboard.cmd_as ?? "super", [
         ["super", "Super (Windows key)"],
@@ -290,53 +323,20 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
     ),
   );
 
-  // Floating glass bar: Delete is always there for a saved profile; Cancel and Save appear
-  // once something was edited (`.dirty`).
-  const actions = h(
-    "div",
-    { class: "actions actionbar" },
-    h("span", { class: "pending note" }, "Unsaved changes"),
-    !model.isNew && h("button", { type: "button", class: "destructive", onclick: () => on.remove() }, "Delete"),
-    !model.isNew && h("span", { class: "pending sep", "aria-hidden": "true" }),
-    h("button", { type: "button", class: "pending", onclick: () => on.cancel() }, "Cancel"),
-    h("button", { type: "submit", class: "primary pending", disabled: model.busy, "aria-busy": model.busy ? "true" : null }, "Save"),
-  );
-
-  const meta = model.isNew
-    ? h("p", { class: "meta" }, MODES.find((m) => m.mode === p.mode)?.label ?? "")
-    : h(
-        "p",
-        { class: "meta" },
-        h("span", {}, `${p.host}:${p.port}`),
-        h("span", {}, MODES.find((m) => m.mode === p.mode)?.label ?? ""),
-        p.cert_pin ? h("span", { class: "trusted" }, icon("shield"), "Certificate trusted") : "",
-      );
-  const hero = h(
-    "header",
-    { class: "hero" },
-    modeGlyph(p.mode, "large"),
-    h("div", { class: "hero-text" }, h("h1", { id: "form-title" }, model.isNew ? "New Connection" : p.name || "Connection"), meta),
-    h("span", { class: "spacer" }),
-    !model.isNew && on.connect
-      ? h("button", { type: "button", class: "primary large connect-now", onclick: () => on.connect?.() }, icon("play"), "Connect")
-      : "",
-  );
-
-  form.append(
-    hero,
+  return [
     model.error ? h("p", { class: "form-error", role: "alert" }, model.error) : "",
     group(
-      textField("profile-name", "Name", p.name, issueFor("name"), { autocomplete: "off", placeholder: "Homelab" }),
+      textField("profile-name", "Name", p.name, { autocomplete: "off", placeholder: "e.g. Studio Workstation" }),
       h(
         "div",
         { class: "row" },
-        textField("host", "Host", p.host, issueFor("host"), {
+        textField("host", "Host", p.host, {
           autocomplete: "off",
-          placeholder: "gnome.local or 192.168.1.20",
+          placeholder: "Name or IP address",
           spellcheck: "false",
           class: "grow",
         }),
-        textField("port", "Port", String(p.port), issueFor("port"), { type: "number", min: "1", max: "65535", class: "port" }),
+        textField("port", "Port", String(p.port), { type: "number", min: "1", max: "65535", class: "port" }),
       ),
       modeGroup,
     ),
@@ -344,9 +344,31 @@ export function renderProfileForm(root: HTMLElement, model: FormModel, on: FormI
     greeter ?? "",
     pin ?? "",
     advanced,
-    actions,
-  );
-  mount(root, form);
+  ].filter((n): n is HTMLElement => n !== "");
+}
+
+/**
+ * Shows `issues` inline: each affected input gets `aria-invalid` and a described-by error line;
+ * every other validated input is cleared. Updates in place, so typing keeps focus.
+ */
+export function showIssues(form: HTMLElement, issues: ProfileIssue[]): void {
+  for (const [f, id] of Object.entries(FIELD_IDS) as [ProfileField, string][]) {
+    const el = form.querySelector<HTMLInputElement>(`[id="${id}"]`);
+    if (!el) continue;
+    const issue = issues.find((i) => i.field === f);
+    const errId = `${id}-error`;
+    const describedBy = (el.getAttribute("aria-describedby") ?? "").split(" ").filter((x) => x && x !== errId);
+    form.querySelector(`[id="${errId}"]`)?.remove();
+    if (issue) {
+      el.setAttribute("aria-invalid", "true");
+      el.setAttribute("aria-describedby", [...describedBy, errId].join(" "));
+      el.parentElement?.append(h("p", { class: "field-error", id: errId }, issue.message));
+    } else {
+      el.removeAttribute("aria-invalid");
+      if (describedBy.length > 0) el.setAttribute("aria-describedby", describedBy.join(" "));
+      else el.removeAttribute("aria-describedby");
+    }
+  }
 }
 
 /** A rounded glass group of form rows. */
@@ -366,8 +388,7 @@ interface FieldOpts {
   class?: string;
 }
 
-function textField(id: string, label: string, value: string, issue: ProfileIssue | undefined, o: FieldOpts = {}): HTMLElement {
-  const describedBy = [o.hint ? `${id}-hint` : null, issue ? `${id}-error` : null].filter(Boolean).join(" ");
+function textField(id: string, label: string, value: string, o: FieldOpts = {}): HTMLElement {
   return h(
     "div",
     { class: ["field", o.class].filter(Boolean).join(" ") },
@@ -383,11 +404,9 @@ function textField(id: string, label: string, value: string, issue: ProfileIssue
       min: o.min,
       max: o.max,
       spellcheck: o.spellcheck,
-      "aria-invalid": issue ? "true" : null,
-      "aria-describedby": describedBy || null,
+      "aria-describedby": o.hint ? `${id}-hint` : null,
     }),
     o.hint ? h("p", { class: "hint", id: `${id}-hint` }, o.hint) : "",
-    issue ? h("p", { class: "field-error", id: `${id}-error` }, issue.message) : "",
   );
 }
 
@@ -422,7 +441,8 @@ export function readDraft(form: HTMLFormElement, base: ConnectionProfile_Seriali
     const el = input(form, id);
     return el ? el.checked : fallback;
   };
-  const mode = (form.querySelector<HTMLInputElement>("input[name=mode]:checked")?.value ?? base.mode) as ConnectMode;
+  const radios = Array.from(form.querySelectorAll<HTMLInputElement>("input[name=mode]"));
+  const mode = (radios.find((r) => r.checked)?.value ?? base.mode) as ConnectMode;
   const port = Number.parseInt(val("port", String(base.port)), 10);
   const linuxUser = val("linux-user", base.linux_username ?? "").trim();
   const sharing = mode === "desktop-sharing";
