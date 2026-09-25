@@ -424,8 +424,8 @@ body[data-hud="stats"] #app { display: flex; align-items: flex-end; justify-cont
 
 /* ---- Title bars ------------------------------------------------------------------------------
    Transparent, no divider. Both are 52 pt; the traffic lights own the first 88 points. */
-.toolbar, .titlebar { position: relative; flex: none; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 14px 0 88px; }
-.toolbar .spacer, .titlebar .spacer { flex: 1; align-self: stretch; }
+.toolbar, div.titlebar { position: relative; flex: none; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 14px 0 88px; }
+.toolbar .spacer, div.titlebar .spacer { flex: 1; align-self: stretch; }
 .toolbar h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 .toolbar .count { color: var(--tertiary); font-weight: 600; font-size: 12.5px; margin-left: 2px; }
 .tb-btn {
@@ -634,8 +634,7 @@ body.connections #app { background: var(--window); }
 
 /* ---- Session window title bar (titlebar.html) ------------------------------------------------ */
 body.titlebar { background: transparent; overflow: hidden; }
-body.titlebar #titlebar { height: 100%; }
-.titlebar { height: 100%; }
+body.titlebar #titlebar, div.titlebar { height: 100%; }
 /* The identity capsule is centred on the window, like a document title. */
 .ident {
   position: absolute;

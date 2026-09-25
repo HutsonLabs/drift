@@ -30,7 +30,7 @@ export type SessionApi = Pick<
  * Which HUD floats over the live picture, mirroring `present::hud_for` in Rust: the greeter hint
  * banner, the statistics panel, or nothing.
  */
-export function hud(view: SessionView_Serialize): "" | "banner" | "stats" {
+function hud(view: SessionView_Serialize): "" | "banner" | "stats" {
   if (view.screen === "greeter-hint") return "banner";
   if (view.screen === "live" && view.show_stats && view.stats) return "stats";
   return "";

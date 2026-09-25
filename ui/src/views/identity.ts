@@ -2,23 +2,16 @@
 // identity capsule (mode glyph, name, host, then a status dot, or a spinner while connecting;
 // the greeter hint as its tooltip) and, on the right, Show Connections and Statistics. The whole
 // bar drags the window; nothing in it takes the keyboard (the title bar hands focus back).
-import type { ConnectionStatus, WindowIdentity } from "../bindings";
+import type { WindowIdentity } from "../bindings";
 import { h, mount } from "../dom";
 import { icon, modeGlyph } from "../icons";
+import { STATUS_NAMES } from "../modes";
 
 /** What the title bar can ask for. */
 export interface IdentityIntents {
   showConnections(): void;
   toggleStats(): void;
 }
-
-const STATUS_NAMES: Record<ConnectionStatus, string> = {
-  idle: "Not connected",
-  connecting: "Connecting",
-  live: "Live",
-  reconnecting: "Reconnecting",
-  failed: "Failed",
-};
 
 /** Renders the title bar for `id` into `root`, replacing its contents. */
 export function renderIdentity(root: HTMLElement, id: WindowIdentity, on: IdentityIntents): void {

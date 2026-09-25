@@ -69,7 +69,7 @@ export function renderSheet(root: HTMLElement, model: FormModel, on: SheetIntent
     ? ""
     : model.open
       ? h("button", { type: "button", onclick: () => on.showWindow() }, icon("window"), "Show Window")
-      : h("button", { type: "button", class: "primary connect-now", onclick: () => on.connect(draft()) }, icon("play"), "Connect");
+      : h("button", { type: "button", class: "primary", onclick: () => on.connect(draft()) }, icon("play"), "Connect");
   const head = h(
     "header",
     { class: "cfg-head" },

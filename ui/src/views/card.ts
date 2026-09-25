@@ -4,7 +4,7 @@
 import type { ConnectionStatus, OpenConnection, ProfileEntry_Serialize } from "../bindings";
 import { h } from "../dom";
 import { icon, MODE_ICONS, modeGlyph } from "../icons";
-import { MODE_NAMES } from "../modes";
+import { MODE_NAMES, STATUS_NAMES } from "../modes";
 
 /** Everything a card draws. */
 export interface CardModel {
@@ -24,14 +24,6 @@ export interface CardIntents {
   /** Open the ⋯ menu, at a pointer position or under the ⋯ button. */
   menu(id: string, at: { x: number; y: number }): void;
 }
-
-const STATE_NAMES: Record<ConnectionStatus, string> = {
-  idle: "Not connected",
-  connecting: "Connecting",
-  live: "Live",
-  reconnecting: "Reconnecting",
-  failed: "Failed",
-};
 
 /** "2 h 14 m", "3 m", "< 1 m". */
 export function formatUptime(ms: number): string {
@@ -57,7 +49,7 @@ export function primaryLabel(open: boolean): string {
 /** The VoiceOver label: "<name>, <mode>, <host>, <state>". */
 export function cardLabel(entry: ProfileEntry_Serialize, status: ConnectionStatus): string {
   const p = entry.profile;
-  return `${p.name}, ${MODE_NAMES[p.mode]}, ${p.host}, ${STATE_NAMES[status]}`;
+  return `${p.name}, ${MODE_NAMES[p.mode]}, ${p.host}, ${STATUS_NAMES[status]}`;
 }
 
 function pills(open: OpenConnection | null, since: number, now: number): (HTMLElement | null)[] {

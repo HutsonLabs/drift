@@ -123,8 +123,10 @@ export class ConnectionsApp {
 
   /** A live preview arrived or went away (the `thumbnailUpdated` event). */
   onThumbnail(t: Thumbnail): void {
+    // Kept even if the push that opens the profile has not arrived yet; `onConnections` drops
+    // the previews of profiles without a window.
     if (t.image === null) this.thumbnails.delete(t.profile_id);
-    else if (this.isOpen(t.profile_id)) this.thumbnails.set(t.profile_id, t.image);
+    else this.thumbnails.set(t.profile_id, t.image);
     this.renderGallery();
   }
 
