@@ -7,12 +7,13 @@ import { renderCertificatePrompt } from "../src/views/certificate";
 import { renderConnecting } from "../src/views/connecting";
 import { renderError } from "../src/views/error";
 import { renderGreeterHint } from "../src/views/greeter";
-import { formModel, renderProfileForm } from "../src/views/profileForm";
-import { profileList } from "../src/views/profileList";
+import { formModel } from "../src/views/profileForm";
+import { renderIdentity } from "../src/views/identity";
 import { renderReconnectOverlay } from "../src/views/reconnect";
+import { renderSheet } from "../src/views/sheet";
 import { renderStatsHud } from "../src/views/stats";
-import { renderTabStrip } from "../src/views/tabStrip";
-import { certPrompt, entry, LNP_EXPLANATION, profile, sessionView, stats, text } from "./helpers";
+import { FakeConnectionsApi, startConnections } from "./fakes";
+import { button, certPrompt, entry, flush, identity, LNP_EXPLANATION, openConnection, profile, sessionView, stats, text } from "./helpers";
 
 const FOCUSABLE = "button, input, select, textarea, summary, a[href]";
 
@@ -97,42 +98,67 @@ export function auditAccessibility(root: ParentNode): string[] {
   return problems;
 }
 
+const SHEET_INTENTS = {
+  change: () => {},
+  validate: () => Promise.resolve([]),
+  save: () => {},
+  cancel: () => {},
+  remove: () => {},
+  forgetCertificate: () => {},
+  connect: () => {},
+  showWindow: () => {},
+};
+
 describe("accessible names", () => {
-  test("the profile form announces every control and its hints", () => {
+  test("the new-connection sheet announces every control and its hints", async () => {
     const r = root();
-    renderProfileForm(r, formModel(profile("remote-login"), { isNew: true, hasRdpPassword: false, hasLinuxPassword: true }), {
-      change: () => {},
-      save: () => {},
-      cancel: () => {},
-      remove: () => {},
-      forgetCertificate: () => {},
-    });
+    renderSheet(r, formModel(profile("remote-login"), { isNew: true, hasRdpPassword: false, hasLinuxPassword: true }), SHEET_INTENTS);
+    await flush();
     expect(auditAccessibility(r)).toEqual([]);
+    const dialog = r.querySelector("[role=dialog]") as Element;
+    expect(accessibleName(dialog)).toContain("New Connection");
   });
 
-  test("every connection mode's form is announceable", () => {
+  test("every connection mode's edit sheet is announceable", async () => {
     for (const mode of ["remote-login", "headless", "desktop-sharing"] as const) {
       const r = root();
       const p = profile(mode, { cert_pin: "aa:bb:cc" });
-      renderProfileForm(r, formModel(p, { isNew: false, hasRdpPassword: true, hasLinuxPassword: false }), {
-        change: () => {},
-        save: () => {},
-        cancel: () => {},
-        remove: () => {},
-        forgetCertificate: () => {},
-      });
+      renderSheet(r, formModel(p, { isNew: false, hasRdpPassword: true, hasLinuxPassword: false, open: true }), SHEET_INTENTS);
+      await flush();
       expect(auditAccessibility(r)).toEqual([]);
     }
   });
 
-  test("the saved-connections sidebar is a named landmark", () => {
-    const r = root();
-    const e = entry(profile("headless"));
-    r.append(profileList([e], e.profile.id, { select: () => {}, connect: () => {}, create: () => {} }));
+  test("the gallery, its menu and the delete confirmation are announceable", async () => {
+    const fake = new FakeConnectionsApi();
+    const live = profile("headless", { name: "Studio" });
+    const idle = profile("desktop-sharing", { name: "Kitchen" });
+    fake.entries = [entry(idle), entry(live)];
+    fake.open = [openConnection(live.id, "live", { live_secs: 10 })];
+    const { root: r } = await startConnections(fake);
     expect(auditAccessibility(r)).toEqual([]);
-    const nav = r.querySelector("nav");
-    expect(accessibleName(nav as Element)).toBe("Saved connections");
-    expect(accessibleName(r.querySelector("button.connect") as Element)).toBe("Connect to Homelab");
+    // Each section is a region named by its heading.
+    const regions = Array.from(r.querySelectorAll("section.gallery-section"));
+    expect(regions.map((s) => accessibleName(s))).toEqual(["Open", "Saved"]);
+    button(r, "Actions for Kitchen").click();
+    expect(auditAccessibility(r)).toEqual([]);
+    const items = Array.from(r.querySelectorAll("[role=menuitem]"));
+    expect(items.every((i) => i.getAttribute("tabindex") === "-1")).toBe(true);
+    (items.find((i) => text(i).startsWith("Delete…")) as HTMLElement).click();
+    const confirm = r.querySelector("[role=alertdialog]") as Element;
+    expect(accessibleName(confirm)).toBe("Delete “Kitchen”?");
+    expect(auditAccessibility(r)).toEqual([]);
+  });
+
+  test("the identity capsule and title-bar buttons are announceable", () => {
+    const r = root();
+    renderIdentity(r, identity({ status: "connecting" }), { showConnections: () => {}, toggleStats: () => {} });
+    expect(auditAccessibility(r)).toEqual([]);
+    renderIdentity(r, identity({ show_stats: true }), { showConnections: () => {}, toggleStats: () => {} });
+    expect(auditAccessibility(r)).toEqual([]);
+    for (const glyph of Array.from(r.querySelectorAll(".glyph, .spin, .status"))) {
+      expect(glyph.getAttribute("aria-hidden")).toBe("true");
+    }
   });
 
   test("the certificate prompt announces how to verify the fingerprint", () => {
@@ -183,62 +209,4 @@ describe("accessible names", () => {
     expect(hud.getAttribute("role")).toBe("status");
     expect(accessibleName(hud)).toBe("Session statistics");
   });
-
-  test("the tab strip is a named tab list whose tabs announce their state (UI-tabs)", () => {
-    const r = root();
-    renderTabStrip(
-      r,
-      {
-        tabs: [
-          { id: "session-0", kind: "session", title: "Homelab", mode: "remote-login", status: "reconnecting", profile_id: null, hint: null },
-          { id: "session-1", kind: "manager", title: "Connections", mode: null, status: "idle", profile_id: null, hint: null },
-        ],
-        active: "session-1",
-        live_profiles: [],
-      },
-      { select: () => {}, close: () => {}, newTab: () => {}, focus: () => {} },
-    );
-    expect(auditAccessibility(r)).toEqual([]);
-    expect(accessibleName(r.querySelector("nav") as Element)).toBe("Tabs");
-    const list = r.querySelector("[role=tablist]") as Element;
-    expect(accessibleName(list)).toBe("Open tabs");
-    // A tablist owns only tabs: no wrappers with a role, no × or + inside it (so VoiceOver counts
-    // "tab 1 of 2" right and does not read the buttons as part of the group).
-    const owned = ownedChildren(list);
-    expect(owned.map((e) => e.getAttribute("role"))).toEqual(["tab", "tab"]);
-    expect(list.contains(r.querySelector("[aria-label='New Tab']"))).toBe(false);
-    for (const close of Array.from(r.querySelectorAll(".close"))) {
-      expect(list.contains(close)).toBe(false);
-      expect(close.getAttribute("aria-controls")).not.toBeNull();
-    }
-    // The dot is colour only; VoiceOver hears the state in the tab's description.
-    const tab = r.querySelector("[role=tab]") as Element;
-    const described = text(r.querySelector(`[id="${tab.getAttribute("aria-describedby")}"]`));
-    expect(described).toBe("Reconnecting");
-    for (const glyph of Array.from(r.querySelectorAll(".glyph, .spin, .status"))) {
-      expect(glyph.getAttribute("aria-hidden")).toBe("true");
-    }
-  });
 });
-
-/** The accessibility-tree children of `el`: its DOM children (looking through role=none /
- * presentation elements and elements without a role that only group) plus what it aria-owns. */
-function ownedChildren(el: Element): Element[] {
-  const out: Element[] = [];
-  const walk = (node: Element) => {
-    for (const child of Array.from(node.children)) {
-      const role = child.getAttribute("role");
-      if (role === "none" || role === "presentation" || (!role && child.tagName === "DIV") || child.tagName === "SPAN") {
-        walk(child);
-      } else {
-        out.push(child);
-      }
-    }
-  };
-  walk(el);
-  for (const id of (el.getAttribute("aria-owns") ?? "").split(/\s+/).filter(Boolean)) {
-    const owned = el.ownerDocument.getElementById(id);
-    if (owned) out.push(owned);
-  }
-  return out;
-}
