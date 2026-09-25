@@ -1,7 +1,7 @@
 //! Session recording hook (task **M8-3**, app part; cargo feature `recording`).
 //!
 //! The hidden menu item "Debug ▸ Record Session (experimental)" toggles this. Drift takes the
-//! *composite* frames the tab's compositor already captures (M8-1), encodes them with the
+//! *composite* frames the session window's compositor already captures (M8-1), encodes them with the
 //! VideoToolbox encoder (M8-2) and appends them to an MP4 in passthrough mode (M8-3 writer).
 //! Everything runs on one dedicated thread per recording; the render thread only hands over
 //! IOSurface-backed pixel buffers, so nothing is copied on the session's hot path.
@@ -65,7 +65,7 @@ fn output_path(profile_name: &str) -> PathBuf {
     dir.join(format!("Drift {safe} {stamp}.mp4"))
 }
 
-/// Starts capturing, encoding and writing the key tab's composite.
+/// Starts capturing, encoding and writing the key session window's composite.
 ///
 /// Stop it by calling `Compositor::stop_recording` on the same render thread (which ends the
 /// frame stream) and then [`Recording::stop`].

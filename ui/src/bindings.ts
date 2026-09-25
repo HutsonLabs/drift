@@ -17,7 +17,10 @@ export const commands = {
 	validateProfile: (profile: ConnectionProfile_Deserialize) => __TAURI_INVOKE<ProfileIssue[]>("validate_profile", { profile }),
 	/**  Saves (inserts or updates) a profile and applies password changes. */
 	saveProfile: (profile: ConnectionProfile_Deserialize, secrets: SecretsUpdate) => typedError<ProfileEntry_Serialize, CommandError>(__TAURI_INVOKE("save_profile", { profile, secrets })),
-	/**  Deletes a profile and its stored passwords. */
+	/**
+	 *  Deletes a profile, its stored passwords and its window frame; an open profile's window is
+	 *  closed first (without asking).
+	 */
 	deleteProfile: (id: string) => typedError<null, CommandError>(__TAURI_INVOKE("delete_profile", { id })),
 	/**  Clears a profile's pinned certificate (after a legitimate certificate change). */
 	forgetCertificate: (id: string) => typedError<ProfileEntry_Serialize, CommandError>(__TAURI_INVOKE("forget_certificate", { id })),
@@ -25,7 +28,10 @@ export const commands = {
 	explain: (reason: DisconnectReason, mode: ConnectMode) => __TAURI_INVOKE<ErrorExplanation>("explain", { reason, mode }),
 	/**  Opens System Settings › Privacy & Security › Local Network (errno 65 screen). */
 	openLocalNetworkSettings: () => typedError<null, CommandError>(__TAURI_INVOKE("open_local_network_settings")),
-	/**  Connects this window's session to the saved profile `profile_id`. */
+	/**
+	 *  Connects `profile_id`: opens a session window for it, or brings its window forward if it
+	 *  already has one (from any window).
+	 */
 	connect: (profileId: string) => typedError<null, CommandError>(__TAURI_INVOKE("connect", { profileId })),
 	/**  Trusts the prompted certificate (`pin` = remember it for this profile). */
 	acceptCertificate: (fingerprint: CertFingerprint, pin: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("accept_certificate", { fingerprint, pin })),
@@ -35,29 +41,50 @@ export const commands = {
 	reconnectNow: () => typedError<null, CommandError>(__TAURI_INVOKE("reconnect_now")),
 	/**  Stops reconnecting; the session stays disconnected ("Cancel" button). */
 	cancelReconnect: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_reconnect")),
-	/**  Closes this window's session gracefully and then the tab. */
-	closeSession: () => typedError<null, CommandError>(__TAURI_INVOKE("close_session")),
-	/**  Ends this window's session gracefully and returns it to the connect form. */
-	disconnect: () => typedError<null, CommandError>(__TAURI_INVOKE("disconnect")),
-	/**  The tab strip of the calling window: its group's tabs in order, its own tab active. */
-	tabStrip: () => typedError<TabStrip, CommandError>(__TAURI_INVOKE("tab_strip")),
-	/**  Selects tab `tab` (a click on it in the strip). */
-	selectTab: (tab: string) => typedError<null, CommandError>(__TAURI_INVOKE("select_tab", { tab })),
-	/**  Closes tab `tab` (its × in the strip): the session closes gracefully, then the window. */
-	closeTab: (tab: string) => typedError<null, CommandError>(__TAURI_INVOKE("close_tab", { tab })),
-	/**  Opens a new Connection Manager tab (the strip's +, like File ▸ New Tab). */
-	newTab: () => typedError<null, CommandError>(__TAURI_INVOKE("new_tab")),
 	/**
-	 *  Gives the keyboard back to the calling window's page or live picture (the strip never keeps
-	 *  it).
+	 *  Closes the calling session window without asking (the error sheet's Close, Cancel while
+	 *  connecting): the session closes gracefully, then the window.
+	 */
+	closeSession: () => typedError<null, CommandError>(__TAURI_INVOKE("close_session")),
+	/**
+	 *  Gives the keyboard back to the calling window's page or live picture (the title bar never
+	 *  keeps it).
 	 */
 	focusContent: () => typedError<null, CommandError>(__TAURI_INVOKE("focus_content")),
+	/**
+	 *  Copies a profile and its stored passwords under a new id, named "<name> copy", without the
+	 *  certificate pin.
+	 */
+	duplicateProfile: (id: string) => typedError<ProfileEntry_Serialize, CommandError>(__TAURI_INVOKE("duplicate_profile", { id })),
+	/**  The profiles that have a session window (pulled by the Connections page on load). */
+	connections: () => typedError<Connections, CommandError>(__TAURI_INVOKE("connections")),
+	/**  Brings `profile_id`'s session window forward; `NotFound` if it has none. */
+	showWindow: (profileId: string) => typedError<null, CommandError>(__TAURI_INVOKE("show_window", { profileId })),
+	/**
+	 *  Closes `profile_id`'s session window without asking (the card's Disconnect); `NotFound` if
+	 *  it has none.
+	 */
+	disconnectProfile: (profileId: string) => typedError<null, CommandError>(__TAURI_INVOKE("disconnect_profile", { profileId })),
+	/**
+	 *  Shows the Connections window and makes it key; with `edit`, opens that profile's edit sheet
+	 *  (the title bar's grid button, the error sheet's Edit Connection…).
+	 */
+	showConnections: (edit: string | null) => typedError<null, CommandError>(__TAURI_INVOKE("show_connections", { edit })),
+	/**  Shows the Connections window with the New Connection sheet. */
+	newConnection: () => typedError<null, CommandError>(__TAURI_INVOKE("new_connection")),
+	/**  The calling session window's identity (pulled by its title bar and its page on load). */
+	windowIdentity: () => typedError<WindowIdentity, CommandError>(__TAURI_INVOKE("window_identity")),
+	/**  Turns the calling session window's statistics HUD on or off (the title bar's gauge). */
+	toggleStats: () => typedError<null, CommandError>(__TAURI_INVOKE("toggle_stats")),
 };
 
 /** Events */
 export const events = {
+	connectionsChanged: makeEvent<ConnectionsChanged>("connections-changed"),
+	connectionsIntentRequested: makeEvent<ConnectionsIntentRequested>("connections-intent-requested"),
 	sessionViewChanged: makeEvent<SessionViewChanged_Deserialize>("session-view-changed"),
-	tabStripChanged: makeEvent<TabStripChanged>("tab-strip-changed"),
+	thumbnailUpdated: makeEvent<ThumbnailUpdated>("thumbnail-updated"),
+	windowIdentityChanged: makeEvent<WindowIdentityChanged>("window-identity-changed"),
 };
 
 /* Types */
@@ -167,7 +194,7 @@ export type ConnectionProfile = ConnectionProfile_Serialize | ConnectionProfile_
 export type ConnectionProfile_Deserialize = {
 	/**  Stable identifier; also the Keychain account key prefix. */
 	id: string,
-	/**  Display name (tab title). */
+	/**  Display name (window title). */
 	name: string,
 	/**  Host name or IP address. */
 	host: string,
@@ -193,7 +220,7 @@ export type ConnectionProfile_Deserialize = {
 export type ConnectionProfile_Serialize = {
 	/**  Stable identifier; also the Keychain account key prefix. */
 	id: string,
-	/**  Display name (tab title). */
+	/**  Display name (window title). */
 	name: string,
 	/**  Host name or IP address. */
 	host: string,
@@ -215,6 +242,40 @@ export type ConnectionProfile_Serialize = {
 	clipboard: ClipboardPrefs,
 };
 
+/**  Where a profile's connection stands (gallery pills, Dock menu, Window menu, identity capsule). */
+export type ConnectionStatus = 
+/**  No session window. */
+"idle" | 
+/**  Connecting, or waiting for a certificate decision (spinner). */
+"connecting" | 
+/**  The picture (or the GNOME login screen) is live (green). */
+"live" | 
+/**  Waiting out a reconnect backoff (amber). */
+"reconnecting" | 
+/**  Failed or disconnected with an explanation (red). */
+"failed";
+
+/**  Everything the Connections window needs besides the profile list. */
+export type Connections = {
+	/**  Profiles with a session window, in window opening order. */
+	open: OpenConnection[],
+};
+
+/**  Emitted to the `connections` page after any status change, window open or close. */
+export type ConnectionsChanged = Connections;
+
+/**  What the Connections page should open when Rust brings it forward. */
+export type ConnectionsIntent = 
+/**  The New Connection sheet (Cmd+N, Dock ▸ New Connection…). */
+{ kind: "new" } | 
+/**  The edit sheet of a profile (Cmd+E, the error sheet's Edit Connection…). */
+{ kind: "edit"; 
+/**  The profile to edit. */
+profile_id: string };
+
+/**  Emitted to the `connections` page to open a sheet. */
+export type ConnectionsIntentRequested = ConnectionsIntent;
+
 /**  Why a session stopped (plan §3). */
 export type DisconnectReason = 
 /**  Transport-level failure (reset, unreachable, DNS). Retryable. */
@@ -235,7 +296,7 @@ export type DisconnectReason =
 { kind: "protocol-error"; detail: string } | 
 /**  More than [`MAX_REDIRECTS`] redirections in one attempt. */
 { kind: "redirect-loop" } | 
-/**  The user closed the tab or cancelled. */
+/**  The user closed the window or cancelled. */
 { kind: "user-closed" } | 
 /**  The remote user logged off. */
 { kind: "logged-off-remotely" } | 
@@ -258,7 +319,7 @@ export type ErrorAction =
 "edit-profile" | 
 /**  Open System Settings › Privacy & Security › Local Network. */
 "open-local-network-settings" | 
-/**  Close the tab. */
+/**  Close the window. */
 "close";
 
 /**  What went wrong, in words, and what the user can do about it. */
@@ -289,6 +350,22 @@ export type LinuxPasswordUpdate =
 { action: "store"; password: string } | 
 /**  Opt out: delete the stored password. */
 { action: "forget" };
+
+/**  One profile that has a session window (the gallery's "Open" section). */
+export type OpenConnection = {
+	/**  The profile. */
+	profile_id: string,
+	/**  Its window's label (`session-<n>`). */
+	window: string,
+	/**  Where the connection stands. */
+	status: ConnectionStatus,
+	/**  Uptime in seconds at emit time while live (the UI ticks locally). */
+	live_secs: number | null,
+	/**  Seconds until the next attempt while reconnecting. */
+	reconnect_in_secs: number | null,
+	/**  The reconnect attempt while reconnecting. */
+	attempt: number | null,
+};
 
 /**  A profile plus which passwords are stored for it (never the passwords themselves). */
 export type ProfileEntry = ProfileEntry_Serialize | ProfileEntry_Deserialize;
@@ -382,10 +459,10 @@ export type SecretsUpdate = {
 	linux_password: LinuxPasswordUpdate,
 };
 
-/**  Lifecycle of one session (tab), plan §3. */
+/**  Lifecycle of one session (window), plan §3. */
 export type SessionState = SessionState_Serialize | SessionState_Deserialize;
 
-/**  Lifecycle of one session (tab), plan §3. */
+/**  Lifecycle of one session (window), plan §3. */
 export type SessionState_Deserialize = 
 /**  Not started. */
 ({ state: "idle" }) & { attempt?: never; desktop?: never; leg?: never; next_in?: never; reason?: never; scale?: never; stage?: never } | 
@@ -420,7 +497,7 @@ reason: DisconnectReason }) & { attempt?: never; desktop?: never; leg?: never; n
 /**  Why. */
 reason: DisconnectReason }) & { attempt?: never; desktop?: never; leg?: never; next_in?: never; scale?: never; stage?: never };
 
-/**  Lifecycle of one session (tab), plan §3. */
+/**  Lifecycle of one session (window), plan §3. */
 export type SessionState_Serialize = 
 /**  Not started. */
 ({ state: "idle" }) & { attempt?: never; desktop?: never; leg?: never; next_in?: never; reason?: never; scale?: never; stage?: never } | 
@@ -491,8 +568,8 @@ export type SessionView_Deserialize = {
 	/**  Reconnect attempt budget shown in the overlay (`None` = unlimited). */
 	max_attempts: number | null,
 	/**
-	 *  The statistics HUD is switched on for this tab (Session ▸ Show Statistics). It is a
-	 *  per-tab user choice, so no session event ever changes it.
+	 *  The statistics HUD is switched on for this window (Session ▸ Show Statistics). It is a
+	 *  per-window user choice, so no session event ever changes it.
 	 */
 	show_stats: boolean,
 	/**  Latest statistics sample, or `None` before the first one and once the picture is gone. */
@@ -523,8 +600,8 @@ export type SessionView_Serialize = {
 	/**  Reconnect attempt budget shown in the overlay (`None` = unlimited). */
 	max_attempts: number | null,
 	/**
-	 *  The statistics HUD is switched on for this tab (Session ▸ Show Statistics). It is a
-	 *  per-tab user choice, so no session event ever changes it.
+	 *  The statistics HUD is switched on for this window (Session ▸ Show Statistics). It is a
+	 *  per-window user choice, so no session event ever changes it.
 	 */
 	show_stats: boolean,
 	/**  Latest statistics sample, or `None` before the first one and once the picture is gone. */
@@ -557,56 +634,40 @@ export type StatsView = {
 	unacked_frames: number,
 };
 
-/**  One tab of the strip. */
-export type TabItem = {
-	/**  The tab's window label (`session-<n>`); intents from the strip name tabs by it. */
-	id: string,
-	/**  Connection Manager or Session. */
-	kind: TabKind,
-	/**  The text on the tab. */
-	title: string,
-	/**  The connection mode (picks the glyph); `None` for a Connection Manager. */
-	mode: ConnectMode | null,
-	/**  Spinner or dot. */
-	status: TabStatus,
-	/**  The session's profile; `None` for a Connection Manager. */
-	profile_id: string | null,
-	/**  Tooltip: the greeter hint while the GNOME login screen waits for the user. */
+/**
+ *  A live session's preview for its gallery card, as a `data:image/png;base64,…` URL.
+ *  `image: None` drops the preview (the session ended). Never logged, never written to disk.
+ */
+export type Thumbnail = {
+	/**  The profile whose card shows it. */
+	profile_id: string,
+	/**  The PNG as a data URL, or `None`. */
+	image: string | null,
+};
+
+/**  Emitted to the `connections` page only, while it is visible. */
+export type ThumbnailUpdated = Thumbnail;
+
+/**  A session window's title bar: the identity capsule and the buttons. */
+export type WindowIdentity = {
+	/**  The window's profile. */
+	profile_id: string,
+	/**  Display name. */
+	name: string,
+	/**  Host as saved in the profile. */
+	host: string,
+	/**  Connection mode (picks the glyph). */
+	mode: ConnectMode,
+	/**  Dot or spinner. */
+	status: ConnectionStatus,
+	/**  Greeter hint (tooltip) while the GNOME login screen waits. */
 	hint: string | null,
+	/**  The statistics HUD is on (gauge pressed). */
+	show_stats: boolean,
 };
 
-/**  The two kinds of tab. */
-export type TabKind = 
-/**  Pick, edit and connect a saved connection. */
-"manager" | 
-/**  One session (connecting, live, reconnecting or failed). */
-"session";
-
-/**  What a tab's status indicator shows. */
-export type TabStatus = 
-/**  Nothing (a Connection Manager). */
-"idle" | 
-/**  A spinner instead of the glyph: connecting or waiting for a certificate decision. */
-"connecting" | 
-/**  Green dot: the picture (or the GNOME login screen) is live. */
-"live" | 
-/**  Amber dot: waiting out a reconnect backoff. */
-"reconnecting" | 
-/**  Red dot: the session failed or was disconnected with an explanation. */
-"failed";
-
-/**  Everything one window's strip draws. */
-export type TabStrip = {
-	/**  The tabs of the window's group, leading to trailing. */
-	tabs: TabItem[],
-	/**  The id of the window this strip belongs to: its own tab is the raised one. */
-	active: string,
-	/**  Profiles with a live session in some tab (sorted); the connection list marks them. */
-	live_profiles: string[],
-};
-
-/**  Emitted to a window's strip webview and page whenever its [`TabStrip`] changes. */
-export type TabStripChanged = TabStrip;
+/**  Emitted to a session window's `<label>-titlebar` webview (identical pushes are skipped). */
+export type WindowIdentityChanged = WindowIdentity;
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

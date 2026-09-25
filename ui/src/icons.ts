@@ -13,13 +13,20 @@ const PATHS = {
   warn: ["M12 4l9 16H3z", "M12 10v4M12 17h.01"],
   user: ["M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8z", "M4.5 20c1.4-3.6 4.2-5.5 7.5-5.5s6.1 1.9 7.5 5.5"],
   chevron: ["M9 5l7 7-7 7"],
-  manager: ["M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z", "M9 4v16M12.5 9h4M12.5 12.5h4"],
-  close: ["M6 6l12 12M18 6L6 18"],
+  grid: [
+    "M6 4h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
+    "M15 4h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
+    "M6 13h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2z",
+    "M15 13h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-3a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2z",
+  ],
+  gauge: ["M4 18a8 8 0 1 1 16 0", "M12 18l4-6"],
+  window: ["M5.5 5h13A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-9A2.5 2.5 0 0 1 5.5 5z", "M3 9h18"],
 } as const;
 
 /** Filled glyphs (no stroke). */
 const FILLED = {
   play: "M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z",
+  more: "M6 10.4a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2zM12 10.4a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2zM18 10.4a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2z",
 } as const;
 
 export type IconName = keyof typeof PATHS | keyof typeof FILLED;
@@ -46,9 +53,9 @@ export function icon(name: IconName): SVGSVGElement {
 
 /** The icon for a connection mode. */
 export const MODE_ICONS: Record<ConnectMode, IconName> = {
-  "remote-login": "login",
   headless: "server",
   "desktop-sharing": "display",
+  "remote-login": "login",
 };
 
 /** A rounded, mode-tinted tile around the mode's icon. */

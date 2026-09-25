@@ -1,13 +1,15 @@
-//! `SessionManager`: maps session windows (tabs) to session actors (task **M6-1**).
+//! `SessionManager`: maps session windows to session actors (tasks **M6-1**, **UI-windows**).
 //!
-//! Each Drift window (a native tab) owns at most one live session actor at a time. The
-//! manager
+//! Each session window owns at most one live session actor at a time and belongs to one profile
+//! from the moment it opens until it closes (also while it shows a failure). The manager
 //!
 //! * starts actors through a [`SessionHost`] (production: `crate::host::TauriHost`, which
-//!   creates the tab's render thread and calls `drift_rdp::spawn_session`; tests: a fake),
+//!   creates the window's render thread and calls `drift_rdp::spawn_session`; tests: a fake),
 //! * runs one *pump* task per session that folds the actor's [`SessionEvent`]s into the
 //!   window's [`SessionView`] and forwards them to that window only,
 //! * forwards intents (certificate answers, reconnect, cancel, input) to the right actor,
+//! * knows which window holds which profile ([`SessionManager::connect_plan`]) and lists the
+//!   windows in opening order for the gallery and the menus,
 //! * closes sessions gracefully — `SessionCommand::Close` then wait for the actor to exit —
 //!   with a hard cap ([`CLOSE_CAP`]) after which the pump is aborted, and
 //! * shuts every session down on quit within the same cap.
@@ -17,7 +19,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use drift_core::{CertFingerprint, ConnectionProfile};
 use drift_rdp::{SessionCommand, SessionEvent, SessionEvents, SessionHandle};
@@ -25,10 +27,11 @@ use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
+use crate::connections::{Connections, open_connection};
 use crate::profiles::CommandError;
-use crate::view::SessionView;
+use crate::view::{Screen, SessionView};
 
-/// Longest a graceful close (one tab) or shutdown (quit, all tabs) may take before the
+/// Longest a graceful close (one window) or shutdown (quit, all windows) may take before the
 /// remaining actors are abandoned (plan M6-1: "shuts down gracefully on quit (2 s cap)").
 pub const CLOSE_CAP: Duration = Duration::from_secs(2);
 
@@ -37,7 +40,7 @@ pub const CLOSE_CAP: Duration = Duration::from_secs(2);
 /// Methods are called from Tokio tasks (never with the manager's lock held); implementations
 /// must not block on the main thread.
 pub trait SessionHost: Send + Sync + 'static {
-    /// Starts a session actor for `profile` in `window` (production: creates the tab's render
+    /// Starts a session actor for `profile` in `window` (production: creates the window's render
     /// thread, fetches the secrets and calls `drift_rdp::spawn_session`).
     fn spawn(
         &self,
@@ -45,8 +48,8 @@ pub trait SessionHost: Send + Sync + 'static {
         profile: &ConnectionProfile,
     ) -> Result<(SessionHandle, SessionEvents), CommandError>;
 
-    /// `window`'s view changed: emit it to that window's webview, update the tab title and
-    /// the webview/RemoteView visibility.
+    /// `window`'s view changed: emit it to that window's page, update its title, title bar,
+    /// the menus and the gallery, and the webview/RemoteView visibility.
     fn view_changed(&self, window: &str, view: &SessionView);
 
     /// A non-view event for `window` (cursor, capabilities, clipboard, stats).
@@ -56,7 +59,7 @@ pub trait SessionHost: Send + Sync + 'static {
     fn certificate_pinned(&self, profile: Uuid, fingerprint: CertFingerprint);
 
     /// The session in `window` has ended (actor exited, closed or abandoned). Called exactly
-    /// once per started session; release the tab's render thread and handle clones here.
+    /// once per started session; release the window's render thread and handle clones here.
     fn session_ended(&self, window: &str);
 }
 
@@ -68,6 +71,28 @@ pub enum Reconnect {
     /// The window's session has ended; the caller should [`SessionManager::open`] this
     /// profile again (after reloading it, so pins are current).
     Reopen(Uuid),
+}
+
+/// What connecting a profile does (ADR UI-windows-gallery decision 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConnectPlan {
+    /// The profile already has this session window: bring it forward.
+    Focus(String),
+    /// Open a new session window for it.
+    Open,
+}
+
+/// One session window, as the gallery and the menus list it.
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    /// Window label.
+    pub window: String,
+    /// The profile the window was opened for.
+    pub profile: ConnectionProfile,
+    /// Its current view.
+    pub view: SessionView,
+    /// How long the picture has been live (`None` while not live).
+    pub live_for: Option<Duration>,
 }
 
 /// Result of [`SessionManager::shutdown`].
@@ -96,6 +121,7 @@ struct Shared {
 struct State {
     windows: HashMap<String, Slot>,
     next_generation: u64,
+    next_order: u64,
 }
 
 /// One window's session record (kept after the actor ends so the window can reconnect).
@@ -103,8 +129,22 @@ struct Slot {
     profile: ConnectionProfile,
     view: SessionView,
     live: Option<Live>,
-    /// Set by [`SessionManager::disconnect`]: when the actor ends, show the profiles screen.
-    back_to_profiles: bool,
+    /// Opening order (kept when the window reconnects).
+    order: u64,
+    /// When the picture went live.
+    live_since: Option<Instant>,
+}
+
+impl Slot {
+    /// Tracks when the view went live.
+    fn note_live(&mut self) {
+        let live = matches!(self.view.screen, Screen::Live | Screen::GreeterHint);
+        match (live, self.live_since) {
+            (true, None) => self.live_since = Some(Instant::now()),
+            (false, Some(_)) => self.live_since = None,
+            _ => {}
+        }
+    }
 }
 
 struct Live {
@@ -154,9 +194,16 @@ impl SessionManager {
             events,
         ));
         let view = SessionView::new(&profile);
+        let order = match state.windows.get(window) {
+            Some(slot) => slot.order,
+            None => {
+                state.next_order += 1;
+                state.next_order
+            }
+        };
         state.windows.insert(
             window.to_owned(),
-            Slot { profile, view, live: Some(Live { generation, handle, pump }), back_to_profiles: false },
+            Slot { profile, view, live: Some(Live { generation, handle, pump }), order, live_since: None },
         );
         Ok(())
     }
@@ -201,7 +248,7 @@ impl SessionManager {
 
     /// Turns `window`'s statistics HUD on or off (Session ▸ Show Statistics).
     ///
-    /// The choice is per tab and survives session events; it only decides whether the sample in
+    /// The choice is per window and survives session events; it only decides whether the sample in
     /// the view is drawn over the picture (plan M1 "Done (manual M1)", M9-1).
     pub fn toggle_stats(&self, window: &str) -> Result<(), CommandError> {
         let view = {
@@ -227,58 +274,49 @@ impl SessionManager {
         }
     }
 
-    /// Ends `window`'s session gracefully and returns the window to the profiles screen (the tab
-    /// becomes a Connection Manager again).
-    ///
-    /// If the actor has already ended (a failed tab showing its error), the window is reset at
-    /// once (UI-tabs board 5: "Closing it, or Disconnect, turns it back into a Connection
-    /// Manager").
-    pub fn disconnect(&self, window: &str) -> Result<(), CommandError> {
-        let reset = {
-            let mut state = self.shared.lock();
-            let slot = state.windows.get_mut(window).ok_or(CommandError::NoSession)?;
-            match slot.live.as_ref() {
-                Some(live) => {
-                    live.handle.send(SessionCommand::Close).map_err(|_| CommandError::NoSession)?;
-                    slot.back_to_profiles = true;
-                    None
-                }
-                None => {
-                    slot.view = SessionView::new(&slot.profile);
-                    Some(slot.view.clone())
-                }
-            }
-        };
-        if let Some(view) = reset {
-            self.shared.host.view_changed(window, &view);
-        }
-        Ok(())
-    }
-
-    /// The window (other than `except`) with a live session for `profile`, if any: activating
-    /// a connection that is already open switches to its tab instead of opening a second
-    /// session (UI-tabs board 1). The first such window by label when there are several.
-    pub fn live_window_for(&self, profile: Uuid, except: &str) -> Option<String> {
+    /// The session window of `profile`, if it has one (connecting, live, reconnecting, or failed
+    /// and not yet dismissed). The first by opening order if there were several.
+    pub fn window_for(&self, profile: Uuid) -> Option<String> {
         let state = self.shared.lock();
-        let mut windows: Vec<&String> = state
+        state
             .windows
             .iter()
-            .filter(|(window, slot)| {
-                window.as_str() != except && slot.live.is_some() && slot.profile.id == profile
-            })
-            .map(|(window, _)| window)
-            .collect();
-        windows.sort();
-        windows.first().map(|w| (*w).clone())
+            .filter(|(_, slot)| slot.profile.id == profile)
+            .min_by_key(|(_, slot)| slot.order)
+            .map(|(window, _)| window.clone())
     }
 
-    /// Profiles with a live session in some window (sorted, no duplicates).
-    pub fn live_profiles(&self) -> Vec<Uuid> {
-        let mut ids: Vec<Uuid> =
-            self.shared.lock().windows.values().filter(|s| s.live.is_some()).map(|s| s.profile.id).collect();
-        ids.sort_unstable();
-        ids.dedup();
-        ids
+    /// Whether connecting `profile` focuses its window or opens a new one (a profile never gets
+    /// a second session).
+    pub fn connect_plan(&self, profile: Uuid) -> ConnectPlan {
+        self.window_for(profile).map_or(ConnectPlan::Open, ConnectPlan::Focus)
+    }
+
+    /// Every session window in opening order.
+    pub fn sessions(&self) -> Vec<SessionInfo> {
+        let state = self.shared.lock();
+        let mut slots: Vec<(&String, &Slot)> = state.windows.iter().collect();
+        slots.sort_by_key(|(_, slot)| slot.order);
+        slots
+            .into_iter()
+            .map(|(window, slot)| SessionInfo {
+                window: window.clone(),
+                profile: slot.profile.clone(),
+                view: slot.view.clone(),
+                live_for: slot.live_since.map(|t| t.elapsed()),
+            })
+            .collect()
+    }
+
+    /// The gallery's "Open" section, in window opening order.
+    pub fn connections(&self) -> Connections {
+        Connections {
+            open: self
+                .sessions()
+                .iter()
+                .map(|s| open_connection(&s.window, s.profile.id, &s.view, s.live_for))
+                .collect(),
+        }
     }
 
     /// Closes `window`'s session (if any) and forgets the window. Resolves when the actor has
@@ -341,6 +379,11 @@ impl SessionManager {
     /// The profile id of `window`'s (current or last) session.
     pub fn profile_id(&self, window: &str) -> Option<Uuid> {
         self.shared.lock().windows.get(window).map(|s| s.profile.id)
+    }
+
+    /// The profile of `window`'s (current or last) session.
+    pub fn profile(&self, window: &str) -> Option<ConnectionProfile> {
+        self.shared.lock().windows.get(window).map(|s| s.profile.clone())
     }
 
     /// Whether `window` has a live session actor.
@@ -411,7 +454,9 @@ async fn pump(
             let mut state = shared.lock();
             match state.windows.get_mut(&window) {
                 Some(slot) if slot.live.as_ref().is_some_and(|l| l.generation == generation) => {
-                    slot.view.apply(&event).then(|| slot.view.clone())
+                    let changed = slot.view.apply(&event);
+                    slot.note_live();
+                    changed.then(|| slot.view.clone())
                 }
                 _ => continue,
             }
@@ -427,26 +472,20 @@ async fn pump(
             shared.host.view_changed(&window, &view);
         }
     }
-    // The actor exited by itself (failure, remote logoff, or after `disconnect`).
+    // The actor exited by itself (failure, remote logoff); the window keeps showing its last
+    // view (usually the error) until the user closes it.
     let ended = {
         let mut state = shared.lock();
         match state.windows.get_mut(&window) {
             Some(slot) if slot.live.as_ref().is_some_and(|l| l.generation == generation) => {
                 slot.live = None;
-                if std::mem::take(&mut slot.back_to_profiles) {
-                    slot.view = SessionView::new(&slot.profile);
-                    Some(Some(slot.view.clone()))
-                } else {
-                    Some(None)
-                }
+                slot.live_since = None;
+                true
             }
-            _ => None,
+            _ => false,
         }
     };
-    if let Some(reset) = ended {
+    if ended {
         shared.host.session_ended(&window);
-        if let Some(view) = reset {
-            shared.host.view_changed(&window, &view);
-        }
     }
 }

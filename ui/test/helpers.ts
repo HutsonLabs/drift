@@ -3,11 +3,14 @@ import type {
   CertificatePrompt,
   ConnectMode,
   ConnectionProfile_Serialize,
+  ConnectionStatus,
   ErrorExplanation,
+  OpenConnection,
   ProfileEntry_Serialize,
   SessionState_Serialize,
   SessionView_Serialize,
   StatsView,
+  WindowIdentity,
 } from "../src/bindings";
 
 /** The form control labelled `text` (exact label text, ignoring a trailing hint). */
@@ -60,6 +63,13 @@ export function type(el: HTMLInputElement | HTMLSelectElement, value: string): v
   el.value = value;
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+/** Dispatches a keydown on `el` (bubbles, cancelable). */
+export function key(el: Element, k: string, mods: { meta?: boolean; shift?: boolean } = {}): KeyboardEvent {
+  const e = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, metaKey: mods.meta ?? false, shiftKey: mods.shift ?? false });
+  el.dispatchEvent(e);
+  return e;
 }
 
 /** Toggles a checkbox / radio and fires `change`. */
@@ -153,3 +163,34 @@ export const LNP_EXPLANATION: ErrorExplanation = {
   ],
   actions: ["open-local-network-settings", "reconnect"],
 };
+
+/** A profile with a session window (the gallery's "Open" section). */
+export function openConnection(
+  profileId: string,
+  status: ConnectionStatus,
+  over: Partial<OpenConnection> = {},
+): OpenConnection {
+  return {
+    profile_id: profileId,
+    window: `session-${profileId.slice(-2)}`,
+    status,
+    live_secs: status === "live" ? 0 : null,
+    reconnect_in_secs: status === "reconnecting" ? 3 : null,
+    attempt: status === "reconnecting" ? 1 : null,
+    ...over,
+  };
+}
+
+/** A session window's title-bar identity. */
+export function identity(over: Partial<WindowIdentity> = {}): WindowIdentity {
+  return {
+    profile_id: "00000000-0000-0000-0000-00000000abcd",
+    name: "Homelab",
+    host: "gnome.local",
+    mode: "remote-login",
+    status: "live",
+    hint: null,
+    show_stats: false,
+    ...over,
+  };
+}

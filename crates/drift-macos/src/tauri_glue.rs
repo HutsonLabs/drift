@@ -4,7 +4,7 @@
 //! A webview is hidden with `tauri::Webview::hide()` — **not** `Window::hide()`, which hides
 //! the whole window — and the `RemoteView` then becomes first responder.
 //!
-//! Session windows hold two webviews (the page and the tab strip, task UI-tabs), so Tauri no
+//! Session windows hold two webviews (the page and the title bar, task UI-windows), so Tauri no
 //! longer treats them as single-webview `WebviewWindow`s: these helpers take the
 //! [`tauri::Window`] and name the page's [`tauri::Webview`] explicitly.
 

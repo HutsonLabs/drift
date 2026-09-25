@@ -43,7 +43,7 @@ pub struct LiveSession {
     /// The session is in [`drift_core::SessionState::Reconnecting`], i.e. waiting out a
     /// backoff delay that a trigger may cut short.
     pub reconnecting: bool,
-    /// Identifies the *actor*, not the window: reconnecting a tab gives a new generation, so
+    /// Identifies the *actor*, not the window: reconnecting a window gives a new generation, so
     /// the clipboard pump knows the replacement has to be seeded again.
     pub generation: u64,
 }
@@ -120,7 +120,7 @@ const fn rank(level: ClipboardPrefs) -> u8 {
 }
 
 /// Drives one [`PasteboardWatcher`] and fans local copies out to every live session (M5-2:
-/// each session's `ClipboardSync` then decides — only the focused tab advertises, and a
+/// each session's `ClipboardSync` then decides — only the focused window advertises, and a
 /// session ignores the change it caused itself).
 ///
 /// A session that opens later is *seeded* with the current pasteboard, so its very first

@@ -26,8 +26,9 @@ pub enum ConnectMode {
 }
 
 impl ConnectMode {
-    /// Every mode, in UI order.
-    pub const ALL: [Self; 3] = [Self::RemoteLogin, Self::Headless, Self::DesktopSharing];
+    /// Every mode, in UI order: Headless (the default for new profiles), Desktop Sharing,
+    /// Remote Login (ADR UI-windows-gallery decision 14).
+    pub const ALL: [Self; 3] = [Self::Headless, Self::DesktopSharing, Self::RemoteLogin];
 
     /// Default TCP port for the mode.
     pub const fn default_port(self) -> u16 {
@@ -183,7 +184,7 @@ impl<'de> Deserialize<'de> for CertFingerprint {
 pub struct ConnectionProfile {
     /// Stable identifier; also the Keychain account key prefix.
     pub id: Uuid,
-    /// Display name (tab title).
+    /// Display name (window title).
     pub name: String,
     /// Host name or IP address.
     pub host: String,

@@ -9,24 +9,26 @@
 //! | [`webview`] | insert the RemoteView below the WKWebView; focus switching | M1-6 |
 //! | [`cursor`] | pure fast-path pointer decode + cache; [`cursor_ns`]: `NSCursor` | M2-5 |
 //! | [`keychain`] | Keychain password adapter | M3-2 |
-//! | [`window`] | occlusion / key-window observer, main-queue dispatch | M6-3, UI-tabs |
-//! | [`tabs`] | native tab helpers (`addTabbedWindow:ordered:`, `newWindowForTab:`, hidden tab bar), tab titles | M6-2, UI-tabs |
+//! | [`window`] | occlusion / key-window observer, main-queue dispatch, no tabbing | M6-3, UI-tabs, UI-windows |
+//! | [`dock`] | the Dock menu (`applicationDockMenu:` on the app delegate) | UI-windows |
+//! | [`alert`] | close and quit confirmations (`NSAlert` sheet / app-modal) | UI-windows |
 //! | [`network`] | `NWPathMonitor`, `NSWorkspace` wake → `TriggerMerger` | M7-2 |
 //! | [`lnp`] | Local Network Privacy (errno 65) detection and System Settings link | M1-1, M9-3 |
 //! | [`keyboard_type`] | ANSI/ISO/JIS detection of the local keyboard | M2-1 |
 //!
 //! Decision logic lives in pure code (`drift-input`, `drift-core`, and the pure modules
-//! [`input`], [`cursor`], [`tabs::tab_title`]); the AppKit-facing code only extracts plain
+//! [`input`], [`cursor`]); the AppKit-facing code only extracts plain
 //! values and applies results. Every `unsafe` block has a `// SAFETY:` comment.
 
+pub mod alert;
 pub mod cursor;
 pub mod cursor_ns;
+pub mod dock;
 pub mod input;
 pub mod keyboard_type;
 pub mod keychain;
 pub mod lnp;
 pub mod network;
-pub mod tabs;
 pub mod view;
 pub mod webview;
 pub mod window;

@@ -39,12 +39,28 @@ fn bindings_expose_the_ui_intents_and_view_event() {
         "reconnectNow:",
         "cancelReconnect:",
         "closeSession:",
-        "disconnect:",
+        "duplicateProfile:",
+        "connections:",
+        "showWindow:",
+        "disconnectProfile:",
+        "showConnections:",
+        "newConnection:",
+        "windowIdentity:",
+        "toggleStats:",
+        "focusContent:",
+        "connectionsChanged:",
+        "thumbnailUpdated:",
+        "connectionsIntentRequested:",
+        "windowIdentityChanged:",
         "\"no-session\"",
         "sessionViewChanged:",
         "export type SessionView =",
         "export type Screen =",
     ] {
         assert!(ts.contains(needle), "bindings lack {needle}");
+    }
+    // UI-windows: no tab commands or events, and no "back to the connect form" disconnect.
+    for gone in ["Tab", "disconnect:"] {
+        assert!(!ts.contains(gone), "bindings still have {gone}");
     }
 }

@@ -172,14 +172,14 @@ These need a person, a real keyboard/IME, physical network changes or sleep
 - [ ] **Clipboard before connecting (M5-3):** copy text on the Mac *before* opening a session,
       then connect; the first paste in GNOME already gives that text.
 
-## M6-1 / M6-2 / M8-3 — Sessions, tabs and menus (drift-app)
+## M6-1 / M6-2 / M8-3 — Sessions, tabs and menus (drift-app) — tabs superseded by UI-windows
 
 Automated: `cargo nextest run -p drift-app` (fake-actor lifecycle, menu model, presentation) and
 `cargo test -p drift-app --features macos-ui-tests --test tabs_ui` (three real windows in one tab
 group, AppKit's tab bar hidden, one strip per window in group order, traffic lights in the strip,
 `newWindowForTab:`) and `--test overlays_ui` (page, picture and HUDs below the strip).
 
-- [ ] **Tab-group test (M6-2):** run `cargo test -p drift-app --features macos-ui-tests --test
+- [ ] **Tab-group test (M6-2; superseded by UI-windows `windows_ui`):** run `cargo test -p drift-app --features macos-ui-tests --test
       tabs_ui` from a logged-in graphical session (not over SSH, not on a locked screen: it opens
       real NSWindows and needs a window server) and see
       `session_windows_join_one_native_tab_group ... ok`. `cargo xtask ci` compiles this binary on
@@ -188,22 +188,22 @@ group, AppKit's tab bar hidden, one strip per window in group order, traffic lig
 
 These need a person:
 
-- [ ] **Three live sessions:** open Remote Login, Headless and Desktop Sharing profiles in three
+- [ ] **Three live sessions (UI-windows: three windows):** open Remote Login, Headless and Desktop Sharing profiles in three
       tabs of one window; switching tabs shows each desktop instantly, and background tabs stay
       below ~2 % CPU (Activity Monitor).
-- [ ] **Tab keys (superseded in part by UI-tabs):** Cmd+1…9 select tabs; Cmd+Shift+[ / ] move
+- [ ] **Tab keys (superseded by UI-windows: no tabs; Cmd+1…9 focus session windows):** Cmd+1…9 select tabs; Cmd+Shift+[ / ] move
       between them; the tab overview (Window ▸ Show All Tabs) shows live thumbnails; Window ▸
       Move Tab to New Window keeps that session running in its own window (with its own strip),
       and Window ▸ Merge All Windows rejoins the group. AppKit's tab bar (and so dragging tabs)
       is gone; the strip replaces it.
-- [ ] **Titles (superseded by UI-tabs):** the window title — only visible in the Window menu now
+- [ ] **Titles (superseded by UI-windows: the title is the plain connection name):** the window title — only visible in the Window menu now
       — is the profile name with its state glyph, or "Connections"; the greeter hint is the
       floating banner and the tab's tooltip, no longer a title bar subtitle.
-- [ ] **Close and quit:** Cmd+W on a connected tab closes the session (the GNOME host shows no
+- [ ] **Close and quit (superseded in part by UI-windows: Cmd+W asks first when live; Cmd+Q asks once):** Cmd+W on a connected tab closes the session (the GNOME host shows no
       leftover session) and then the tab; Cmd+Q with three live sessions quits within about two
       seconds; the red close button behaves like Cmd+W. Closing the last tab leaves Drift running
       (Dock icon); clicking the Dock icon opens a new tab.
-- [ ] **Session menu:** Send Ctrl+Alt+Del shows GNOME's screen; Reconnect restarts a failed
+- [ ] **Session menu (Disconnect superseded by UI-windows: File ▸ Disconnect closes the window):** Send Ctrl+Alt+Del shows GNOME's screen; Reconnect restarts a failed
       session in the same tab; Disconnect returns the tab to the Connection Manager without
       closing it.
 - [ ] **Recording (feature `recording` only):** `cargo run -p drift-app --features recording`,
@@ -211,38 +211,69 @@ These need a person:
       `~/Movies/Drift <profile> <timestamp>.mp4` in QuickTime — it shows the session at the right
       size and duration.
 
-## UI-tabs — Connection Manager and Session tabs (`docs/design/mockup-glass.html`)
+## UI-windows — Connections gallery and one window per connection (`docs/design/mockup-windows.html`)
 
-Automated: `bun test` (strip rendering, intents, accessibility, live dots, error Close),
-`cargo nextest run -p drift-app` (strip model, chrome, manager lookups) and the two real-window
-tests above. These need eyes on a real window (ADR `UI-tabs-connection-manager`):
+Supersedes the UI-tabs section (tab strip, tab keys, connect in place), which no longer applies.
+Automated: `bun test` (gallery, cards, pills, filter/search, keyboard grid, labels, ⋯ menu,
+sheet, identity capsule, error sheet), `cargo nextest run -p drift-app` (window model, close
+confirmation table, menu and Dock models, frames, chrome, thumbnail throttle, identity table,
+manager lookups) and, from a logged-in graphical session,
+`cargo test -p drift-app --features macos-ui-tests --test windows_ui --test overlays_ui`
+(three independent untabbed windows, traffic lights in the 52-pt bar, full screen covers the
+screen). These need eyes on a real window (ADR `UI-windows-gallery`); check each in **light and
+dark** appearance:
 
-- [ ] **Title bar = tab strip:** a new window shows no title, no title bar fill and no divider;
-      one raised "Connections" tab with a grey icon and × sits beside the traffic lights, with
-      the + right after it. The traffic lights are vertically centred in the 46-point row. Light
-      and dark both read well; the strip sits on the same window material as the sidebar.
-- [ ] **Connect in place:** pick a connection and press Connect: the *same* tab shows a spinner
-      and "Connecting to <name>…", then the connection's mode glyph, its name and a green dot;
-      no new tab or window opens. The certificate prompt keeps the spinner with the plain name.
-- [ ] **Status dots:** pulling the network turns the dot amber while the reconnect ring counts
-      down; a failed connection (e.g. wrong password) keeps the name with a red dot. The error
-      sheet's Close (and Session ▸ Disconnect) turns the tab back into "Connections".
-- [ ] **Already open:** with "Homelab" live in one tab, open a new tab (+ or Cmd+T): the list
-      shows a green dot on Homelab ("Connected in another tab"); pressing its play button
-      switches to the existing Homelab tab instead of opening a second session.
-- [ ] **Strip clicks:** clicking another tab switches to it; the active tab is the raised pill,
-      the others are flat and show their × on hover; × closes that tab (a live session closes
-      gracefully first); closing the last tab closes the window and Drift keeps running.
-      After clicking a tab or the strip, typing goes straight to the remote desktop (or the form),
-      never to the strip. Dragging the empty part of the strip moves the window; double-clicking
-      it zooms.
-- [ ] **Greeter hint:** at the GDM greeter the floating banner reads "Log in as “<user>” to start
-      your session" under the strip, and hovering the tab shows the same text as a tooltip.
-- [ ] **Full screen (board 4):** enter full screen with two sessions: the strip disappears and
-      the remote desktop fills the screen, also while the menu bar is revealed at the top edge
-      (no AppKit tab bar appears either). The Window menu lists every tab with the current one
-      checked; Cmd+1/Cmd+2 switch sessions; File ▸ New Tab (Cmd+T) opens a Connection Manager
-      in full screen. Leaving full screen brings the strip back with the picture below it.
+- [ ] **Board 0 — window model:** launch shows only Connections. Connect two profiles: each
+      opens its own window at once (no tab bar anywhere, View has no Show Tab Bar). Connecting a
+      profile that is already open brings its window forward, no second session. Close
+      Connections with the red button: the sessions keep running; Cmd+0 brings it back.
+- [ ] **Board 1 — gallery:** cards are glass with a 16:9 preview; open connections sit in
+      "Open" above "Saved", followed by the dashed New Connection card. A live card shows the
+      session's picture within ~15 s (refreshing a few times a minute) and a green Live pill with
+      uptime; Connecting shows a spinner, Reconnecting an amber "Reconnecting in N s" over a
+      dimmed preview, Failed a red pill. Hover and keyboard focus show one button (Connect /
+      Show Window); double-click and Return do the same. ⋯ and right-click offer Connect, Edit…,
+      Duplicate, Disconnect (open only) and Delete… (asks first). All / Open and search (name,
+      host) filter the grid.
+- [ ] **Boards 2–3 — sheet:** + , the dashed card and Cmd+N open the sheet over a dimmed,
+      blurred gallery; Headless is preselected; the tiles read Headless, Desktop Sharing, Remote
+      Login. Switching mode keeps name, host and port. Add & Connect is disabled until valid, and
+      a missing host is flagged on the field. The body scrolls under a fixed header and footer;
+      Esc cancels. Edit (⋯ or Cmd+E): Delete… on the left, Save disabled until a change; a live
+      connection says "Applies on next connect". The "Keyboard, display and clipboard"
+      disclosure is closed with a one-line summary.
+- [ ] **Board 4 — connecting:** Connect opens the window with the stage checklist and the
+      capsule's spinner; the certificate prompt is a sheet on that window while Connections stays
+      usable. Cancel (or closing the window) stops the attempt, closes the window, and the card
+      goes back to idle.
+- [ ] **Board 5 — session window:** the transparent 52-pt title bar has the traffic lights at
+      the usual place, a centred capsule (glyph, name, host, green dot) and the grid and gauge
+      buttons; the picture starts right under it. The grid brings Connections forward; the gauge
+      toggles the statistics HUD. Clicking anywhere in the title bar leaves the keyboard with the
+      remote desktop. Mission Control and Cmd+` show the connection's name. Resize/move a window,
+      close it, reconnect: it comes back at the same place and size (per connection).
+- [ ] **Close confirmation:** closing a live window (red button or Cmd+W) asks "Disconnect …?"
+      as a sheet; Cancel keeps it, Disconnect ends the session (no leftover session on the host)
+      and closes the window. A connecting or failed window closes without asking.
+- [ ] **Board 6 — full screen and Spaces:** full-screen two session windows; each gets its own
+      Space, swipe between them; nothing is drawn over the picture, also while the menu bar is
+      revealed (no title bar, capsule or buttons come back). The Window menu lists Connections
+      (Cmd+0) and a "Sessions" section with every session, the current one checked, Cmd+1/Cmd+2
+      switching. File shows New Connection… (Cmd+N), Show Connections (Cmd+0), Edit <name>…
+      (Cmd+E), Disconnect <name> (Shift+Cmd+D), Close Window (Cmd+W); no New Tab. Every one of
+      these shortcuts works while the remote desktop has the keyboard; Cmd+T reaches the remote.
+- [ ] **Board 7 — failed:** a wrong password keeps the window with the error sheet and a red dot;
+      the card shows Failed. Edit Connection… brings Connections forward with the edit sheet
+      open; Close dismisses the window and the card returns to idle.
+- [ ] **Dock menu:** right-click the Dock icon: a "Sessions" section lists each session window
+      with its glyph and status, then Connections and New Connection…; each item works.
+- [ ] **Quit:** Cmd+Q with two live sessions asks once ("Quit Drift? 2 sessions will be
+      disconnected."), then quits within about two seconds.
+- [ ] **VoiceOver on the gallery:** VO+arrows move card to card; each reads name, mode, host and
+      state; the ⋯ menu and the sheet's fields are announced with their labels.
+- [ ] **Privacy:** after a session with the gallery open, nothing under the app container
+      (`~/Library/Containers/com.hutsonlabs.drift/`) contains a picture; `window-frames.json`
+      holds only numbers.
 
 ## M9-1 / M9-4 — Performance and polish
 

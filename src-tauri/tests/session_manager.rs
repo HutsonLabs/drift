@@ -9,7 +9,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use drift_app::manager::{CLOSE_CAP, Reconnect, SessionHost, SessionManager, ShutdownReport};
+use drift_app::connections::ConnectionStatus;
+use drift_app::manager::{CLOSE_CAP, ConnectPlan, Reconnect, SessionHost, SessionManager, ShutdownReport};
 use drift_app::profiles::CommandError;
 use drift_app::view::{Screen, SessionView};
 use drift_core::{
@@ -350,7 +351,6 @@ async fn intents_without_a_session_fail() {
     let (_host, manager) = setup();
     assert_eq!(manager.send("nope", SessionCommand::ReconnectNow), Err(CommandError::NoSession));
     assert_eq!(manager.reconnect_now("nope"), Err(CommandError::NoSession));
-    assert_eq!(manager.disconnect("nope"), Err(CommandError::NoSession));
     assert_eq!(manager.reject_certificate("nope"), Err(CommandError::NoSession));
     assert!(manager.close("nope").await, "closing an unknown window is a no-op");
 }
@@ -407,64 +407,98 @@ async fn open_replaces_a_live_session() {
     );
 }
 
+/// UI-windows decision 3: connecting a profile that already has a session window (connecting,
+/// live, reconnecting, or failed and not dismissed) focuses that window; otherwise a new window
+/// is opened.
 #[tokio::test]
-async fn disconnect_returns_the_window_to_profiles() {
-    let (host, manager) = setup();
-    open_session(&host, &manager, "w1", profile("Alpha")).await;
-    host.emit("w1", 0, connected());
-    eventually("live", || manager.view("w1").is_some_and(|v| v.screen == Screen::Live)).await;
-
-    manager.disconnect("w1").unwrap();
-    eventually("ended", || host.ended() == ["w1"]).await;
-    eventually("profiles view", || host.views_for("w1").last().is_some_and(|v| v.screen == Screen::Profiles))
-        .await;
-    assert_eq!(host.actor_commands("w1", 0), [SessionCommand::Close]);
-    assert_eq!(manager.view("w1").unwrap().state, SessionState::Idle);
-    assert_eq!(manager.windows(), ["w1"], "the tab stays open");
-}
-
-/// UI-tabs board 5: "Closing it, or Disconnect, turns [a failed tab] back into a Connection
-/// Manager" — also once the actor has already ended.
-#[tokio::test]
-async fn disconnect_after_the_session_ended_returns_the_window_to_profiles() {
-    let (host, manager) = setup();
-    open_session(&host, &manager, "w1", profile("Alpha")).await;
-    host.emit("w1", 0, SessionEvent::State(SessionState::Failed { reason: DisconnectReason::AuthFailed }));
-    host.with_actor("w1", 0, |a| a.kill.take().unwrap().send(()).unwrap());
-    eventually("ended", || host.ended() == ["w1"]).await;
-    assert_eq!(manager.view("w1").unwrap().screen, Screen::Error);
-
-    manager.disconnect("w1").unwrap();
-    assert_eq!(host.views_for("w1").last().unwrap().screen, Screen::Profiles, "reset at once");
-    assert_eq!(manager.view("w1").unwrap().state, SessionState::Idle);
-    assert_eq!(manager.windows(), ["w1"], "the tab stays open");
-    assert_eq!(host.ended(), ["w1"], "session_ended still once per session");
-}
-
-/// UI-tabs board 1: activating a connection that is already open in another tab switches to
-/// that tab instead of opening a second session.
-#[tokio::test]
-async fn the_window_holding_a_live_profile_can_be_found() {
+async fn connecting_an_open_profile_focuses_its_window() {
     let (host, manager) = setup();
     let alpha = profile("Alpha");
     let bravo = profile("Bravo");
-    open_session(&host, &manager, "w1", alpha.clone()).await;
-    open_session(&host, &manager, "w2", bravo.clone()).await;
+    assert_eq!(manager.connect_plan(alpha.id), ConnectPlan::Open, "nothing open yet");
 
-    assert_eq!(manager.live_window_for(alpha.id, "w3").as_deref(), Some("w1"));
-    assert_eq!(manager.live_window_for(bravo.id, "w3").as_deref(), Some("w2"));
-    assert_eq!(manager.live_window_for(alpha.id, "w1"), None, "not the asking window itself");
-    assert_eq!(manager.live_window_for(Uuid::new_v4(), "w3"), None);
-    let mut live = vec![alpha.id, bravo.id];
-    live.sort();
-    assert_eq!(manager.live_profiles(), live);
+    open_session(&host, &manager, "session-0", alpha.clone()).await;
+    assert_eq!(manager.window_for(alpha.id).as_deref(), Some("session-0"));
+    assert_eq!(manager.connect_plan(alpha.id), ConnectPlan::Focus("session-0".into()), "connecting");
+    assert_eq!(manager.connect_plan(bravo.id), ConnectPlan::Open);
 
-    // Once the actor has ended the profile is no longer live anywhere.
-    host.emit("w1", 0, SessionEvent::State(SessionState::Failed { reason: DisconnectReason::AuthFailed }));
-    host.with_actor("w1", 0, |a| a.kill.take().unwrap().send(()).unwrap());
-    eventually("ended", || host.ended() == ["w1"]).await;
-    assert_eq!(manager.live_window_for(alpha.id, "w3"), None);
-    assert_eq!(manager.live_profiles(), [bravo.id]);
+    host.emit("session-0", 0, connected());
+    eventually("live", || manager.view("session-0").is_some_and(|v| v.screen == Screen::Live)).await;
+    assert_eq!(manager.connect_plan(alpha.id), ConnectPlan::Focus("session-0".into()), "live");
+
+    // A failed window stays until the user dismisses it: still focused, not duplicated.
+    host.emit(
+        "session-0",
+        0,
+        SessionEvent::State(SessionState::Failed { reason: DisconnectReason::AuthFailed }),
+    );
+    host.with_actor("session-0", 0, |a| a.kill.take().unwrap().send(()).unwrap());
+    eventually("ended", || host.ended() == ["session-0"]).await;
+    assert_eq!(manager.connect_plan(alpha.id), ConnectPlan::Focus("session-0".into()), "failed");
+
+    // Closing the window (dismissing it) frees the profile.
+    assert!(manager.close("session-0").await);
+    assert_eq!(manager.window_for(alpha.id), None);
+    assert_eq!(manager.connect_plan(alpha.id), ConnectPlan::Open);
+}
+
+/// UI-windows decision 9 / 16: the Window menu, the Dock menu and the gallery list session
+/// windows in the order they were opened; reconnecting in a window keeps its place.
+#[tokio::test]
+async fn sessions_are_listed_in_opening_order() {
+    let (host, manager) = setup();
+    let alpha = profile("Alpha");
+    open_session(&host, &manager, "session-7", alpha.clone()).await;
+    open_session(&host, &manager, "session-10", profile("Bravo")).await;
+    open_session(&host, &manager, "session-2", profile("Charlie")).await;
+    let order = |m: &SessionManager| m.sessions().into_iter().map(|s| s.window).collect::<Vec<_>>();
+    assert_eq!(order(&manager), ["session-7", "session-10", "session-2"]);
+
+    manager.open("session-7", alpha.clone()).unwrap(); // Reconnect in place
+    assert_eq!(order(&manager), ["session-7", "session-10", "session-2"]);
+    let first = &manager.sessions()[0];
+    assert_eq!((first.profile.id, first.view.profile_name.as_str()), (alpha.id, "Alpha"));
+    assert!(manager.close("session-10").await);
+    assert_eq!(order(&manager), ["session-7", "session-2"]);
+}
+
+/// UI-windows IPC contract: `connections()` is the gallery's "Open" section.
+#[tokio::test]
+async fn connections_list_open_windows_with_their_status() {
+    let (host, manager) = setup();
+    let alpha = profile("Alpha");
+    let bravo = profile("Bravo");
+    open_session(&host, &manager, "session-0", alpha.clone()).await;
+    open_session(&host, &manager, "session-1", bravo.clone()).await;
+    host.emit("session-1", 0, connected());
+    eventually("live", || manager.view("session-1").is_some_and(|v| v.screen == Screen::Live)).await;
+
+    let open = manager.connections().open;
+    assert_eq!(open.len(), 2);
+    assert_eq!((open[0].profile_id, open[0].window.as_str()), (alpha.id, "session-0"));
+    assert_eq!(open[0].status, ConnectionStatus::Connecting);
+    assert_eq!(open[0].live_secs, None);
+    assert_eq!((open[1].profile_id, open[1].status), (bravo.id, ConnectionStatus::Live));
+    assert!(open[1].live_secs.is_some(), "uptime while live");
+
+    host.emit(
+        "session-1",
+        0,
+        SessionEvent::State(SessionState::Reconnecting {
+            attempt: 2,
+            next_in: Duration::from_secs(4),
+            reason: DisconnectReason::Network,
+        }),
+    );
+    eventually("reconnecting", || {
+        manager.view("session-1").is_some_and(|v| v.screen == Screen::Reconnecting)
+    })
+    .await;
+    let open = manager.connections().open;
+    assert_eq!(open[1].status, ConnectionStatus::Reconnecting);
+    assert_eq!((open[1].reconnect_in_secs, open[1].attempt, open[1].live_secs), (Some(4), Some(2), None));
+    assert!(manager.close("session-0").await);
+    assert_eq!(manager.connections().open.iter().map(|o| o.profile_id).collect::<Vec<_>>(), [bravo.id]);
 }
 
 #[tokio::test(start_paused = true)]

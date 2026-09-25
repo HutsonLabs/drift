@@ -131,8 +131,8 @@ pub struct SessionView {
     pub resuming: bool,
     /// Reconnect attempt budget shown in the overlay (`None` = unlimited).
     pub max_attempts: Option<u32>,
-    /// The statistics HUD is switched on for this tab (Session ▸ Show Statistics). It is a
-    /// per-tab user choice, so no session event ever changes it.
+    /// The statistics HUD is switched on for this window (Session ▸ Show Statistics). It is a
+    /// per-window user choice, so no session event ever changes it.
     pub show_stats: bool,
     /// Latest statistics sample, or `None` before the first one and once the picture is gone.
     pub stats: Option<StatsView>,

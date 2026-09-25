@@ -541,7 +541,7 @@ impl RemoteView {
         self.emit(&events);
     }
 
-    /// Releases every key and button the remote considers held (tab hidden, disconnect).
+    /// Releases every key and button the remote considers held (window hidden, disconnect).
     pub fn release_all(&self) {
         let events = self.ivars().input.borrow_mut().focus_lost();
         self.emit(&events);

@@ -15,10 +15,10 @@ pub struct RunOptions {
     /// Password store to use instead of the Keychain (tests and the `smoke` example only;
     /// never settable from the environment). Takes precedence over `memory_secrets`.
     pub secrets: Option<Arc<dyn crate::secrets::SecretStore>>,
-    /// Connect the saved profile with this name in the first tab at launch (dev convenience
+    /// Connect the saved profile with this name at launch, in its own window (dev convenience
     /// used by the smoke test). Environment: `DRIFT_AUTOCONNECT`.
     pub autoconnect: Option<String>,
-    /// Called once on the main thread after the first tab has been requested (tests).
+    /// Called once on the main thread after the Connections window has been requested (tests).
     pub on_ready: Option<Box<dyn FnOnce(tauri::AppHandle) + Send>>,
 }
 

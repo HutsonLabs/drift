@@ -1,57 +1,87 @@
-//! Session windows, native tabs and the menu bar (tasks **M6-2**, **M1-6**, **M2-4**, **M8-3**).
+//! The Connections window, session windows, the menu bar and the Dock menu (tasks **M6-2**,
+//! **M1-6**, **M2-4**, **M8-3**, **UI-windows**).
 //!
-//! Humble object: every decision comes from [`crate::present`], [`crate::menu`] or the
+//! Humble object: every decision comes from [`crate::present`], [`crate::menu`],
+//! [`crate::dock`], [`crate::frames`], [`crate::connections`] or the
 //! [`SessionManager`](crate::manager::SessionManager); this module only talks to Tauri and
-//! AppKit.
+//! AppKit (ADR `UI-windows-gallery`).
 //!
-//! One session = one `NSWindow` = one native tab (plan §1.8):
-//! * the window is built **hidden** with the tabbing identifier `drift.sessions`,
-//! * `tabbingMode = Preferred` and `addTabbedWindow:ordered:` join it to the group,
-//! * AppKit's own tab bar is hidden; a second, 46-point webview at the top of every window draws
-//!   Drift's tab strip (task UI-tabs, [`crate::strip`]) and Rust pushes it the group's tabs,
-//! * `newWindowForTab:` is installed on tao's window class and opens a tab,
-//! * a `RemoteView` is inserted below the page's `WKWebView`, under the strip; the page is
-//!   hidden while a live picture is on screen, made transparent over it for the reconnect
-//!   overlay, or shrunk to a corner panel for a HUD ([`crate::present::surface_for`],
-//!   [`layout`]),
-//! * per-window AppKit state (views, observer, render thread) lives in a main-thread-only map.
+//! * **Connections** (label [`CONNECTIONS_WINDOW`]) is created at launch and only ever hidden;
+//!   its page draws its own toolbar in the transparent title bar.
+//! * Every connected profile has one **session window** (`session-<n>`), built hidden from the
+//!   `session` template with its remembered frame, then shown. A `RemoteView` sits below the
+//!   page's `WKWebView`; a transparent child webview `<label>-titlebar` draws the identity
+//!   capsule in the 52-point title bar. The page is hidden while a live picture is on screen,
+//!   made transparent over it for the reconnect overlay, or shrunk to a corner panel for a HUD
+//!   ([`crate::present::surface_for`], [`layout`]).
+//! * No window ever joins a tab group (`tabbingMode = Disallowed`).
+//! * Per-window AppKit state (views, observer, render thread) lives in main-thread-only maps.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
-use drift_core::{InputEvent, KeyboardPrefs, Size, ViewGeometry};
+use drift_core::{ConnectionProfile, InputEvent, KeyboardPrefs, Size, ViewGeometry};
 use drift_gfx::FrameSink;
 use drift_input::ScaleMode;
-use drift_macos::tabs::{self, TABBING_IDENTIFIER};
+use drift_macos::alert::{self, AlertText};
+use drift_macos::dock::DockMenuItem;
 use drift_macos::{RemoteView, RemoteViewHandler, WindowEvent as MacWindowEvent, WindowObserver, tauri_glue};
 use drift_rdp::{SessionCommand, SessionHandle};
 use drift_render::{Compositor, Gpu, LayerTarget, RenderThread};
+use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
-use objc2::{MainThreadMarker, msg_send};
-use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindow, NSWindowStyleMask};
+use objc2_app_kit::{
+    NSApplication, NSAutoresizingMaskOptions, NSScreen, NSView, NSWindow, NSWindowStyleMask,
+};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
-use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID};
+use tauri::menu::{CheckMenuItemBuilder, Menu, MenuItemBuilder, PredefinedMenuItem, Submenu};
 use tauri::webview::WebviewBuilder;
 use tauri::{
     AppHandle, EventTarget, LogicalPosition, LogicalSize, Manager as _, Runtime, WebviewUrl,
     WebviewWindowBuilder, Window,
 };
+use tauri_specta::Event as _;
 use uuid::Uuid;
 
 use crate::commands::AppState;
-use crate::manager::Reconnect;
-use crate::menu::{MenuAction, MenuEntry, Standard, accelerator, menu_spec};
-use crate::present::{self, Focus, Surface};
+use crate::connections::{
+    CONNECTIONS_WINDOW, ConnectionStatus, Connections, ConnectionsChanged, ConnectionsIntent,
+    ConnectionsIntentRequested, THUMBNAIL_MAX, Thumbnail, ThumbnailThrottle, ThumbnailUpdated,
+    WindowIdentity, WindowIdentityChanged,
+};
+use crate::dock::{DockAction, DockItem, dock_menu};
+use crate::frames::{self, CONNECTIONS_KEY, Frame, Template, profile_key};
+use crate::manager::{ConnectPlan, Reconnect};
+use crate::menu::{MenuAction, MenuEntry, SessionItem, Standard, SubmenuSpec, accelerator, menu_spec};
+use crate::present::{self, CloseAction, Confirmation, Focus, Surface};
 use crate::profiles::CommandError;
-use crate::strip::{self, STRIP_HEIGHT, TabStrip, TabStripChanged, strip_label};
 use crate::view::{SessionView, SessionViewChanged};
-use tauri_specta::Event as _;
+
+/// Label of the Connections window template in tauri.conf.json (it is also the window's label).
+pub const CONNECTIONS_TEMPLATE: &str = CONNECTIONS_WINDOW;
+
+/// Label of the session window template in tauri.conf.json.
+pub const SESSION_TEMPLATE: &str = "session";
+
+/// The page of every session window's title-bar webview (built by `ui/build.ts`).
+pub const TITLEBAR_PAGE: &str = "titlebar.html";
 
 /// Tauri label of the `n`th session window.
 pub fn window_label(n: u64) -> String {
     format!("session-{n}")
+}
+
+/// Label of session window `window`'s title-bar webview. It starts with the window's label, so
+/// the `session-*` capability covers it.
+pub fn titlebar_label(window: &str) -> String {
+    format!("{window}-titlebar")
+}
+
+/// The opening number of a session window label (`session-<n>`).
+fn window_number(label: &str) -> u64 {
+    label.strip_prefix("session-").and_then(|n| n.parse().ok()).unwrap_or(u64::MAX)
 }
 
 // ---- per-window AppKit state (main thread only) --------------------------------------------
@@ -61,14 +91,14 @@ type RenderSink = drift_render::RenderSink<Compositor<LayerTarget>>;
 struct WindowPlatform {
     view: Retained<RemoteView>,
     window: Retained<NSWindow>,
-    /// The page's `WKWebView` (profiles, prompts, overlays, HUDs).
+    /// The page's `WKWebView` (connecting stages, prompts, overlays, HUDs).
     web: Retained<NSView>,
-    /// The tab strip's `WKWebView`, once it has been added.
-    strip: Option<Retained<NSView>>,
+    /// The title bar's `WKWebView`, once it has been added.
+    titlebar: Option<Retained<NSView>>,
     /// What the window shows; drives [`layout`] and keyboard focus.
     surface: Surface,
-    /// The last [`TabStrip`] pushed to this window (identical pushes are skipped).
-    last_strip: Option<TabStrip>,
+    /// The last identity pushed to the title bar (identical pushes are skipped).
+    identity: Option<WindowIdentity>,
     link: Rc<SessionLink>,
     _observer: WindowObserver,
     render: Option<RenderThread<Compositor<LayerTarget>>>,
@@ -76,8 +106,25 @@ struct WindowPlatform {
     recording: Option<crate::recording::Recording>,
 }
 
+struct ConnectionsPlatform {
+    window: Retained<NSWindow>,
+    web: Option<Retained<NSView>>,
+    _observer: WindowObserver,
+}
+
+/// App-wide main-thread state: the pushed menu and gallery state, and the thumbnail throttle.
+#[derive(Default)]
+struct Shell {
+    menu: Option<Vec<SubmenuSpec>>,
+    connections: Option<Connections>,
+    throttle: ThumbnailThrottle,
+    live: HashSet<String>,
+}
+
 thread_local! {
     static PLATFORM: RefCell<HashMap<String, WindowPlatform>> = RefCell::new(HashMap::new());
+    static CONNECTIONS: RefCell<Option<ConnectionsPlatform>> = const { RefCell::new(None) };
+    static SHELL: RefCell<Shell> = RefCell::new(Shell::default());
     /// The shared Metal device and pipelines (plan §2: one per process).
     static GPU: RefCell<Option<Result<Gpu, drift_render::RenderError>>> = const { RefCell::new(None) };
 }
@@ -116,7 +163,15 @@ impl RemoteViewHandler for SessionLink {
 }
 
 fn with_platform<T>(label: &str, f: impl FnOnce(&mut WindowPlatform) -> T) -> Option<T> {
-    PLATFORM.with(|p| p.borrow_mut().get_mut(label).map(f))
+    PLATFORM.with(|p| p.try_borrow_mut().ok()?.get_mut(label).map(f))
+}
+
+fn ns_window_of(label: &str) -> Option<Retained<NSWindow>> {
+    if label == CONNECTIONS_WINDOW {
+        CONNECTIONS.with(|c| c.try_borrow().ok()?.as_ref().map(|c| c.window.clone()))
+    } else {
+        PLATFORM.with(|p| p.try_borrow().ok()?.get(label).map(|plat| plat.window.clone()))
+    }
 }
 
 /// Runs `f` on the main thread (inline when already there) and returns its result.
@@ -125,8 +180,8 @@ fn with_platform<T>(label: &str, f: impl FnOnce(&mut WindowPlatform) -> T) -> Op
 /// after every message already queued for the event loop (a window built with
 /// `WebviewWindowBuilder::build` only exists once tao has handled its creation message), then
 /// the main dispatch queue ([`drift_macos::dispatch_main`]), so it runs **outside** tao's event
-/// handler: AppKit calls that draw synchronously (joining a tab group, selecting a tab) would
-/// otherwise re-enter tao's handler and deadlock on its lock.
+/// handler: AppKit calls that draw synchronously would otherwise re-enter tao's handler and
+/// deadlock on its lock (UI-tabs decision 12).
 pub(crate) fn on_main<R: Runtime, T: Send + 'static>(
     app: &AppHandle<R>,
     f: impl FnOnce(MainThreadMarker) -> T + Send + 'static,
@@ -145,79 +200,32 @@ pub(crate) fn on_main<R: Runtime, T: Send + 'static>(
     rx.recv().map_err(|_| CommandError::Platform { message: "the main thread went away".into() })
 }
 
-// ---- opening windows ------------------------------------------------------------------------
-
-/// Opens a new session window as a tab of the current group (returns immediately; the window is
-/// built off the main thread, because `WebviewWindowBuilder::build` and `Window::add_child`
-/// dispatch to the event loop, and finished on the main thread).
-pub fn open_tab<R: Runtime>(app: &AppHandle<R>) {
-    open_tab_with(app, None);
-}
-
-/// Opens a tab and, when `autoconnect` is set, immediately connects that profile in it.
-pub(crate) fn open_tab_with<R: Runtime>(app: &AppHandle<R>, autoconnect: Option<Uuid>) {
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let label = {
-            let state = app.state::<AppState>();
-            window_label(state.next_window())
-        };
-        // Size, title bar, traffic lights and window material come from the `session` window
-        // template in tauri.conf.json (`create: false`), so they can be tuned without a rebuild.
-        let built = session_template(&app, &label).and_then(|config| {
-            WebviewWindowBuilder::from_config(&app, &config)?
-                .tabbing_identifier(TABBING_IDENTIFIER)
-                // The webview must be able to paint over the live picture: the reconnect overlay
-                // dims the last frame and the greeter/statistics HUDs float on top of it (M7-3,
-                // M1). Needs Tauri's `macos-private-api`; see
-                // docs/adr/M7-3-overlays-over-the-live-picture.md.
-                .transparent(true)
-                .visible(false)
-                .build()
+/// Runs `f` on the main thread **later**, with the same two hops as [`on_main`], also when
+/// called on the main thread: showing windows, sheets and modal alerts must never run inside
+/// tao's event handler (a menu click, a command).
+pub(crate) fn defer_main<R: Runtime>(app: &AppHandle<R>, f: impl FnOnce(MainThreadMarker) + Send + 'static) {
+    let result = app.run_on_main_thread(move || {
+        drift_macos::dispatch_main(move || {
+            if let Some(mtm) = MainThreadMarker::new() {
+                f(mtm);
+            }
         });
-        if let Err(e) = built {
-            tracing::error!(%label, error = %e, "could not create the session window");
-            return;
-        }
-        if let Err(e) = prepare_window(&app, label.clone()) {
-            tracing::error!(%label, error = %e, "could not prepare the session window");
-            return;
-        }
-        // The tab strip is a webview of its own (UI-tabs): the page is hidden or shrunk to a
-        // HUD over the live picture, but the strip must always be there.
-        if let Err(e) = add_strip(&app, &label) {
-            tracing::error!(%label, error = %e, "could not add the tab strip");
-        }
-        if let Err(e) = show_window(&app, label.clone()) {
-            tracing::error!(%label, error = %e, "could not show the session window");
-            return;
-        }
-        // tao moves the traffic lights when the window first draws: lay out again after that.
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        let handle = app.clone();
-        let _ = on_main(&app, move |_| {
-            sync_all_chrome(&handle);
-            broadcast_tabs(&handle);
-        });
-        if let Some(profile) = autoconnect
-            && let Err(e) = connect_profile(&app, &label, profile)
-        {
-            tracing::error!(%label, error = %e, "autoconnect failed");
-        }
     });
+    if let Err(e) = result {
+        tracing::warn!(error = %e, "could not reach the main thread");
+    }
 }
 
-/// Label of the session window template in tauri.conf.json.
-pub const SESSION_TEMPLATE: &str = "session";
+fn platform_error(message: impl Into<String>) -> CommandError {
+    CommandError::Platform { message: message.into() }
+}
 
-/// The page shown in every window's tab strip webview (built by `ui/build.ts`).
-pub const STRIP_PAGE: &str = "strip.html";
+// ---- templates and frames ---------------------------------------------------------------------
 
-/// The `session` window template, relabelled for one tab. The title bar is transparent with no
-/// title; the traffic lights sit in the tab strip row; the vibrancy sits below the RemoteView,
-/// which is hidden on the page-only screens.
-fn session_template<R: Runtime>(
+/// Template `template` of tauri.conf.json, relabelled `label`.
+fn template<R: Runtime>(
     app: &AppHandle<R>,
+    template: &str,
     label: &str,
 ) -> tauri::Result<tauri::utils::config::WindowConfig> {
     let mut config = app
@@ -225,12 +233,351 @@ fn session_template<R: Runtime>(
         .app
         .windows
         .iter()
-        .find(|w| w.label == SESSION_TEMPLATE)
+        .find(|w| w.label == template)
         .cloned()
-        .ok_or_else(|| tauri::Error::WindowNotFound)?;
+        .ok_or(tauri::Error::WindowNotFound)?;
     config.label = label.to_owned();
     config.create = true;
     Ok(config)
+}
+
+fn limits(config: &tauri::utils::config::WindowConfig) -> Template {
+    Template {
+        width: config.width,
+        height: config.height,
+        min_width: config.min_width.unwrap_or(0.0),
+        min_height: config.min_height.unwrap_or(0.0),
+    }
+}
+
+/// Height of the primary screen (the one with the menu bar), which anchors AppKit's
+/// bottom-left screen coordinates.
+fn primary_height(mtm: MainThreadMarker) -> f64 {
+    NSScreen::screens(mtm).firstObject().map_or(0.0, |s| s.frame().size.height)
+}
+
+fn top_left(rect: NSRect, primary: f64) -> Frame {
+    Frame {
+        x: rect.origin.x,
+        y: primary - rect.origin.y - rect.size.height,
+        width: rect.size.width,
+        height: rect.size.height,
+    }
+}
+
+fn appkit_rect(frame: Frame, primary: f64) -> NSRect {
+    NSRect::new(
+        NSPoint::new(frame.x, primary - frame.y - frame.height),
+        NSSize::new(frame.width, frame.height),
+    )
+}
+
+/// The usable area of every screen, top-left origin, the screen with the key window first.
+fn screen_frames(mtm: MainThreadMarker) -> Vec<Frame> {
+    let primary = primary_height(mtm);
+    let mut screens: Vec<Frame> =
+        NSScreen::screens(mtm).iter().map(|s| top_left(s.visibleFrame(), primary)).collect();
+    if let Some(main) = NSScreen::mainScreen(mtm) {
+        let main = top_left(main.visibleFrame(), primary);
+        if let Some(i) = screens.iter().position(|s| *s == main) {
+            screens.swap(0, i);
+        }
+    }
+    screens
+}
+
+/// Places `window` at its restored frame (main thread).
+fn place(mtm: MainThreadMarker, window: &NSWindow, saved: Option<Frame>, template: Template, cascade: usize) {
+    let frame = frames::restore(saved, &screen_frames(mtm), template, cascade);
+    window.setFrame_display(appkit_rect(frame, primary_height(mtm)), false);
+}
+
+/// Saves window `label`'s frame under its key (main thread; not in full screen).
+fn save_frame<R: Runtime>(app: &AppHandle<R>, mtm: MainThreadMarker, label: &str) {
+    let state = app.state::<AppState>();
+    let key = if label == CONNECTIONS_WINDOW {
+        CONNECTIONS_KEY.to_owned()
+    } else {
+        match state.sessions.profile_id(label).or_else(|| state.window_profile(label).map(|p| p.id)) {
+            // A deleted profile keeps no frame.
+            Some(id) if state.profiles.get(id).is_ok() => profile_key(id),
+            _ => return,
+        }
+    };
+    let Some(window) = ns_window_of(label) else { return };
+    if window.styleMask().contains(NSWindowStyleMask::FullScreen) {
+        return;
+    }
+    let frame = top_left(window.frame(), primary_height(mtm));
+    if let Err(e) = state.frames.set(&key, frame) {
+        tracing::warn!(error = %e, "could not save a window frame");
+    }
+}
+
+/// Saves the frame of every Drift window (quit).
+fn save_all_frames<R: Runtime>(app: &AppHandle<R>) {
+    let app2 = app.clone();
+    let _ = on_main(app, move |mtm| {
+        for label in session_labels().into_iter().chain([CONNECTIONS_WINDOW.to_owned()]) {
+            save_frame(&app2, mtm, &label);
+        }
+    });
+}
+
+// ---- the Connections window -------------------------------------------------------------------
+
+/// Creates the Connections window (at launch; returns immediately — the window is built off the
+/// main thread and finished on it) and then connects `autoconnect`, if any.
+pub(crate) fn open_connections_window<R: Runtime>(app: &AppHandle<R>, autoconnect: Option<Uuid>) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let built = template(&app, CONNECTIONS_TEMPLATE, CONNECTIONS_WINDOW).and_then(|config| {
+            let limits = limits(&config);
+            WebviewWindowBuilder::from_config(&app, &config)?.visible(false).build().map(|w| (w, limits))
+        });
+        let limits = match built {
+            Ok((_, limits)) => limits,
+            Err(e) => {
+                tracing::error!(error = %e, "could not create the Connections window");
+                return;
+            }
+        };
+        let app2 = app.clone();
+        let prepared = on_main(&app, move |mtm| -> Result<(), CommandError> {
+            let window2 = window_of(&app2, CONNECTIONS_WINDOW)
+                .ok_or_else(|| platform_error("the Connections window is gone"))?;
+            let ns = tauri_glue::ns_window(&window2).map_err(|e| platform_error(e.to_string()))?;
+            drift_macos::window::disallow_tabbing(&ns);
+            let saved = app2.state::<AppState>().frames.get(CONNECTIONS_KEY);
+            place(mtm, &ns, saved, limits, 0);
+            let content = tauri_glue::content_view(&window2).map_err(|e| platform_error(e.to_string()))?;
+            let web = drift_macos::webview::find_webview(&content);
+            let handle = app2.clone();
+            let observer = WindowObserver::new(&ns, move |event| match event {
+                MacWindowEvent::Occlusion { visible } => connections_visible(&handle, visible),
+                MacWindowEvent::Key(_) => request_menu_refresh(&handle),
+                MacWindowEvent::FullScreen(_) | MacWindowEvent::Resized => {}
+            });
+            CONNECTIONS.with(|c| {
+                *c.borrow_mut() = Some(ConnectionsPlatform { window: ns.clone(), web, _observer: observer });
+            });
+            window2.show().map_err(|e| platform_error(e.to_string()))?;
+            ns.makeKeyAndOrderFront(None);
+            Ok(())
+        });
+        if let Err(e) = prepared.and_then(|r| r) {
+            tracing::error!(error = %e, "could not show the Connections window");
+        }
+        if let Some(profile) = autoconnect
+            && let Err(e) = connect_profile(&app, profile)
+        {
+            tracing::error!(error = %e, "autoconnect failed");
+        }
+    });
+}
+
+/// Shows the Connections window and makes it key (Cmd+0, File ▸ Show Connections, the Dock
+/// menu, the title bar's grid button, reopening the app); with `intent`, asks its page to open
+/// a sheet. Returns at once.
+pub fn show_connections<R: Runtime>(app: &AppHandle<R>, intent: Option<ConnectionsIntent>) {
+    let app2 = app.clone();
+    defer_main(app, move |mtm| {
+        let Some((window, web)) =
+            CONNECTIONS.with(|c| c.borrow().as_ref().map(|c| (c.window.clone(), c.web.clone())))
+        else {
+            return;
+        };
+        if window.isMiniaturized() {
+            window.deminiaturize(None);
+        }
+        NSApplication::sharedApplication(mtm).activate();
+        window.makeKeyAndOrderFront(None);
+        if let Some(web) = web {
+            drift_macos::webview::focus_webview(&window, &web);
+        }
+        if let Some(intent) = intent {
+            let _ = ConnectionsIntentRequested(intent)
+                .emit_to(&app2, EventTarget::webview_window(CONNECTIONS_WINDOW))
+                .inspect_err(|e| tracing::warn!(error = %e, "could not emit a Connections intent"));
+        }
+    });
+}
+
+/// Hides the Connections window (its close button; it is only destroyed on quit).
+fn hide_connections<R: Runtime>(app: &AppHandle<R>) {
+    let app2 = app.clone();
+    defer_main(app, move |mtm| {
+        save_frame(&app2, mtm, CONNECTIONS_WINDOW);
+        if let Some(window) = ns_window_of(CONNECTIONS_WINDOW) {
+            window.orderOut(None);
+        }
+    });
+}
+
+/// The Connections window became visible or hidden: thumbnails only flow while it shows.
+fn connections_visible<R: Runtime>(app: &AppHandle<R>, visible: bool) {
+    let became_visible = SHELL.with(|s| {
+        let Ok(mut shell) = s.try_borrow_mut() else { return false };
+        let was = shell.throttle.visible();
+        shell.throttle.set_visible(visible);
+        visible && !was
+    });
+    if became_visible {
+        sample_thumbnails(app);
+    }
+}
+
+/// Pushes the gallery's "Open" section to the Connections page if it changed (main thread).
+fn push_connections<R: Runtime>(app: &AppHandle<R>) {
+    let connections = app.state::<AppState>().sessions.connections();
+    // The uptime ticks locally in the page; a new number alone is not worth a push.
+    let mut key = connections.clone();
+    for open in &mut key.open {
+        open.live_secs = open.live_secs.map(|_| 0);
+    }
+    let changed = SHELL.with(|s| {
+        let Ok(mut shell) = s.try_borrow_mut() else { return true };
+        let changed = shell.connections.as_ref() != Some(&key);
+        shell.connections = Some(key);
+        changed
+    });
+    if changed {
+        let _ = ConnectionsChanged(connections)
+            .emit_to(app, EventTarget::webview_window(CONNECTIONS_WINDOW))
+            .inspect_err(|e| tracing::warn!(error = %e, "could not emit the connections"));
+    }
+}
+
+// ---- live thumbnails (ADR decision 8) ----------------------------------------------------------
+
+/// Starts the thumbnail clock: once a second the throttle says which live sessions are due.
+pub(crate) fn start_thumbnails<R: Runtime>(app: &AppHandle<R>) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            let app2 = app.clone();
+            if on_main(&app, move |_| sample_thumbnails(&app2)).is_err() {
+                return;
+            }
+        }
+    });
+}
+
+/// Samples every due live session (main thread); the read-back, downscale and PNG encoding run
+/// on a worker thread, and the result goes to the Connections page only.
+fn sample_thumbnails<R: Runtime>(app: &AppHandle<R>) {
+    let sessions = app.state::<AppState>().sessions.sessions();
+    let live: Vec<String> = sessions
+        .iter()
+        .filter(|s| present::status_for(&s.view) == ConnectionStatus::Live)
+        .map(|s| s.window.clone())
+        .collect();
+    let due = SHELL
+        .with(|s| s.try_borrow_mut().map(|mut s| s.throttle.due(Instant::now(), &live)).unwrap_or_default());
+    for window in due {
+        let Some(profile_id) = sessions.iter().find(|s| s.window == window).map(|s| s.profile.id) else {
+            continue;
+        };
+        let Some(Some(sink)) = with_platform(&window, |plat| plat.render.as_ref().map(RenderThread::sink))
+        else {
+            continue;
+        };
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let sink: RenderSink = sink;
+            let Some(Some(frame)) = sink.with(Compositor::read_output) else { return };
+            let (rgba, size) = crate::connections::downscale(&frame.data, frame.size, THUMBNAIL_MAX);
+            drop(frame);
+            let Some(image) = crate::connections::png_data_url(&rgba, size) else { return };
+            emit_thumbnail(&app, profile_id, Some(image));
+        });
+    }
+}
+
+fn emit_thumbnail<R: Runtime>(app: &AppHandle<R>, profile_id: Uuid, image: Option<String>) {
+    let _ = ThumbnailUpdated(Thumbnail { profile_id, image })
+        .emit_to(app, EventTarget::webview_window(CONNECTIONS_WINDOW))
+        .inspect_err(|e| tracing::warn!(error = %e, "could not emit a thumbnail"));
+}
+
+// ---- session windows ---------------------------------------------------------------------------
+
+/// Connects `profile` (commands, menus, Dock, autoconnect; any thread): if the profile already
+/// has a session window, that window is brought forward; otherwise a new window is opened and
+/// the session starts in it (ADR decision 3). Returns once the decision is made.
+pub fn connect_profile<R: Runtime>(app: &AppHandle<R>, profile: Uuid) -> Result<(), CommandError> {
+    let state = app.state::<AppState>();
+    if let ConnectPlan::Focus(label) = state.sessions.connect_plan(profile) {
+        focus_window(app, &label);
+        return Ok(());
+    }
+    if let Some(label) = state.window_of_profile(profile) {
+        // Still being built.
+        focus_window(app, &label);
+        return Ok(());
+    }
+    let entry = state.profiles.get(profile)?;
+    open_session_window(app, entry.profile, true);
+    Ok(())
+}
+
+/// Builds a session window for `profile` without starting a session, for the `overlays_ui`
+/// test (which drives the window's view directly).
+#[cfg(feature = "macos-ui-tests")]
+pub fn open_window_for_tests<R: Runtime>(app: &AppHandle<R>, profile: ConnectionProfile) {
+    open_session_window(app, profile, false);
+}
+
+/// Opens a session window for `profile` and (with `start`) its session. Returns immediately:
+/// the window is built off the main thread, because `WebviewWindowBuilder::build` and
+/// `Window::add_child` dispatch to the event loop, and finished on the main thread.
+fn open_session_window<R: Runtime>(app: &AppHandle<R>, profile: ConnectionProfile, start: bool) {
+    let label = window_label(app.state::<AppState>().next_window());
+    app.state::<AppState>().set_window_profile(&label, Some(profile.clone()));
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = build_session_window(&app, &label, &profile, start) {
+            tracing::error!(%label, error = %e, "could not open the session window");
+            discard_window(&app, &label);
+        }
+    });
+}
+
+fn build_session_window<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+    profile: &ConnectionProfile,
+    start: bool,
+) -> Result<(), CommandError> {
+    let tauri_error = |e: tauri::Error| platform_error(e.to_string());
+    // Size, title bar, traffic lights and window material come from the `session` window
+    // template in tauri.conf.json (`create: false`), so they can be tuned without a rebuild.
+    let config = template(app, SESSION_TEMPLATE, label).map_err(tauri_error)?;
+    let limits = limits(&config);
+    WebviewWindowBuilder::from_config(app, &config)
+        .map_err(tauri_error)?
+        .title(present::display_name(&profile.name))
+        // The page must be able to paint over the live picture: the reconnect overlay dims the
+        // last frame and the greeter/statistics HUDs float on top of it (M7-3, M1). Needs Tauri's
+        // `macos-private-api`; see docs/adr/M7-3-overlays-over-the-live-picture.md.
+        .transparent(true)
+        .visible(false)
+        .build()
+        .map_err(tauri_error)?;
+    prepare_window(app, label.to_owned(), profile.id, limits)?;
+    // The title bar is a webview of its own: the page is hidden or shrunk to a HUD over the live
+    // picture, but the identity capsule must always be there (outside full screen).
+    add_titlebar(app, label)?;
+    if start {
+        app.state::<AppState>().sessions.open(label, profile.clone())?;
+    }
+    show_session_window(app, label.to_owned())?;
+    // tao moves the traffic lights when the window first draws: lay out again after that.
+    std::thread::sleep(Duration::from_millis(250));
+    let label = label.to_owned();
+    let _ = on_main(app, move |_| sync_chrome(&label));
+    Ok(())
 }
 
 /// The Tauri window of session window `label`.
@@ -238,13 +585,14 @@ fn window_of<R: Runtime>(app: &AppHandle<R>, label: &str) -> Option<Window<R>> {
     app.get_webview(label).map(|page| page.window())
 }
 
-fn platform_error(message: impl Into<String>) -> CommandError {
-    CommandError::Platform { message: message.into() }
-}
-
-/// Attaches the RemoteView below the page and registers the window (main thread; the window is
-/// still hidden and has only its page webview).
-fn prepare_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), CommandError> {
+/// Attaches the RemoteView below the page, restores the frame and registers the window (main
+/// thread; the window is still hidden and has only its page webview).
+fn prepare_window<R: Runtime>(
+    app: &AppHandle<R>,
+    label: String,
+    profile: Uuid,
+    limits: Template,
+) -> Result<(), CommandError> {
     let app2 = app.clone();
     on_main(app, move |mtm| -> Result<(), CommandError> {
         let window =
@@ -254,31 +602,27 @@ fn prepare_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), C
         let link = SessionLink::new();
         view.set_handler(link.clone());
         let ns = tauri_glue::ns_window(&window).map_err(|e| platform_error(e.to_string()))?;
-        tabs::prepare_for_tabs(&ns);
+        drift_macos::window::disallow_tabbing(&ns);
+        let cascade = PLATFORM.with(|p| p.borrow().len());
+        let saved = app2.state::<AppState>().frames.get(&profile_key(profile));
+        place(mtm, &ns, saved, limits, cascade);
         let observer = {
             let link = link.clone();
             let app = app2.clone();
             let label = label.clone();
-            // Tab switches, new or closed tabs and full screen all change the layout; each of
-            // them also changes occlusion, key state or full screen.
+            // Full screen, resizes and key changes all change the layout or the menus.
             WindowObserver::new(&ns, move |event| {
                 match event {
                     MacWindowEvent::Occlusion { visible } => link.send(SessionCommand::SetVisible(visible)),
-                    MacWindowEvent::Key(focused) => link.send(SessionCommand::Focus(focused)),
+                    MacWindowEvent::Key(focused) => {
+                        link.send(SessionCommand::Focus(focused));
+                        request_menu_refresh(&app);
+                    }
                     MacWindowEvent::FullScreen(_) | MacWindowEvent::Resized => {}
                 }
-                sync_chrome(&app, &label);
-                if let MacWindowEvent::Key(true) = event {
-                    // "Move Tab to New Window" and friends regroup tabs; the key window changes.
-                    broadcast_tabs(&app);
-                }
+                sync_chrome(&label);
             })
         };
-        // `newWindowForTab:` (process-wide; the first installation wins).
-        let handle = app2.clone();
-        if let Err(e) = tabs::install_new_window_for_tab(&ns, move || open_tab(&handle)) {
-            tracing::debug!(error = %e, "newWindowForTab: not installed");
-        }
         drift_macos::view::install_key_up_monitor(mtm);
         PLATFORM.with(|p| {
             p.borrow_mut().insert(
@@ -287,9 +631,9 @@ fn prepare_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), C
                     view,
                     window: ns,
                     web,
-                    strip: None,
+                    titlebar: None,
                     surface: Surface::Webview,
-                    last_strip: None,
+                    identity: None,
                     link,
                     _observer: observer,
                     render: None,
@@ -302,75 +646,93 @@ fn prepare_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), C
     })?
 }
 
-/// Adds the tab strip webview to window `label` (off the main thread: `add_child` waits for
-/// the event loop).
-fn add_strip<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), CommandError> {
+/// Adds the title-bar webview to window `label` (off the main thread: `add_child` waits for
+/// the event loop) and remembers its `WKWebView`.
+fn add_titlebar<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), CommandError> {
     let window = window_of(app, label).ok_or_else(|| platform_error(format!("window {label} is gone")))?;
     let builder =
-        WebviewBuilder::new(strip_label(label), WebviewUrl::App(STRIP_PAGE.into())).transparent(true);
+        WebviewBuilder::new(titlebar_label(label), WebviewUrl::App(TITLEBAR_PAGE.into())).transparent(true);
     // `layout` owns the frame from here on; this is only the initial size.
     window
-        .add_child(builder, LogicalPosition::new(0.0, 0.0), LogicalSize::new(1280.0, STRIP_HEIGHT))
+        .add_child(
+            builder,
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(1280.0, present::TITLEBAR_HEIGHT),
+        )
         .map_err(|e| platform_error(e.to_string()))?;
-    Ok(())
-}
-
-/// Finds the strip's `WKWebView`, joins the tab group and shows the window (main thread).
-fn show_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), CommandError> {
-    let app2 = app.clone();
+    let label = label.to_owned();
     on_main(app, move |_| -> Result<(), CommandError> {
-        let window =
-            window_of(&app2, &label).ok_or_else(|| platform_error(format!("window {label} is gone")))?;
-        let page =
-            app2.get_webview(&label).ok_or_else(|| platform_error(format!("window {label} is gone")))?;
         let content = tauri_glue::content_view(&window).map_err(|e| platform_error(e.to_string()))?;
-        let (ns, web) = with_platform(&label, |plat| {
-            plat.strip = drift_macos::webview::find_webviews(&content)
+        with_platform(&label, |plat| {
+            plat.titlebar = drift_macos::webview::find_webviews(&content)
                 .into_iter()
                 .find(|v| !std::ptr::eq(Retained::as_ptr(v), Retained::as_ptr(&plat.web)));
-            (plat.window.clone(), plat.web.clone())
         })
-        .ok_or_else(|| platform_error(format!("window {label} is not registered")))?;
-        if let Some(group) = group_leader(&label) {
-            tabs::add_tab(&group, &ns);
-        }
-        tabs::hide_native_tab_bar(&ns);
-        ns.makeKeyAndOrderFront(None);
-        window.show().map_err(|e| platform_error(e.to_string()))?;
-        sync_chrome(&app2, &label);
-        broadcast_tabs(&app2);
-        tauri_glue::show_webview(&window, &page, &web).map_err(|e| platform_error(e.to_string()))
+        .ok_or_else(|| platform_error(format!("window {label} is not registered")))
     })?
 }
 
-/// Another session window to join (the key window, else the first one).
-fn group_leader(except: &str) -> Option<Retained<NSWindow>> {
-    PLATFORM.with(|p| {
-        let map = p.borrow();
-        let mut labels: Vec<&String> = map.keys().filter(|l| l.as_str() != except).collect();
-        labels.sort();
-        let key = map.iter().find(|(l, plat)| l.as_str() != except && plat.window.isKeyWindow());
-        key.map(|(_, plat)| plat.window.clone())
-            .or_else(|| labels.first().and_then(|l| map.get(*l)).map(|plat| plat.window.clone()))
-    })
+/// Shows a prepared session window and makes it key (main thread).
+fn show_session_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<(), CommandError> {
+    let app2 = app.clone();
+    on_main(app, move |mtm| -> Result<(), CommandError> {
+        let window =
+            window_of(&app2, &label).ok_or_else(|| platform_error(format!("window {label} is gone")))?;
+        let ns = with_platform(&label, |plat| plat.window.clone())
+            .ok_or_else(|| platform_error(format!("window {label} is not registered")))?;
+        window.show().map_err(|e| platform_error(e.to_string()))?;
+        NSApplication::sharedApplication(mtm).activate();
+        ns.makeKeyAndOrderFront(None);
+        sync_chrome(&label);
+        focus_surface(&label);
+        push_identity(&app2, &label);
+        refresh_shell(&app2);
+        Ok(())
+    })?
 }
 
-/// Number of tabs in the group of window `label` (main thread only).
-pub fn tab_count<R: Runtime>(app: &AppHandle<R>, label: &str) -> Option<usize> {
-    let _ = app;
-    with_platform(label, |plat| tabs::tab_count(&plat.window))
+/// Throws away a window that could not be opened (closing its session, if it started).
+fn discard_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    let closing = app.state::<AppState>().sessions.close(label);
+    tauri::async_runtime::spawn(closing);
+    let label = label.to_owned();
+    let app2 = app.clone();
+    let _ = on_main(app, move |_| {
+        PLATFORM.with(|p| p.borrow_mut().remove(&label));
+        if let Some(window) = window_of(&app2, &label) {
+            let _ = window.destroy();
+        }
+        app2.state::<AppState>().set_window_profile(&label, None);
+        refresh_shell(&app2);
+    });
 }
 
-/// The label of the key session window (the tab the user is looking at).
-pub(crate) fn key_window_label() -> Option<String> {
-    PLATFORM.with(|p| {
-        p.borrow().iter().find(|(_, plat)| plat.window.isKeyWindow()).map(|(label, _)| label.clone())
-    })
+/// Session window labels in opening order (main thread only).
+pub fn session_labels() -> Vec<String> {
+    let mut labels: Vec<String> =
+        PLATFORM.with(|p| p.try_borrow().map(|m| m.keys().cloned().collect()).unwrap_or_default());
+    labels.sort_by_key(|l| window_number(l));
+    labels
+}
+
+/// Brings session window `label` forward and gives the keyboard to its surface (returns at
+/// once).
+pub(crate) fn focus_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    let label = label.to_owned();
+    defer_main(app, move |mtm| {
+        let Some(window) = ns_window_of(&label) else { return };
+        if window.isMiniaturized() {
+            window.deminiaturize(None);
+        }
+        NSApplication::sharedApplication(mtm).activate();
+        window.makeKeyAndOrderFront(None);
+        focus_surface(&label);
+    });
 }
 
 // ---- session wiring (called by the host) -----------------------------------------------------
 
-/// Creates the tab's render thread over its `RemoteView`'s `CAMetalLayer` and returns the
+/// Creates the window's render thread over its `RemoteView`'s `CAMetalLayer` and returns the
 /// [`FrameSink`] for the session actor.
 pub(crate) fn create_render_sink<R: Runtime>(
     app: &AppHandle<R>,
@@ -406,15 +768,16 @@ pub(crate) fn attach_session<R: Runtime>(app: &AppHandle<R>, label: &str, handle
     });
 }
 
-/// Applies a new [`SessionView`] to the window: emits it to the page, updates the title and
-/// the tab strips, and switches between the page and the live picture.
+/// Applies a new [`SessionView`] to the window: emits it to the page, updates the title, the
+/// title bar, the gallery and the menus, and switches between the page and the live picture.
 pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &SessionView) {
     let _ = SessionViewChanged(view.clone())
         .emit_to(app, EventTarget::webview_window(label))
         .inspect_err(|e| tracing::warn!(error = %e, "could not emit the session view"));
-    let title = present::window_title(Some(view));
+    let title = present::window_title(view);
     let accessibility_label = present::accessibility_label(Some(view));
     let surface = present::surface_for(view);
+    let live = present::status_for(view) == ConnectionStatus::Live;
     let desktop = match view.state {
         drift_core::SessionState::Connected { desktop, .. } => Some(desktop),
         _ => None,
@@ -423,7 +786,7 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
     let app2 = app.clone();
     let _ = on_main(app, move |_| {
         let (Some(window), Some(page)) = (window_of(&app2, &label), app2.get_webview(&label)) else { return };
-        // Never shown in the (hidden) title bar; AppKit lists it in the Window menu.
+        // Mission Control, Cmd+` and the Window menu show it.
         let _ = window.set_title(&title);
         let Some(web) = with_platform(&label, |plat| {
             plat.view.set_accessibility_label(&accessibility_label);
@@ -437,7 +800,7 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
         }) else {
             return;
         };
-        sync_chrome(&app2, &label);
+        sync_chrome(&label);
         let glue = |e: drift_macos::tauri_glue::GlueError| platform_error(e.to_string());
         let switched: Result<(), CommandError> = match surface {
             Surface::Remote => {
@@ -459,7 +822,23 @@ pub(crate) fn apply_view<R: Runtime>(app: &AppHandle<R>, label: &str, view: &Ses
         if let Err(e) = switched {
             tracing::warn!(error = %e, "could not switch the window surface");
         }
-        broadcast_tabs(&app2);
+        let went_live = SHELL.with(|s| {
+            let Ok(mut shell) = s.try_borrow_mut() else { return false };
+            if !live {
+                shell.live.remove(&label);
+                return false;
+            }
+            let first = shell.live.insert(label.clone());
+            if first {
+                shell.throttle.went_live(&label);
+            }
+            first
+        });
+        push_identity(&app2, &label);
+        refresh_shell(&app2);
+        if went_live {
+            sample_thumbnails(&app2);
+        }
     });
 }
 
@@ -472,12 +851,35 @@ pub fn apply_view_for_tests<R: Runtime>(app: &AppHandle<R>, label: &str, view: &
     apply_view(app, label, view);
 }
 
-// ---- layout: tab strip, page, picture and HUDs (UI-tabs, M7-3, M1) ---------------------------
+/// Pushes session window `label`'s identity to its title bar if it changed (main thread).
+fn push_identity<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    let Some(identity) = window_identity(app, label) else { return };
+    let changed = with_platform(label, |plat| {
+        let changed = plat.identity.as_ref() != Some(&identity);
+        plat.identity = Some(identity.clone());
+        changed
+    });
+    if changed == Some(true) {
+        let _ = WindowIdentityChanged(identity)
+            .emit_to(app, EventTarget::webview(titlebar_label(label)))
+            .inspect_err(|e| tracing::warn!(error = %e, "could not emit the window identity"));
+    }
+}
 
-/// Lays window `label` out ([`layout`], main thread). A no-op while the window's platform state
-/// is being set up or borrowed.
-fn sync_chrome<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    let _ = app;
+/// Session window `label`'s identity: from its session, or from its profile while the session
+/// is still starting.
+pub(crate) fn window_identity<R: Runtime>(app: &AppHandle<R>, label: &str) -> Option<WindowIdentity> {
+    let state = app.state::<AppState>();
+    let profile = state.sessions.profile(label).or_else(|| state.window_profile(label))?;
+    let view = state.sessions.view(label).unwrap_or_else(|| SessionView::new(&profile));
+    Some(present::identity(&profile, &view))
+}
+
+// ---- layout: title bar, page, picture and HUDs (UI-windows, M7-3, M1) --------------------------
+
+/// Lays session window `label` out ([`layout`], main thread). A no-op while the window's
+/// platform state is being set up or borrowed.
+fn sync_chrome(label: &str) {
     if MainThreadMarker::new().is_none() {
         return;
     }
@@ -489,27 +891,15 @@ fn sync_chrome<R: Runtime>(app: &AppHandle<R>, label: &str) {
     });
 }
 
-/// [`sync_chrome`] for every session window (main thread).
-fn sync_all_chrome<R: Runtime>(app: &AppHandle<R>) {
-    let labels: Vec<String> =
-        PLATFORM.with(|p| p.try_borrow().map(|m| m.keys().cloned().collect()).unwrap_or_default());
-    for label in labels {
-        sync_chrome(app, &label);
-    }
-}
-
-/// Places the tab strip, the picture and the page ([`present::chrome`]):
+/// Places the title bar, the picture and the page ([`present::chrome`]):
 ///
-/// * AppKit's tab bar is hidden again (a window gets a fresh one whenever the group changes),
-/// * the strip webview is the top [`STRIP_HEIGHT`] points, hidden in full screen,
+/// * the title-bar webview is the top [`present::TITLEBAR_HEIGHT`] points, hidden in full
+///   screen (also while the menu bar is revealed: nothing observes the reveal),
 /// * the `RemoteView` fills the rest,
 /// * the page fills the same area for the page-only screens and the reconnect overlay, or is
 ///   shrunk to [`present::hud_frame`] and pinned to its corner for a HUD — AppKit then hit-tests
 ///   everything outside the panel straight down to the picture.
 fn layout(plat: &WindowPlatform) {
-    if tabs::hide_native_tab_bar(&plat.window) {
-        tracing::debug!("hid AppKit's tab bar");
-    }
     // SAFETY: `superview` returns the (retained) parent or nil; we are on the main thread.
     let Some(parent) = (unsafe { plat.view.superview() }) else { return };
     let bounds = parent.bounds();
@@ -528,22 +918,22 @@ fn layout(plat: &WindowPlatform) {
     let fill = NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable;
     plat.view.setAutoresizingMask(fill);
     plat.view.setFrame(content);
-    if let Some(strip) = &plat.strip {
-        strip.setHidden(chrome.strip <= 0.0);
-        if chrome.strip > 0.0 {
+    if let Some(titlebar) = &plat.titlebar {
+        titlebar.setHidden(chrome.titlebar <= 0.0);
+        if chrome.titlebar > 0.0 {
             // Pinned to the top edge: the margin below it grows with the window.
             let below = if flipped {
                 NSAutoresizingMaskOptions::ViewMaxYMargin
             } else {
                 NSAutoresizingMaskOptions::ViewMinYMargin
             };
-            strip.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | below);
-            strip.setFrame(NSRect::new(
+            titlebar.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | below);
+            titlebar.setFrame(NSRect::new(
                 NSPoint::new(
                     bounds.origin.x,
-                    bounds.origin.y + present::band_y(height, 0.0, chrome.strip, flipped),
+                    bounds.origin.y + present::band_y(height, 0.0, chrome.titlebar, flipped),
                 ),
-                NSSize::new(width, chrome.strip),
+                NSSize::new(width, chrome.titlebar),
             ));
         }
     }
@@ -601,11 +991,12 @@ pub(crate) fn apply_cursor<R: Runtime>(
     });
 }
 
-/// Releases the window's session resources (render thread, handle, cursor).
+/// Releases the window's session resources (render thread, handle, cursor) and drops its
+/// thumbnail.
 pub(crate) fn release_session<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let label = label.to_owned();
-    let app = app.clone();
-    let _ = on_main(&app.clone(), move |_| {
+    let app2 = app.clone();
+    let _ = on_main(app, move |_| {
         with_platform(&label, |plat| {
             #[cfg(feature = "recording")]
             if let Some(recording) = plat.recording.take() {
@@ -618,108 +1009,90 @@ pub(crate) fn release_session<R: Runtime>(app: &AppHandle<R>, label: &str) {
                 render.shutdown();
             }
         });
-        // The profile is no longer live: other tabs drop its "open in another tab" dot.
-        broadcast_tabs(&app);
+        SHELL.with(|s| {
+            if let Ok(mut shell) = s.try_borrow_mut() {
+                shell.live.remove(&label);
+                shell.throttle.ended(&label);
+            }
+        });
+        if let Some(profile) = app2.state::<AppState>().sessions.profile_id(&label) {
+            emit_thumbnail(&app2, profile, None);
+        }
     });
 }
 
-// ---- the tab strip (UI-tabs) --------------------------------------------------------------------
-
-/// The labels of `window`'s tab group, leading to trailing (windows Drift does not know, such as
-/// one being destroyed, are skipped).
-fn group_labels(map: &HashMap<String, WindowPlatform>, window: &NSWindow) -> Vec<String> {
-    tabs::tab_windows(window)
-        .iter()
-        .filter_map(|member| {
-            map.iter()
-                .find(|(_, plat)| std::ptr::eq(Retained::as_ptr(&plat.window), Retained::as_ptr(member)))
-                .map(|(label, _)| label.clone())
-        })
-        .collect()
+/// Hands the keyboard to whatever session window `label`'s surface says owns it
+/// ([`present::focus_for`], main thread).
+fn focus_surface(label: &str) {
+    with_platform(label, |plat| match present::focus_for(plat.surface) {
+        Focus::Remote => drift_macos::webview::focus_remote(&plat.window, &plat.view),
+        Focus::Page => drift_macos::webview::focus_webview(&plat.window, &plat.web),
+    });
 }
 
-/// The strip of every window, from AppKit's tab groups and the session manager (main thread).
-fn strips<R: Runtime>(app: &AppHandle<R>) -> Vec<(String, TabStrip)> {
-    let state = app.state::<AppState>();
-    let live = state.sessions.live_profiles();
-    PLATFORM.with(|p| {
-        let Ok(map) = p.try_borrow() else { return Vec::new() };
-        map.iter()
-            .map(|(label, plat)| {
-                let tabs = group_labels(&map, &plat.window)
-                    .iter()
-                    .map(|l| {
-                        strip::tab_item(l, state.sessions.view(l).as_ref(), state.sessions.profile_id(l))
-                    })
-                    .collect();
-                (label.clone(), TabStrip::new(tabs, label, live.clone()))
-            })
-            .collect()
-    })
-}
-
-/// The tab strip of window `label` (main thread); `None` for an unknown window.
-pub fn tab_strip<R: Runtime>(app: &AppHandle<R>, label: &str) -> Option<TabStrip> {
-    strips(app).into_iter().find(|(l, _)| l == label).map(|(_, strip)| strip)
-}
-
-/// Pushes every window's [`TabStrip`] to its strip webview and its page (the page marks the
-/// connections that are open in another tab), skipping windows whose strip did not change.
-fn broadcast_tabs<R: Runtime>(app: &AppHandle<R>) {
-    for (label, strip) in strips(app) {
-        let changed = PLATFORM.with(|p| {
-            let Ok(mut map) = p.try_borrow_mut() else { return true };
-            map.get_mut(&label).is_some_and(|plat| {
-                let changed = plat.last_strip.as_ref() != Some(&strip);
-                plat.last_strip = Some(strip.clone());
-                changed
-            })
-        });
-        if !changed {
-            continue;
-        }
-        for target in [EventTarget::webview(strip_label(&label)), EventTarget::webview_window(&label)] {
-            let _ = TabStripChanged(strip.clone())
-                .emit_to(app, target)
-                .inspect_err(|e| tracing::warn!(error = %e, "could not emit the tab strip"));
-        }
-    }
-}
-
-/// Selects tab `label` (a click in the strip, or connecting a profile that is already open):
-/// that window becomes the group's selected tab and the key window.
-pub fn select_tab<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), CommandError> {
-    let label = label.to_owned();
-    on_main(app, move |_| {
-        // Outside the map's borrow: selecting makes the window key, whose observer lays it out.
-        let window = with_platform(&label, |plat| plat.window.clone())
-            .ok_or_else(|| platform_error(format!("there is no tab {label}")))?;
-        tabs::select_window(&window);
-        Ok(())
-    })?
-}
-
-/// Hands the keyboard back to whatever window `label`'s surface says owns it
-/// ([`present::focus_for`]); the strip calls this whenever it receives focus, so a click on a
-/// tab never leaves the keyboard in the strip.
+/// Hands the keyboard back to window `label`'s page or live picture; the title bar calls this
+/// whenever it receives focus, so a click on it never keeps the keyboard (decision 11).
 pub(crate) fn focus_content<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), CommandError> {
     let label = label.to_owned();
     on_main(app, move |_| {
-        with_platform(&label, |plat| match present::focus_for(plat.surface) {
-            Focus::Remote => drift_macos::webview::focus_remote(&plat.window, &plat.view),
-            Focus::Page => drift_macos::webview::focus_webview(&plat.window, &plat.web),
-        });
+        if label == CONNECTIONS_WINDOW {
+            CONNECTIONS.with(|c| {
+                if let Some(c) = c.borrow().as_ref()
+                    && let Some(web) = &c.web
+                {
+                    drift_macos::webview::focus_webview(&c.window, web);
+                }
+            });
+        } else {
+            focus_surface(&label);
+        }
     })
 }
 
 // ---- closing and quitting --------------------------------------------------------------------
 
-/// Closes a tab: the session is closed gracefully (2 s cap), then the window is destroyed.
-pub(crate) fn close_tab<R: Runtime>(app: &AppHandle<R>, label: &str) {
+fn alert_text(c: Confirmation) -> AlertText {
+    AlertText { message: c.message, informative: c.informative, confirm: c.confirm, cancel: c.cancel }
+}
+
+/// The red button or Cmd+W on window `label` (ADR decisions 2 and 4): Connections hides; a
+/// session window holding a desktop asks with a sheet first; anything else closes at once.
+pub(crate) fn request_close<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    let view = app.state::<AppState>().sessions.view(label);
+    match present::close_action(label, view.as_ref()) {
+        CloseAction::Hide => hide_connections(app),
+        CloseAction::CloseNow => close_session_window(app, label),
+        CloseAction::Confirm => {
+            let name = view.map(|v| v.profile_name).unwrap_or_default();
+            let text = alert_text(present::close_confirmation(&name));
+            let (app2, label) = (app.clone(), label.to_owned());
+            defer_main(app, move |_| {
+                let Some(window) = ns_window_of(&label) else { return };
+                if window.attachedSheet().is_some() {
+                    return;
+                }
+                alert::confirm_sheet(&window, &text, move |confirmed| {
+                    if confirmed {
+                        close_session_window(&app2, &label);
+                    }
+                });
+            });
+        }
+    }
+}
+
+/// Closes session window `label` without asking: its frame is saved, the session is closed
+/// gracefully (2 s cap), then the window is destroyed and its card goes back to idle.
+pub fn close_session_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let state = app.state::<AppState>();
-    if !state.begin_closing(label) {
+    if label == CONNECTIONS_WINDOW || !state.begin_closing(label) {
         return;
     }
+    {
+        let (app2, label) = (app.clone(), label.to_owned());
+        let _ = on_main(app, move |mtm| save_frame(&app2, mtm, &label));
+    }
+    let profile = state.sessions.profile_id(label).or_else(|| state.window_profile(label).map(|p| p.id));
     let closing = state.sessions.close(label);
     let app = app.clone();
     let label = label.to_owned();
@@ -727,26 +1100,60 @@ pub(crate) fn close_tab<R: Runtime>(app: &AppHandle<R>, label: &str) {
         if !closing.await {
             tracing::warn!(%label, "session did not close within the cap; abandoning it");
         }
-        let app2 = app.clone();
-        let label2 = label.clone();
+        let (app2, label2) = (app.clone(), label.clone());
         let _ = on_main(&app, move |_| {
             PLATFORM.with(|p| p.borrow_mut().remove(&label2));
+            SHELL.with(|s| {
+                if let Ok(mut shell) = s.try_borrow_mut() {
+                    shell.live.remove(&label2);
+                    shell.throttle.ended(&label2);
+                }
+            });
             if let Some(window) = window_of(&app2, &label2) {
                 let _ = window.destroy();
             }
         });
-        app.state::<AppState>().finish_closing(&label);
+        let state = app.state::<AppState>();
+        state.set_window_profile(&label, None);
+        state.finish_closing(&label);
+        if let Some(profile) = profile {
+            emit_thumbnail(&app, profile, None);
+        }
         let app2 = app.clone();
-        let _ = on_main(&app, move |_| broadcast_tabs(&app2));
+        let _ = on_main(&app, move |_| refresh_shell(&app2));
     });
 }
 
-/// Quit: closes every session gracefully within the cap, then exits.
+/// Drift ▸ Quit (Cmd+Q): asks once when sessions are open, then saves every frame and shuts the
+/// sessions down within the cap before exiting (ADR decision 13).
 pub(crate) fn quit<R: Runtime>(app: &AppHandle<R>) {
+    // A failed window holds no session any more; it is not "disconnected" by quitting.
+    let open = app
+        .state::<AppState>()
+        .sessions
+        .sessions()
+        .iter()
+        .filter(|s| present::status_for(&s.view) != ConnectionStatus::Failed)
+        .count();
+    match present::quit_confirmation(open) {
+        None => shutdown_and_exit(app),
+        Some(text) => {
+            let app2 = app.clone();
+            defer_main(app, move |mtm| {
+                if alert::confirm(mtm, &alert_text(text)) {
+                    shutdown_and_exit(&app2);
+                }
+            });
+        }
+    }
+}
+
+fn shutdown_and_exit<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<AppState>();
     if !state.begin_quit() {
         return;
     }
+    save_all_frames(app);
     let shutdown = state.sessions.shutdown();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -759,7 +1166,11 @@ pub(crate) fn quit<R: Runtime>(app: &AppHandle<R>) {
 /// Last-resort shutdown when macOS terminates the app without asking (Dock ▸ Quit).
 pub(crate) fn shutdown_blocking<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<AppState>();
-    if state.sessions.live_sessions() == 0 || !state.begin_quit() {
+    if !state.begin_quit() {
+        return;
+    }
+    save_all_frames(app);
+    if state.sessions.live_sessions() == 0 {
         return;
     }
     let shutdown = state.sessions.shutdown();
@@ -769,50 +1180,117 @@ pub(crate) fn shutdown_blocking<R: Runtime>(app: &AppHandle<R>) {
 
 // ---- intents ----------------------------------------------------------------------------------
 
-/// Connects `profile` in `label`'s window (command, menu and autoconnect entry point): the
-/// Connection Manager tab becomes the session. If another tab already has a live session for
-/// `profile`, that tab is selected instead (UI-tabs board 1).
-pub(crate) fn connect_profile<R: Runtime>(
-    app: &AppHandle<R>,
-    label: &str,
-    profile: Uuid,
-) -> Result<(), CommandError> {
-    let state = app.state::<AppState>();
-    if let Some(other) = state.sessions.live_window_for(profile, label) {
-        return select_tab(app, &other);
-    }
-    let entry = state.profiles.get(profile)?;
-    state.sessions.open(label, entry.profile)
-}
-
-/// "Reconnect": tells a live session to retry now, or starts the window's profile again.
+/// "Reconnect": tells a live session to retry now, or starts the window's profile again in the
+/// same window.
 pub(crate) fn reconnect<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), CommandError> {
     let state = app.state::<AppState>();
     match state.sessions.reconnect_now(label)? {
         Reconnect::Sent => Ok(()),
-        Reconnect::Reopen(profile) => connect_profile(app, label, profile),
+        // Reload the profile, so a freshly pinned certificate is used.
+        Reconnect::Reopen(profile) => state.sessions.open(label, state.profiles.get(profile)?.profile),
     }
 }
 
-// ---- menu ----------------------------------------------------------------------------------
+// ---- menus and the Dock (ADR decisions 9 and 10) ---------------------------------------------
 
-/// Builds the menu bar from [`menu_spec`].
-pub(crate) fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+/// The key window, as Drift sees it (main thread).
+enum KeyWindow {
+    Connections,
+    Session(String),
+    Other(Retained<NSWindow>),
+}
+
+fn key_window(mtm: MainThreadMarker) -> Option<KeyWindow> {
+    let key = NSApplication::sharedApplication(mtm).keyWindow()?;
+    let is = |w: &NSWindow| std::ptr::eq(w, &*key);
+    if ns_window_of(CONNECTIONS_WINDOW).is_some_and(|w| is(&w)) {
+        return Some(KeyWindow::Connections);
+    }
+    let session = PLATFORM.with(|p| {
+        p.try_borrow().ok()?.iter().find(|(_, plat)| is(&plat.window)).map(|(label, _)| label.clone())
+    });
+    Some(session.map_or(KeyWindow::Other(key), KeyWindow::Session))
+}
+
+fn key_session(mtm: MainThreadMarker) -> Option<String> {
+    match key_window(mtm)? {
+        KeyWindow::Session(label) => Some(label),
+        KeyWindow::Connections | KeyWindow::Other(_) => None,
+    }
+}
+
+fn session_items<R: Runtime>(app: &AppHandle<R>) -> Vec<SessionItem> {
+    app.state::<AppState>()
+        .sessions
+        .sessions()
+        .iter()
+        .map(|s| present::session_item(&s.window, &s.view))
+        .collect()
+}
+
+/// Pushes the gallery state and rebuilds the menus if they changed (main thread).
+fn refresh_shell<R: Runtime>(app: &AppHandle<R>) {
+    push_connections(app);
+    refresh_menus(app);
+}
+
+/// Rebuilds the menu bar later (key-window changes arrive inside AppKit calls).
+fn request_menu_refresh<R: Runtime>(app: &AppHandle<R>) {
+    let app2 = app.clone();
+    defer_main(app, move |_| refresh_menus(&app2));
+}
+
+/// Rebuilds the menu bar from [`menu_spec`] when it changed (main thread).
+fn refresh_menus<R: Runtime>(app: &AppHandle<R>) {
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let key = match key_window(mtm) {
+        Some(KeyWindow::Session(label)) => Some(label),
+        Some(KeyWindow::Connections) => Some(CONNECTIONS_WINDOW.to_owned()),
+        Some(KeyWindow::Other(_)) | None => None,
+    };
+    let spec = menu_spec(&session_items(app), key.as_deref());
+    let changed = SHELL.with(|s| {
+        let Ok(mut shell) = s.try_borrow_mut() else { return false };
+        let changed = shell.menu.as_ref() != Some(&spec);
+        if changed {
+            shell.menu = Some(spec.clone());
+        }
+        changed
+    });
+    if !changed {
+        return;
+    }
+    match build_menu(app, &spec).and_then(|menu| app.set_menu(menu)) {
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "could not rebuild the menu bar"),
+    }
+}
+
+/// Builds the menu bar from `spec`. The Window submenu is an ordinary submenu, **not**
+/// `NSApp.windowsMenu`: Drift lists the session windows itself.
+pub(crate) fn build_menu<R: Runtime>(app: &AppHandle<R>, spec: &[SubmenuSpec]) -> tauri::Result<Menu<R>> {
     let menu = Menu::new(app)?;
-    for spec in menu_spec() {
-        let submenu = if spec.is_window_menu {
-            Submenu::with_id(app, WINDOW_SUBMENU_ID, &spec.title, true)?
-        } else {
-            Submenu::new(app, &spec.title, true)?
-        };
-        for entry in spec.entries {
+    for spec in spec {
+        let submenu = Submenu::new(app, &spec.title, true)?;
+        for entry in &spec.entries {
             match entry {
                 MenuEntry::Separator => submenu.append(&PredefinedMenuItem::separator(app)?)?,
-                MenuEntry::Standard(item) => submenu.append(&predefined(app, item)?)?,
-                MenuEntry::Action { action, title, shortcut } => {
-                    let mut item = MenuItemBuilder::with_id(action.id(), title);
+                MenuEntry::Standard(item) => submenu.append(&predefined(app, *item)?)?,
+                MenuEntry::Header(title) => {
+                    submenu.append(&MenuItemBuilder::new(title).enabled(false).build(app)?)?;
+                }
+                MenuEntry::Action { action, title, shortcut, enabled, checked: None } => {
+                    let mut item = MenuItemBuilder::with_id(action.id(), title).enabled(*enabled);
                     if let Some(shortcut) = shortcut {
-                        item = item.accelerator(accelerator(shortcut));
+                        item = item.accelerator(accelerator(*shortcut));
+                    }
+                    submenu.append(&item.build(app)?)?;
+                }
+                MenuEntry::Action { action, title, shortcut, enabled, checked: Some(checked) } => {
+                    let mut item =
+                        CheckMenuItemBuilder::with_id(action.id(), title).enabled(*enabled).checked(*checked);
+                    if let Some(shortcut) = shortcut {
+                        item = item.accelerator(accelerator(*shortcut));
                     }
                     submenu.append(&item.build(app)?)?;
                 }
@@ -838,75 +1316,93 @@ fn predefined<R: Runtime>(app: &AppHandle<R>, item: Standard) -> tauri::Result<P
         Standard::SelectAll => PredefinedMenuItem::select_all(app, None),
         Standard::Minimize => PredefinedMenuItem::minimize(app, None),
         Standard::Zoom => PredefinedMenuItem::maximize(app, None),
-        Standard::Fullscreen => PredefinedMenuItem::fullscreen(app, None),
+        Standard::Fullscreen => PredefinedMenuItem::fullscreen(app, Some("Enter Full Screen")),
     }
 }
 
 /// Runs a menu action (main thread).
 pub(crate) fn run_menu_action<R: Runtime>(app: &AppHandle<R>, action: MenuAction) {
-    let label = key_window_label();
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let session = key_session(mtm);
+    let state = app.state::<AppState>();
     match action {
-        MenuAction::NewTab => open_tab(app),
+        MenuAction::NewConnection => show_connections(app, Some(ConnectionsIntent::New)),
+        MenuAction::ShowConnections => show_connections(app, None),
+        MenuAction::EditConnection => {
+            if let Some(profile_id) = session.and_then(|label| state.sessions.profile_id(&label)) {
+                show_connections(app, Some(ConnectionsIntent::Edit { profile_id }));
+            }
+        }
+        MenuAction::Disconnect => {
+            if let Some(label) = session {
+                close_session_window(app, &label);
+            }
+        }
+        MenuAction::CloseWindow => match key_window(mtm) {
+            Some(KeyWindow::Connections) => request_close(app, CONNECTIONS_WINDOW),
+            Some(KeyWindow::Session(label)) => request_close(app, &label),
+            Some(KeyWindow::Other(window)) => window.performClose(None),
+            None => {}
+        },
+        MenuAction::SelectSession(n) => {
+            let sessions = state.sessions.sessions();
+            if let Some(s) = usize::try_from(n).ok().and_then(|n| sessions.get(n.checked_sub(1)?)) {
+                focus_window(app, &s.window);
+            }
+        }
         MenuAction::Quit => quit(app),
-        MenuAction::CloseTab => {
-            if let Some(label) = label {
-                close_tab(app, &label);
-            }
-        }
-        MenuAction::SelectTab(n) => {
-            if let Some(window) = label.and_then(|label| with_platform(&label, |plat| plat.window.clone())) {
-                tabs::select_tab(&window, usize::from(n) - 1);
-            }
-        }
-        MenuAction::PreviousTab | MenuAction::NextTab => {
-            if let Some(label) = label {
-                // Outside the map's borrow: selecting makes the window key, whose observer lays it
-                // out (re-hiding AppKit's tab bar, placing the strip) and pushes the strips.
-                if let Some(window) = with_platform(&label, |plat| plat.window.clone()) {
-                    select_sibling_tab(&window, action);
-                }
-            }
-        }
         MenuAction::SendCtrlAltDel => {
-            if let Some(label) = label {
+            if let Some(label) = session {
                 with_platform(&label, |plat| plat.view.send_ctrl_alt_del());
             }
         }
         MenuAction::Reconnect => {
-            if let Some(label) = label
+            if let Some(label) = session
                 && let Err(e) = reconnect(app, &label)
             {
                 tracing::info!(error = %e, "menu: reconnect");
             }
         }
-        MenuAction::Disconnect => {
-            if let Some(label) = label
-                && let Err(e) = app.state::<AppState>().sessions.disconnect(&label)
-            {
-                tracing::info!(error = %e, "menu: disconnect");
-            }
-        }
         MenuAction::ToggleStats => {
-            if let Some(label) = label
-                && let Err(e) = app.state::<AppState>().sessions.toggle_stats(&label)
+            if let Some(label) = session
+                && let Err(e) = state.sessions.toggle_stats(&label)
             {
                 tracing::info!(error = %e, "menu: show statistics");
             }
         }
-        MenuAction::ToggleRecording => toggle_recording(app, label.as_deref()),
+        MenuAction::ToggleRecording => toggle_recording(app, session.as_deref()),
     }
 }
 
-fn select_sibling_tab(window: &NSWindow, action: MenuAction) {
-    let object: &AnyObject = window.as_ref();
-    // SAFETY: `selectNextTab:` / `selectPreviousTab:` are NSWindow methods (main thread);
-    // both take a sender and return nothing.
-    unsafe {
-        if action == MenuAction::NextTab {
-            let _: () = msg_send![object, selectNextTab: std::ptr::null::<AnyObject>()];
-        } else {
-            let _: () = msg_send![object, selectPreviousTab: std::ptr::null::<AnyObject>()];
-        }
+/// Installs the Dock menu (main thread, after the application delegate exists).
+pub(crate) fn install_dock<R: Runtime>(app: &AppHandle<R>) {
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let (provider_app, click_app) = (app.clone(), app.clone());
+    let installed = drift_macos::dock::install(
+        mtm,
+        move || {
+            dock_menu(&session_items(&provider_app))
+                .into_iter()
+                .map(|item| match item {
+                    DockItem::Header(title) => DockMenuItem::Header(title),
+                    DockItem::Separator => DockMenuItem::Separator,
+                    DockItem::Action { action, title, key } => DockMenuItem::Item {
+                        id: action.id(),
+                        title,
+                        key: key.map(String::from).unwrap_or_default(),
+                    },
+                })
+                .collect()
+        },
+        move |id| match DockAction::from_id(id) {
+            Some(DockAction::Focus(label)) => focus_window(&click_app, &label),
+            Some(DockAction::ShowConnections) => show_connections(&click_app, None),
+            Some(DockAction::NewConnection) => show_connections(&click_app, Some(ConnectionsIntent::New)),
+            None => {}
+        },
+    );
+    if let Err(e) = installed {
+        tracing::warn!(error = %e, "the Dock menu is not available");
     }
 }
 
@@ -927,7 +1423,7 @@ fn toggle_recording<R: Runtime>(app: &AppHandle<R>, label: Option<&str>) {
         }
         None => {
             let Some(render) = &plat.render else {
-                tracing::info!("Record Session: no live session in this tab");
+                tracing::info!("Record Session: no live session in this window");
                 return;
             };
             match crate::recording::start(render, &profile_name) {
@@ -944,7 +1440,7 @@ fn toggle_recording<R: Runtime>(app: &AppHandle<R>, label: Option<&str>) {
 }
 
 /// Writes remote clipboard contents to the general pasteboard, but only while the window is the
-/// key one (plan M5-2: only the focused tab syncs).
+/// key one (plan M5-2: only the focused session syncs).
 pub(crate) fn write_pasteboard<R: Runtime>(
     app: &AppHandle<R>,
     label: &str,
