@@ -1,0 +1,16 @@
+// Connection modes in the order every list, tile row and menu shows them (UI-windows decision
+// 14): Headless → Desktop Sharing → Remote Login. New connections start Headless.
+import type { ConnectMode } from "./bindings";
+
+/** Display order of the modes. */
+export const MODE_ORDER: readonly ConnectMode[] = ["headless", "desktop-sharing", "remote-login"];
+
+/** Mode of a new connection. Existing profiles keep theirs. */
+export const DEFAULT_MODE: ConnectMode = "headless";
+
+/** The mode's name on tiles, cards and in VoiceOver labels. */
+export const MODE_NAMES: Record<ConnectMode, string> = {
+  headless: "Headless session",
+  "desktop-sharing": "Desktop Sharing",
+  "remote-login": "Remote Login",
+};

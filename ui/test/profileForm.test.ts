@@ -196,7 +196,7 @@ describe("rendering from state", () => {
 });
 
 describe("saving", () => {
-  test("submit sends the edited profile and passwords, and connects a new one", () => {
+  test("submit sends the edited profile and passwords, and connects a new one", async () => {
     const h = mount(newModel("remote-login"));
     type(field(h.root, "Name"), "Lab");
     type(field(h.root, "Host"), "gnome.local");
@@ -207,6 +207,7 @@ describe("saving", () => {
     check(field(h.root, "Type using Mac layout") as HTMLInputElement);
     type(field(h.root, "Command key sends"), "ctrl");
     type(field(h.root, "Clipboard"), "text");
+    await flush();
     (h.root.querySelector("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     expect(h.saved.length).toBe(1);
     expect(h.saved[0]!.connect).toBe(true);

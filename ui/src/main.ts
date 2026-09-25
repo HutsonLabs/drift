@@ -1,15 +1,16 @@
-// Webview entry point (humble): wires the generated tauri-specta bindings to the controller.
-// Everything testable lives in app.ts and views/; this file only touches the Tauri runtime.
+// Connections window entry point (humble): wires the generated tauri-specta bindings to the
+// controller. Everything testable lives in connectionsApp.ts and views/.
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { commands, events } from "./bindings";
-import { DriftApp } from "./app";
+import { ConnectionsApp } from "./connectionsApp";
 
 const root = document.getElementById("app");
 if (root) {
-  const app = new DriftApp(root, commands);
+  const app = new ConnectionsApp(root, commands);
+  const here = getCurrentWebviewWindow();
+  // All three are emitted to the `connections` window only.
+  void events.connectionsChanged(here).listen((e) => app.onConnections(e.payload));
+  void events.thumbnailUpdated(here).listen((e) => app.onThumbnail(e.payload));
+  void events.connectionsIntentRequested(here).listen((e) => void app.onIntent(e.payload));
   void app.start();
-  // Session views are emitted to this window only (SessionManager → emit_to(window)).
-  void events.sessionViewChanged(getCurrentWebviewWindow()).listen((e) => app.onSessionView(e.payload));
-  // The tab strip model: which connections are open in other tabs (UI-tabs).
-  void events.tabStripChanged(getCurrentWebviewWindow()).listen((e) => app.onTabs(e.payload));
 }
