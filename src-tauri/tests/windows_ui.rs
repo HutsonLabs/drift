@@ -27,7 +27,9 @@ use drift_app::commands::AppState;
 use drift_app::connections::CONNECTIONS_WINDOW;
 use drift_app::present::TITLEBAR_HEIGHT;
 use drift_app::profiles::{LinuxPasswordUpdate, SecretsUpdate};
-use drift_app::windows::{connect_profile, session_labels, show_connections, titlebar_label};
+use drift_app::windows::{
+    close_session_window, connect_profile, session_labels, show_connections, titlebar_label,
+};
 use drift_core::{ConnectMode, ConnectionProfile};
 use objc2::Message as _;
 use objc2::rc::Retained;
@@ -125,6 +127,27 @@ fn full_screen_facts(a: &AppHandle, label: &str) -> (bool, Option<String>, f64, 
     let picture = drift_macos::webview::find_subview_of_class(&content, "DriftRemoteView").unwrap();
     let titlebar_hidden = drift_macos::webview::find_webviews(&content).iter().skip(1).all(|v| v.isHidden());
     (full, covers, picture.frame().size.height, content.bounds().size.height, titlebar_hidden)
+}
+
+/// The Dock menu's item titles, as AppKit gets them from the application delegate (main thread).
+fn dock_menu_titles() -> Vec<String> {
+    let mtm = objc2::MainThreadMarker::new().unwrap();
+    let ns_app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+    let delegate = ns_app.delegate().expect("tao's application delegate");
+    let delegate: &objc2::runtime::AnyObject = delegate.as_ref();
+    // SAFETY: Drift added `applicationDockMenu:` (`@@:@`) to the delegate's class.
+    let menu: Option<Retained<objc2_app_kit::NSMenu>> =
+        unsafe { objc2::msg_send![delegate, applicationDockMenu: &*ns_app] };
+    let menu = menu.expect("a Dock menu");
+    (0..menu.numberOfItems()).filter_map(|i| menu.itemAtIndex(i)).map(|i| i.title().to_string()).collect()
+}
+
+/// The test's temporary config directory.
+static CONFIG_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// `window-frames.json` in the test's config directory.
+fn frames_path() -> std::path::PathBuf {
+    CONFIG_DIR.get().unwrap().join(drift_app::frames::FRAMES_FILE)
 }
 
 /// The Window menu's visible item titles and whether it is `NSApp.windowsMenu` (main thread).
@@ -272,6 +295,45 @@ fn scenario(app: AppHandle) {
                 });
                 println!("full screen: the picture covers the screen, the title bar is hidden");
             }
+
+            // 5. The Dock menu lists both sessions, then Connections and New Connection….
+            let dock = on_main(&app, |_| dock_menu_titles());
+            assert_eq!(dock.len(), 6, "{dock:?}");
+            assert_eq!(dock[0], "Sessions");
+            assert!(
+                dock[1..3].iter().any(|t| t.ends_with("Alpha"))
+                    && dock[1..3].iter().any(|t| t.ends_with("Bravo"))
+            );
+            assert_eq!(dock[4..], ["Connections".to_owned(), "New Connection…".to_owned()]);
+            println!("Dock menu: {dock:?}");
+
+            // 6. A closed window's frame comes back with its profile.
+            let bravo_window = app.state::<AppState>().sessions.window_for(bravo).unwrap();
+            let moved = {
+                let bravo_window = bravo_window.clone();
+                on_main(&app, move |a| {
+                    let ns = ns_window(a, &bravo_window).unwrap();
+                    let mut frame = ns.frame();
+                    frame.origin.x += 37.0;
+                    frame.size.width -= 101.0;
+                    ns.setFrame_display(frame, true);
+                    ns.frame()
+                })
+            };
+            close_session_window(&app, &bravo_window);
+            wait_until("Bravo's window closed", 10, || on_main(&app, |_| session_labels()).len() == 1);
+            let saved = std::fs::read_to_string(frames_path()).unwrap();
+            assert!(saved.contains(&bravo.to_string()), "{saved}");
+            connect_profile(&app, bravo).unwrap();
+            wait_until("Bravo's new window", 20, || on_main(&app, |_| session_labels()).len() == 2);
+            wait_until("Bravo's session registered", 10, || {
+                app.state::<AppState>().sessions.window_for(bravo).is_some()
+            });
+            let again = app.state::<AppState>().sessions.window_for(bravo).unwrap();
+            assert_ne!(again, bravo_window, "a new window");
+            let restored = on_main(&app, move |a| ns_window(a, &again).unwrap().frame());
+            assert_eq!(restored, moved, "the frame is restored");
+            println!("frames: saved on close, restored on the next connect");
         }));
         let ok = result.is_ok();
         println!("test {NAME} ... {}", if ok { "ok" } else { "FAILED" });
@@ -301,6 +363,7 @@ fn main() {
         std::process::exit(2);
     });
     let dir = tempfile::tempdir().unwrap();
+    CONFIG_DIR.set(dir.path().to_path_buf()).unwrap();
     // `..Default::default()` on purpose: a new `RunOptions` field must not break this test
     // binary, which only `cargo xtask ci`'s `--all-features` lint pass compiles.
     let options = RunOptions {

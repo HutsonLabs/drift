@@ -691,8 +691,10 @@ fn show_session_window<R: Runtime>(app: &AppHandle<R>, label: String) -> Result<
     })?
 }
 
-/// Throws away a window that could not be opened (its session never started).
+/// Throws away a window that could not be opened (closing its session, if it started).
 fn discard_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    let closing = app.state::<AppState>().sessions.close(label);
+    tauri::async_runtime::spawn(closing);
     let label = label.to_owned();
     let app2 = app.clone();
     let _ = on_main(app, move |_| {
@@ -1081,7 +1083,7 @@ pub(crate) fn request_close<R: Runtime>(app: &AppHandle<R>, label: &str) {
 
 /// Closes session window `label` without asking: its frame is saved, the session is closed
 /// gracefully (2 s cap), then the window is destroyed and its card goes back to idle.
-pub(crate) fn close_session_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
+pub fn close_session_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let state = app.state::<AppState>();
     if label == CONNECTIONS_WINDOW || !state.begin_closing(label) {
         return;
@@ -1125,7 +1127,14 @@ pub(crate) fn close_session_window<R: Runtime>(app: &AppHandle<R>, label: &str) 
 /// Drift ▸ Quit (Cmd+Q): asks once when sessions are open, then saves every frame and shuts the
 /// sessions down within the cap before exiting (ADR decision 13).
 pub(crate) fn quit<R: Runtime>(app: &AppHandle<R>) {
-    let open = app.state::<AppState>().sessions.sessions().len();
+    // A failed window holds no session any more; it is not "disconnected" by quitting.
+    let open = app
+        .state::<AppState>()
+        .sessions
+        .sessions()
+        .iter()
+        .filter(|s| present::status_for(&s.view) != ConnectionStatus::Failed)
+        .count();
     match present::quit_confirmation(open) {
         None => shutdown_and_exit(app),
         Some(text) => {
