@@ -52,12 +52,35 @@ export const commands = {
 	 *  it).
 	 */
 	focusContent: () => typedError<null, CommandError>(__TAURI_INVOKE("focus_content")),
+	/**
+	 *  Copies a profile and its stored passwords under a new id, named "<name> copy", without the
+	 *  certificate pin.
+	 */
+	duplicateProfile: (id: string) => typedError<ProfileEntry_Serialize, CommandError>(__TAURI_INVOKE("duplicate_profile", { id })),
+	/**  The profiles that have a session window (pulled by the Connections page on load). */
+	connections: () => typedError<Connections, CommandError>(__TAURI_INVOKE("connections")),
+	/**  Brings `profile_id`'s session window forward; `NotFound` if it has none. */
+	showWindow: (profileId: string) => typedError<null, CommandError>(__TAURI_INVOKE("show_window", { profileId })),
+	/**  Closes `profile_id`'s session window without asking (the card's Disconnect). */
+	disconnectProfile: (profileId: string) => typedError<null, CommandError>(__TAURI_INVOKE("disconnect_profile", { profileId })),
+	/**  Shows the Connections window and makes it key; with `edit`, opens that profile's edit sheet. */
+	showConnections: (edit: string | null) => typedError<null, CommandError>(__TAURI_INVOKE("show_connections", { edit })),
+	/**  Shows the Connections window with the New Connection sheet. */
+	newConnection: () => typedError<null, CommandError>(__TAURI_INVOKE("new_connection")),
+	/**  The calling session window's identity (pulled by its title bar on load). */
+	windowIdentity: () => typedError<WindowIdentity, CommandError>(__TAURI_INVOKE("window_identity")),
+	/**  Turns the calling session window's statistics HUD on or off (the title bar's gauge). */
+	toggleStats: () => typedError<null, CommandError>(__TAURI_INVOKE("toggle_stats")),
 };
 
 /** Events */
 export const events = {
+	connectionsChanged: makeEvent<ConnectionsChanged>("connections-changed"),
+	connectionsIntentRequested: makeEvent<ConnectionsIntentRequested>("connections-intent-requested"),
 	sessionViewChanged: makeEvent<SessionViewChanged_Deserialize>("session-view-changed"),
 	tabStripChanged: makeEvent<TabStripChanged>("tab-strip-changed"),
+	thumbnailUpdated: makeEvent<ThumbnailUpdated>("thumbnail-updated"),
+	windowIdentityChanged: makeEvent<WindowIdentityChanged>("window-identity-changed"),
 };
 
 /* Types */
@@ -215,6 +238,40 @@ export type ConnectionProfile_Serialize = {
 	clipboard: ClipboardPrefs,
 };
 
+/**  Where a profile's connection stands (gallery pills, Dock menu, Window menu, identity capsule). */
+export type ConnectionStatus = 
+/**  No session window. */
+"idle" | 
+/**  Connecting, or waiting for a certificate decision (spinner). */
+"connecting" | 
+/**  The picture (or the GNOME login screen) is live (green). */
+"live" | 
+/**  Waiting out a reconnect backoff (amber). */
+"reconnecting" | 
+/**  Failed or disconnected with an explanation (red). */
+"failed";
+
+/**  Everything the Connections window needs besides the profile list. */
+export type Connections = {
+	/**  Profiles with a session window, in window opening order. */
+	open: OpenConnection[],
+};
+
+/**  Emitted to the `connections` page after any status change, window open or close. */
+export type ConnectionsChanged = Connections;
+
+/**  What the Connections page should open when Rust brings it forward. */
+export type ConnectionsIntent = 
+/**  The New Connection sheet (Cmd+N, Dock ▸ New Connection…). */
+{ kind: "new" } | 
+/**  The edit sheet of a profile (Cmd+E, the error sheet's Edit Connection…). */
+{ kind: "edit"; 
+/**  The profile to edit. */
+profile_id: string };
+
+/**  Emitted to the `connections` page to open a sheet. */
+export type ConnectionsIntentRequested = ConnectionsIntent;
+
 /**  Why a session stopped (plan §3). */
 export type DisconnectReason = 
 /**  Transport-level failure (reset, unreachable, DNS). Retryable. */
@@ -289,6 +346,22 @@ export type LinuxPasswordUpdate =
 { action: "store"; password: string } | 
 /**  Opt out: delete the stored password. */
 { action: "forget" };
+
+/**  One profile that has a session window (the gallery's "Open" section). */
+export type OpenConnection = {
+	/**  The profile. */
+	profile_id: string,
+	/**  Its window's label (`session-<n>`). */
+	window: string,
+	/**  Where the connection stands. */
+	status: ConnectionStatus,
+	/**  Uptime in seconds at emit time while live (the UI ticks locally). */
+	live_secs: number | null,
+	/**  Seconds until the next attempt while reconnecting. */
+	reconnect_in_secs: number | null,
+	/**  The reconnect attempt while reconnecting. */
+	attempt: number | null,
+};
 
 /**  A profile plus which passwords are stored for it (never the passwords themselves). */
 export type ProfileEntry = ProfileEntry_Serialize | ProfileEntry_Deserialize;
@@ -607,6 +680,41 @@ export type TabStrip = {
 
 /**  Emitted to a window's strip webview and page whenever its [`TabStrip`] changes. */
 export type TabStripChanged = TabStrip;
+
+/**
+ *  A live session's preview for its gallery card, as a `data:image/png;base64,…` URL.
+ *  `image: None` drops the preview (the session ended). Never logged, never written to disk.
+ */
+export type Thumbnail = {
+	/**  The profile whose card shows it. */
+	profile_id: string,
+	/**  The PNG as a data URL, or `None`. */
+	image: string | null,
+};
+
+/**  Emitted to the `connections` page only, while it is visible. */
+export type ThumbnailUpdated = Thumbnail;
+
+/**  A session window's title bar: the identity capsule and the buttons. */
+export type WindowIdentity = {
+	/**  The window's profile. */
+	profile_id: string,
+	/**  Display name. */
+	name: string,
+	/**  Host as saved in the profile. */
+	host: string,
+	/**  Connection mode (picks the glyph). */
+	mode: ConnectMode,
+	/**  Dot or spinner. */
+	status: ConnectionStatus,
+	/**  Greeter hint (tooltip) while the GNOME login screen waits. */
+	hint: string | null,
+	/**  The statistics HUD is on (gauge pressed). */
+	show_stats: boolean,
+};
+
+/**  Emitted to a session window's `<label>-titlebar` webview (identical pushes are skipped). */
+export type WindowIdentityChanged = WindowIdentity;
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
