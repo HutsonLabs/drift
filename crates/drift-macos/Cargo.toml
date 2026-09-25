@@ -48,7 +48,7 @@ name = "appkit"
 harness = false
 
 [[test]]
-name = "tabs_ui"
+name = "windows_ui"
 harness = false
 
 [lints]

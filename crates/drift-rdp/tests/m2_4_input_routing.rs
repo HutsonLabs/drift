@@ -34,9 +34,9 @@ fn scripted_session() -> (Vec<drift_core::InputEvent>, Vec<MenuShortcut>) {
     let mut events = Vec::new();
     let mut claimed = Vec::new();
 
-    // Cmd+T: allow-listed, goes to the menu (new tab); the remote never sees it.
+    // Cmd+N: allow-listed, goes to the menu (new connection); the remote never sees it.
     events.extend(kb.flags_changed(kvk::COMMAND, cmd));
-    let shortcut = menu_shortcut(kvk::ANSI_T, "t", cmd).expect("Cmd+T is allow-listed");
+    let shortcut = menu_shortcut(kvk::ANSI_N, "n", cmd).expect("Cmd+N is allow-listed");
     claimed.push(shortcut);
     kb.menu_shortcut_taken();
     events.extend(kb.flags_changed(kvk::COMMAND, none));
@@ -58,7 +58,7 @@ fn scripted_session() -> (Vec<drift_core::InputEvent>, Vec<MenuShortcut>) {
     events.extend(kb.key_up(kvk::ANSI_C));
     events.extend(kb.flags_changed(kvk::COMMAND, none));
 
-    // Cmd+W: allow-listed (close tab).
+    // Cmd+W: allow-listed (close window).
     events.extend(kb.flags_changed(kvk::COMMAND, cmd));
     claimed.push(menu_shortcut(kvk::ANSI_W, "w", cmd).expect("Cmd+W is allow-listed"));
     kb.menu_shortcut_taken();
@@ -69,7 +69,7 @@ fn scripted_session() -> (Vec<drift_core::InputEvent>, Vec<MenuShortcut>) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_scripted_session_produces_the_exact_fast_path_sequence() {
     let (events, claimed) = scripted_session();
-    assert_eq!(claimed, vec![MenuShortcut::NewTab, MenuShortcut::CloseTab]);
+    assert_eq!(claimed, vec![MenuShortcut::NewConnection, MenuShortcut::CloseWindow]);
 
     let cert = TestCert::generate("127.0.0.1");
     let server =

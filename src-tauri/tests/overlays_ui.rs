@@ -10,10 +10,10 @@
 //!   back to the `RemoteView`, so everything outside that corner still goes to the remote
 //!   desktop,
 //! * the live screen hides the web view again,
-//! * (UI-tabs) all of that happens below the 46-point HTML tab strip, which stays visible over
-//!   every surface.
+//! * (UI-windows) all of that happens below the 52-point title-bar webview, which stays visible
+//!   over every surface.
 //!
-//! Like `tabs_ui` this needs the process main thread and a logged-in window server:
+//! Like `windows_ui` this needs the process main thread and a logged-in window server:
 //! `cargo test -p drift-app --features macos-ui-tests --test overlays_ui`.
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
@@ -21,10 +21,9 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use drift_app::RunOptions;
-use drift_app::present::{self, Hud};
-use drift_app::strip::STRIP_HEIGHT;
+use drift_app::present::{self, Hud, TITLEBAR_HEIGHT};
 use drift_app::view::{Screen, SessionView, StatsView};
-use drift_app::windows::{apply_view_for_tests, tab_count, window_label};
+use drift_app::windows::{apply_view_for_tests, open_window_for_tests, session_labels};
 use drift_core::{ConnectMode, ConnectionProfile, DesktopSize, SessionState, Size};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
@@ -50,11 +49,17 @@ fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(&AppHandle) -> T +
     rx.recv_timeout(Duration::from_secs(10)).expect("main thread responds")
 }
 
+/// The test's session window (the first one).
+fn label(app: &AppHandle) -> Option<String> {
+    let _ = app;
+    session_labels().into_iter().next()
+}
+
 /// `(content view, WKWebView, NSWindow)` of the first session window, or `None` while the
-/// window is still being built (`open_tab` runs off the main thread). Main thread only.
+/// window is still being built (off the main thread). Main thread only.
 fn try_views(app: &AppHandle) -> Option<(Retained<NSView>, Retained<NSView>, Retained<NSWindow>)> {
-    // A window with a strip webview is no longer a single-webview "WebviewWindow".
-    let w = app.get_webview(&window_label(0))?.window();
+    // A window with a title-bar webview is no longer a single-webview "WebviewWindow".
+    let w = app.get_webview(&label(app)?)?.window();
     let ptr = w.ns_view().ok()?.cast::<NSView>();
     // SAFETY: tao's live content `NSView*`; we are on the main thread and retain it.
     let content = unsafe { ptr.as_ref() }?.retain();
@@ -72,30 +77,29 @@ fn views(app: &AppHandle) -> (Retained<NSView>, Retained<NSView>, Retained<NSWin
 
 /// Blocks until the first session window, its `WKWebView` and its `RemoteView` all exist.
 ///
-/// `open_tab` builds the window off the main thread and only then registers the per-window
-/// AppKit state; `tab_count` is `Some` exactly once that registration has happened, which is
-/// what [`apply_view_for_tests`] needs.
+/// The window is built off the main thread and only then registers the per-window AppKit
+/// state; `session_labels` lists it exactly once that registration has happened, which is what
+/// [`apply_view_for_tests`] needs.
 fn wait_for_window(app: &AppHandle) {
     let deadline = Instant::now() + Duration::from_secs(20);
     while !on_main(app, |a| {
         try_views(a).is_some_and(|(content, _, _)| drift_macos::webview::find_webviews(&content).len() == 2)
-            && tab_count(a, &window_label(0)).is_some()
     }) {
         assert!(Instant::now() < deadline, "the first session window never appeared");
         std::thread::sleep(Duration::from_millis(100));
     }
 }
 
-/// `(RemoteView frame, strip WKWebView)` of the first session window (main thread).
-fn picture_and_strip(app: &AppHandle) -> (NSRect, Retained<NSView>) {
+/// `(RemoteView frame, title-bar WKWebView)` of the first session window (main thread).
+fn picture_and_titlebar(app: &AppHandle) -> (NSRect, Retained<NSView>) {
     let (content, web, _) = views(app);
     let picture =
         drift_macos::webview::find_subview_of_class(&content, "DriftRemoteView").expect("a RemoteView");
-    let strip = drift_macos::webview::find_webviews(&content)
+    let titlebar = drift_macos::webview::find_webviews(&content)
         .into_iter()
         .find(|v| !std::ptr::eq(Retained::as_ptr(v), Retained::as_ptr(&web)))
-        .expect("a second WKWebView: the tab strip");
-    (picture.frame(), strip)
+        .expect("a second WKWebView: the title bar");
+    (picture.frame(), titlebar)
 }
 
 /// The class name of the window's first responder ("" when there is none).
@@ -120,7 +124,12 @@ fn view_for(screen: Screen) -> SessionView {
 fn scenario(app: AppHandle) {
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            open_window_for_tests(
+                &app,
+                ConnectionProfile::new("Homelab", "10.1.2.40", ConnectMode::Headless),
+            );
             wait_for_window(&app);
+            let window = on_main(&app, |a| label(a).unwrap());
             // 1. The window is non-opaque, so a transparent page shows the picture behind it.
             let opaque = on_main(&app, |a| views(a).2.isOpaque());
             assert!(!opaque, "the session window must not be opaque (M7-3 overlays)");
@@ -129,7 +138,8 @@ fn scenario(app: AppHandle) {
             let view = view_for(Screen::Reconnecting);
             on_main(&app, {
                 let view = view.clone();
-                move |a| apply_view_for_tests(a, &window_label(0), &view)
+                let window = window.clone();
+                move |a| apply_view_for_tests(a, &window, &view)
             });
             let (hidden, frame, bounds, responder) = on_main(&app, |a| {
                 let (content, web, window) = views(a);
@@ -138,19 +148,19 @@ fn scenario(app: AppHandle) {
             assert!(!hidden, "the overlay is the web view; it must be visible");
             assert_eq!(
                 (frame.size.width, frame.size.height),
-                (bounds.size.width, bounds.size.height - STRIP_HEIGHT),
-                "the overlay fills the window below the tab strip"
+                (bounds.size.width, bounds.size.height - TITLEBAR_HEIGHT),
+                "the overlay fills the window below the title bar"
             );
-            let (picture, strip) = on_main(&app, |a| {
-                let (picture, strip) = picture_and_strip(a);
-                (picture, (strip.isHidden(), strip.frame()))
+            let (picture, bar) = on_main(&app, |a| {
+                let (picture, titlebar) = picture_and_titlebar(a);
+                (picture, (titlebar.isHidden(), titlebar.frame()))
             });
-            assert!(!strip.0, "the tab strip stays visible over the overlay");
-            assert!((strip.1.size.height - STRIP_HEIGHT).abs() < 0.5, "strip {:?}", strip.1);
-            assert!((strip.1.size.width - bounds.size.width).abs() < 0.5, "strip {:?}", strip.1);
+            assert!(!bar.0, "the title bar stays visible over the overlay");
+            assert!((bar.1.size.height - TITLEBAR_HEIGHT).abs() < 0.5, "title bar {:?}", bar.1);
+            assert!((bar.1.size.width - bounds.size.width).abs() < 0.5, "title bar {:?}", bar.1);
             assert!(
-                (picture.size.height - (bounds.size.height - STRIP_HEIGHT)).abs() < 0.5,
-                "the picture starts below the strip: {picture:?}"
+                (picture.size.height - (bounds.size.height - TITLEBAR_HEIGHT)).abs() < 0.5,
+                "the picture starts below the title bar: {picture:?}"
             );
             assert!(responder.contains("WebView"), "the overlay owns the keyboard, got {responder}");
 
@@ -160,13 +170,14 @@ fn scenario(app: AppHandle) {
             view.stats = Some(StatsView { fps_tenths: 589, ..Default::default() });
             on_main(&app, {
                 let view = view.clone();
-                move |a| apply_view_for_tests(a, &window_label(0), &view)
+                let window = window.clone();
+                move |a| apply_view_for_tests(a, &window, &view)
             });
             let (hidden, frame, bounds, responder) = on_main(&app, |a| {
                 let (content, web, window) = views(a);
                 (web.isHidden(), web.frame(), content.bounds(), first_responder(&window))
             });
-            let picture = on_main(&app, |a| picture_and_strip(a).0);
+            let picture = on_main(&app, |a| picture_and_titlebar(a).0);
             let want = present::hud_frame(
                 Size::new(picture.size.width, picture.size.height),
                 Hud::Stats,
@@ -186,13 +197,13 @@ fn scenario(app: AppHandle) {
             assert_eq!(responder, "DriftRemoteView", "the picture keeps the keyboard under a HUD");
 
             // 4. Plain live picture: the web view is hidden again.
-            on_main(&app, move |a| apply_view_for_tests(a, &window_label(0), &view_for(Screen::Live)));
-            let (hidden, strip_hidden, responder) = on_main(&app, |a| {
+            on_main(&app, move |a| apply_view_for_tests(a, &window, &view_for(Screen::Live)));
+            let (hidden, titlebar_hidden, responder) = on_main(&app, |a| {
                 let (_, web, window) = views(a);
-                (web.isHidden(), picture_and_strip(a).1.isHidden(), first_responder(&window))
+                (web.isHidden(), picture_and_titlebar(a).1.isHidden(), first_responder(&window))
             });
             assert!(hidden, "no overlay: the web view is hidden");
-            assert!(!strip_hidden, "the tab strip stays above the live picture");
+            assert!(!titlebar_hidden, "the title bar stays above the live picture");
             assert_eq!(responder, "DriftRemoteView", "the live picture has the keyboard");
         }));
         let ok = result.is_ok();

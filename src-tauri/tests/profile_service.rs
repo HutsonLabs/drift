@@ -153,6 +153,34 @@ fn delete_removes_profile_and_all_passwords() {
     assert!(reopened.list().unwrap().is_empty());
 }
 
+/// UI-windows contract: `duplicate_profile` copies a profile and its stored passwords under a
+/// new id, named "<name> copy", without the certificate pin.
+#[test]
+fn duplicate_copies_the_profile_and_its_passwords_but_not_the_pin() {
+    let f = fixture();
+    let mut p = profile(ConnectMode::RemoteLogin);
+    p.linux_username = Some("drifttest".into());
+    f.service
+        .save(p.clone(), update(Some("sys-Fake1"), LinuxPasswordUpdate::Store("lx-Fake1".into())))
+        .unwrap();
+    f.service.set_pin(p.id, Some(CertFingerprint::from_bytes([7; 32]))).unwrap();
+
+    let copy = f.service.duplicate(p.id).unwrap();
+    assert_ne!(copy.profile.id, p.id);
+    assert_eq!(copy.profile.name, "Homelab copy");
+    assert_eq!(copy.profile.cert_pin, None, "trust is decided again for the copy");
+    assert_eq!((copy.profile.host.as_str(), copy.profile.mode), ("gnome.local", ConnectMode::RemoteLogin));
+    assert_eq!(copy.profile.linux_username.as_deref(), Some("drifttest"));
+    assert!(copy.has_rdp_password && copy.has_linux_password);
+    assert_eq!(secret(&f, &copy.profile, SecretRole::RdpSystem).as_deref(), Some("sys-Fake1"));
+    assert_eq!(secret(&f, &copy.profile, SecretRole::LinuxLogin).as_deref(), Some("lx-Fake1"));
+    assert_eq!(f.service.list().unwrap().len(), 2);
+    let reopened = ProfileService::open(f.file.clone(), f.secrets.clone()).unwrap();
+    assert_eq!(reopened.get(copy.profile.id).unwrap().profile, copy.profile, "saved to disk");
+    assert_eq!(f.service.get(p.id).unwrap().profile.cert_pin, Some(CertFingerprint::from_bytes([7; 32])));
+    assert_eq!(f.service.duplicate(uuid::Uuid::nil()), Err(CommandError::NotFound));
+}
+
 #[test]
 fn pins_are_persisted_and_cleared() {
     let f = fixture();

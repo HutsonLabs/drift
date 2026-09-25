@@ -57,9 +57,9 @@ muda = { version = "0.19", default-features = false }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
-# M6-2: opens real windows in a tab group; needs the process main thread and a window server.
+# UI-windows: Connections + session windows, none tabbed; needs the process main thread and a window server.
 [[test]]
-name = "tabs_ui"
+name = "windows_ui"
 harness = false
 required-features = ["macos-ui-tests"]
 
